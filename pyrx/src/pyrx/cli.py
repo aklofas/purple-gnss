@@ -4,9 +4,11 @@ import argparse
 import time
 from pathlib import Path
 
-from pyrx.acquisition import acquire_l1ca
+from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
 from pyrx.plots import plot_acquisition, plot_cn0
 from pyrx.samples import read_samples
+
+DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
 
 
 def parse_prns(s: str) -> list[int]:
@@ -30,11 +32,17 @@ def acq_main(argv: list[str] | None = None) -> int:
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
     p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
-    p.add_argument("--duration", type=float, default=None, help="length to read (s)")
+    p.add_argument(
+        "--duration",
+        type=float,
+        default=DEFAULT_WINDOW,
+        help=f"length to integrate (s), 0 for the whole file (default {DEFAULT_WINDOW})",
+    )
     p.add_argument("--plot", default=None, help="directory for cn0.png and acq_prnNN.png")
     args = p.parse_args(argv)
 
-    samples = read_samples(args.file, args.fs, args.iq, args.t_start, args.duration)
+    duration = args.duration if args.duration > 0 else None
+    samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
     t0 = time.perf_counter()
     results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in parse_prns(args.prn)]
     elapsed = time.perf_counter() - t0
@@ -47,8 +55,12 @@ def acq_main(argv: list[str] | None = None) -> int:
     if args.plot is not None:
         out = Path(args.plot)
         out.mkdir(parents=True, exist_ok=True)
-        plot_cn0(results, 38.0, out / "cn0.png")
+        plot_cn0(results, DETECT_THRESHOLD, out / "cn0.png")
         for r in results:
             if r.detected:
                 plot_acquisition(r, args.fs, out / f"acq_prn{r.prn:02d}.png")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(acq_main())

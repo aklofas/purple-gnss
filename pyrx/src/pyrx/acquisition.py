@@ -14,6 +14,8 @@ from scipy import fft
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca, sample_code
 
+DETECT_THRESHOLD = 38.0  # dB-Hz
+
 
 @dataclass(frozen=True)
 class AcqResult:
@@ -35,7 +37,7 @@ def acquire(
     period: float,
     doppler_max: float = 5000.0,
     doppler_step: float | None = None,
-    threshold: float = 38.0,
+    threshold: float = DETECT_THRESHOLD,
     prn: int = 0,
 ) -> AcqResult:
     """Search `samples` for `code` over Doppler +/- `doppler_max` around `f_if`."""

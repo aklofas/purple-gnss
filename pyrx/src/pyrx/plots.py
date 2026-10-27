@@ -2,13 +2,11 @@
 
 import os
 
-import matplotlib
 import numpy as np
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 from pyrx.acquisition import AcqResult
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 _INK = "#333333"
 _MUTED = "#9aa5b1"
@@ -20,9 +18,9 @@ def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> N
     """Search grid (code offset x Doppler) and the Doppler cut through the peak."""
     n = result.grid.shape[1]
     offsets_ms = np.arange(n) / fs * 1e3
-    fig, (ax_grid, ax_cut) = plt.subplots(
-        2, 1, figsize=(8, 7), gridspec_kw={"height_ratios": [3, 1]}, constrained_layout=True
-    )
+    fig = Figure(figsize=(8, 7), constrained_layout=True)
+    FigureCanvasAgg(fig)
+    ax_grid, ax_cut = fig.subplots(2, 1, gridspec_kw={"height_ratios": [3, 1]})
     ax_grid.imshow(
         result.grid,
         aspect="auto",
@@ -45,7 +43,6 @@ def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> N
     for ax in (ax_grid, ax_cut):
         ax.tick_params(colors=_INK)
     fig.savefig(path, dpi=120)
-    plt.close(fig)
 
 
 def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike) -> None:
@@ -53,7 +50,9 @@ def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike
     prns = [r.prn for r in results]
     cn0 = [r.cn0 for r in results]
     colors = [_BAR_DETECTED if r.detected else _BAR for r in results]
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+    fig = Figure(figsize=(10, 4), constrained_layout=True)
+    FigureCanvasAgg(fig)
+    ax = fig.subplots()
     ax.bar(prns, cn0, color=colors, width=0.8)
     ax.axhline(threshold, color=_MUTED, linestyle="--", linewidth=1)
     for r in results:
@@ -65,4 +64,3 @@ def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike
     ax.set_xticks(prns)
     ax.grid(axis="y", color=_MUTED, alpha=0.3)
     fig.savefig(path, dpi=120)
-    plt.close(fig)
