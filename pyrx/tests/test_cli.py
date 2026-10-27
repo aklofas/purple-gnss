@@ -1,6 +1,6 @@
 import numpy as np
 
-from pyrx.cli import acq_main, parse_prns
+from pyrx.cli import acq_main, parse_prns, trk_main
 from pyrx.synth import synth_l1ca
 
 
@@ -40,3 +40,25 @@ def test_acq_main_defaults_to_first_10ms(tmp_path, capsys):
     raw.tofile(f)
     assert acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "7"]) == 0
     assert "COFF=  0.25000 ms" in capsys.readouterr().out
+
+
+def test_trk_main_tracks_and_logs(tmp_path, capsys):
+    fs = 4e6
+    x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 2.5), 45.0, True, data_bits=True)
+    raw = np.empty(2 * len(x), dtype=np.int8)
+    raw[0::2] = x.real.clip(-127, 127)
+    raw[1::2] = (-x.imag).clip(-127, 127)
+    f = tmp_path / "s.bin"
+    raw.tofile(f)
+    log = tmp_path / "logs" / "trk.csv"  # directory does not exist yet
+    rc = trk_main(
+        [str(f), "--fs", "4e6", "--iq", "--prn", "7,9", "--log", str(log), "--plot", str(tmp_path)]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PRN  7" in out and "LOCK" in out and "PRN  9" not in out
+    assert out.strip().endswith("s")
+    lines = log.read_text().splitlines()
+    assert lines[0] == "time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles"
+    assert 24 <= len(lines) - 1 <= 26  # 2.5 s at 0.1 s
+    assert (tmp_path / "trk_prn07.png").exists()

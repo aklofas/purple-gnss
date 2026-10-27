@@ -14,6 +14,7 @@ dev = ["pytest", "ruff"]
 
 [project.scripts]
 pyrx-acq = "pyrx.cli:acq_main"
+pyrx-trk = "pyrx.cli:trk_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
