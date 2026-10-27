@@ -1,3 +1,9 @@
 # Claude Code worktree scratch (tooling creates these; never content)
 /.claude/
 /.worktrees/
+
+# Python build and cache artifacts
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
