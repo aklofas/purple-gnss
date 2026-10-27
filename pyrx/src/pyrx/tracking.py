@@ -8,6 +8,7 @@ constants follow Pocket SDR so the two trackers can be compared number for
 number; they are not tuned for the hardware receiver.
 """
 
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -197,5 +198,7 @@ def track_channels(
         workers = min(len(jobs), os.cpu_count() or 1)
     if workers <= 1 or len(jobs) == 1:
         return [_track_job(j) for j in jobs]
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    # spawn, not fork: the parent holds BLAS threads and forking them is unsafe
+    ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
         return list(pool.map(_track_job, jobs))
