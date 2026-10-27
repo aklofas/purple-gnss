@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyrx"
+version = "0.1.0"
+description = "Offline GNSS receiver in Python: acquisition through RTK on recorded samples"
+requires-python = ">=3.12"
+dependencies = ["numpy", "scipy", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+pyrx-acq = "pyrx.cli:acq_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
