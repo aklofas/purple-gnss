@@ -2,7 +2,13 @@
 
 import numpy as np
 
-from pyrx.codes import sample_code
+_ramp_cache: dict[int, np.ndarray] = {}
+
+
+def _ramp(n: int) -> np.ndarray:
+    if n not in _ramp_cache:
+        _ramp_cache[n] = np.arange(n, dtype=np.float64)
+    return _ramp_cache[n]
 
 
 def correlate(
@@ -23,11 +29,16 @@ def correlate(
     advanced) and a negative tap is late. Outputs are plain sums, not normalised.
     """
     n = len(block)
-    k = np.arange(n, dtype=np.float64)
-    carrier = np.exp(-2j * np.pi * (carrier_freq / fs * k + carrier_phase))
-    mixed = block.astype(np.complex128) * carrier
+    k = _ramp(n)
+    # phase in cycles, reduced to [0, 1) before the float32 exp to keep it accurate
+    phase = (carrier_freq / fs) * k + carrier_phase
+    phase -= np.floor(phase)
+    carrier = np.exp((-2j * np.pi) * phase.astype(np.float32))
+    mixed = block.astype(np.complex64, copy=False) * carrier
+    chips = code_phase + (chip_rate / fs) * k
     out = np.empty(len(taps), dtype=np.complex64)
     for i, tap in enumerate(taps):
-        replica = sample_code(code, chip_rate, fs, n, phase_chips=code_phase + tap)
+        idx = np.floor(chips + tap).astype(np.int64)
+        replica = np.take(code, idx, mode="wrap").astype(np.float32)
         out[i] = np.dot(mixed, replica)
     return out

@@ -1,0 +1,105 @@
+import numpy as np
+
+from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
+from pyrx.samples import ArraySamples, SampleFile
+from pyrx.synth import synth_l1ca
+from pyrx.tracking import CN0_LOST, track_channels, track_l1ca
+
+FS = 4e6
+N = round(FS * CA_PERIOD)
+
+
+def _src(
+    prn=7,
+    doppler=1234.0,
+    code_offset=1000,
+    cn0=45.0,
+    seconds=3.0,
+    f_if=0.0,
+    iq=True,
+    fs=FS,
+    seed=0,
+    data_bits=True,
+):
+    n = int(fs * seconds)
+    x = synth_l1ca(prn, fs, f_if, doppler, code_offset, n, cn0, iq, seed=seed, data_bits=data_bits)
+    return ArraySamples(x, fs)
+
+
+def _steady(r, t0=2.0):
+    m = r.t >= t0
+    return r.doppler[m], r.code_offset[m], r.cn0[m]
+
+
+def test_track_synthetic_with_data_bits():
+    r = track_l1ca(_src(), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    dop, coff, cn0 = _steady(r)
+    assert r.locked and r.lost_at is None
+    assert r.corr.shape == (len(r.t), 4)
+    assert abs(dop.mean() - 1234.0) < 1.0
+    assert np.std(dop) < 2.0
+    # true code offset at time t: 1000/FS - t * 1234/1575.42e6 (code Doppler), mod T
+    truth = (1000 / FS - r.t[r.t >= 2.0] * 1234.0 / 1575.42e6) % CA_PERIOD
+    assert np.max(np.abs(coff - truth)) * CA_CHIP_RATE < 0.05  # chips
+    assert abs(cn0[-1] - 45.0) < 2.0
+
+
+def test_track_pulls_in_from_coarse_seed():
+    r = track_l1ca(_src(), 0.0, 7, (1000 + 0.5) / FS, 1234.0 + 200.0, 45.0)
+    dop, _, _ = _steady(r)
+    assert r.locked and abs(dop.mean() - 1234.0) < 1.0
+
+
+def test_track_real_if():
+    fs, f_if = 8e6, 2.0e6
+    r = track_l1ca(
+        _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0),
+        f_if,
+        7,
+        3000 / fs,
+        -2000.0,
+        45.0,
+    )
+    dop, _, cn0 = _steady(r)
+    assert r.locked and abs(dop.mean() + 2000.0) < 1.0 and abs(cn0[-1] - 45.0) < 2.0
+
+
+def test_track_declares_loss():
+    # Track PRN 9 where only PRN 7 is present: C/N0 must fall below the loss threshold.
+    r = track_l1ca(_src(prn=7, seconds=4.0), 0.0, 9, 1000 / FS, 1234.0, 45.0)
+    assert not r.locked and r.lost_at is not None and r.lost_at <= 3.5
+    assert r.cn0[-1] < CN0_LOST
+    assert len(r.t) < 4000
+
+
+def test_track_stops_at_end_of_data():
+    r = track_l1ca(_src(seconds=0.5), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert 495 <= len(r.t) <= 500 and r.locked
+    r2 = track_l1ca(_src(seconds=0.5), 0.0, 7, 1000 / FS, 1234.0, 45.0, duration=0.2)
+    assert 195 <= len(r2.t) <= 200
+
+
+def test_track_cn0_held_between_updates():
+    r = track_l1ca(_src(seconds=2.5), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert np.all(r.cn0[:999] == 45.0)  # seeded value until the first 1 s update
+    assert r.cn0[1000] != 45.0 or r.cn0[1999] != 45.0
+
+
+def test_track_channels_matches_sequential(tmp_path):
+    fs = FS
+    x7 = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 1.5), 48.0, True, seed=1, data_bits=True)
+    x9 = synth_l1ca(9, fs, 0.0, -500.0, 2500, int(fs * 1.5), 48.0, True, seed=2, data_bits=True)
+    x = x7 + x9
+    raw = np.empty(2 * len(x), dtype=np.int8)
+    raw[0::2] = (x.real / 2).clip(-127, 127)
+    raw[1::2] = (-x.imag / 2).clip(-127, 127)
+    path = tmp_path / "two.bin"
+    raw.tofile(path)
+    seeds = [(7, 1000 / fs, 1234.0, 45.0), (9, 2500 / fs, -500.0, 45.0)]
+    results = track_channels(path, fs, True, 0.0, seeds, workers=2)
+    assert [r.prn for r in results] == [7, 9]
+    for r, (prn, coff, dop, cn0) in zip(results, seeds):
+        single = track_l1ca(SampleFile(path, fs, True), 0.0, prn, coff, dop, cn0)
+        np.testing.assert_array_equal(r.doppler, single.doppler)
+        np.testing.assert_array_equal(r.code_offset, single.code_offset)
+        assert r.locked and abs(r.doppler[-1] - dop) < 2.0
