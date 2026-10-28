@@ -87,3 +87,15 @@ def test_bit_sync_accepts_weak_signal():
 
 def test_bit_sync_rejects_noise_only():
     assert bit_sync(rng.standard_normal(2000), 0) is None
+
+
+def test_frame_sync_reports_polarity():
+    bits = _frame_bits()
+    s = bit_sync(_prompts(bits, phase=0), 0)
+    frame_sync(s, prn=4)
+    assert s.inverted is False
+    s = bit_sync(-_prompts(bits, phase=0), 0)
+    frame_sync(s, prn=4)
+    assert s.inverted is True
+    s = bit_sync(_prompts(rng.integers(0, 2, 1200).astype(np.uint8), phase=0), 0)
+    assert frame_sync(s) == [] and s.inverted is None

@@ -30,12 +30,15 @@ class BitStream:
     epoch: tracking epoch index of each bit's first millisecond.
     phase: epoch index modulo 20 of the bit edges.
     score: fraction of all sign changes that fell on that phase.
+    inverted: set by frame sync: True when the received bits had to be
+        complemented to match the preamble, None until a frame start is found.
     """
 
     bits: np.ndarray
     epoch: np.ndarray
     phase: int
     score: float
+    inverted: bool | None = None
 
 
 def bit_sync(prompt_i: np.ndarray, start_epoch: int) -> BitStream | None:
@@ -88,6 +91,7 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
                 continue
             if not 1 <= how[1] <= 5 or how_next[0] != how[0] + 1:
                 continue
+            stream.inverted = bool(invert)
             return _decode_from(b, p, d29, d30, stream.epoch, prn)
     return []
 
