@@ -92,8 +92,9 @@ def synthetic_pair(
 ):
     """Observations of a rover and a base at their antenna reference points from the package's models.
 
-    The default phase noise is that of a 15 Hz PLL at 45 dB-Hz (about 0.7 mm); with it a
-    fixed single-epoch position lands within 1 cm of the truth, a wrong integer 19 cm off.
+    The default phase noise is a little above the jitter of a 15 Hz PLL at 45 dB-Hz
+    (0.7 mm); with it a fixed single-epoch position lands within 1 cm of the truth, while a
+    wrong integer moves it by centimetres to a wavelength.
     """
     args = (tow, signals, rng, phase_noise, code_noise, week)
     rover = _observations(ephs, rover_xyz, 1e-4, args[0], args[1], amb_rover, *args[2:])

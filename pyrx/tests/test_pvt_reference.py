@@ -64,8 +64,9 @@ def test_fix_matches_rtklib_and_the_marker_on_usud(captures, tmp_path):
     for s, r in common:
         bound = 1.0 if r["ns"] == len(s.prns) else 5.0
         assert np.linalg.norm(s.position - r["xyz"]) < bound, (s.tow, s.position - r["xyz"])
-    # same models number for number: over the day the two solvers differ by 0.9 mm in the
-    # mean and 0.08 mm at the 99th percentile; a model applied differently shifts the mean
+    # same models number for number: the two solvers differ by 0.08 mm at the 99th percentile
+    # (a model applied differently shifts every epoch by more) and by 0.9 mm in the mean,
+    # which a handful of epochs up to 0.5 m apart set
     d = np.array(
         [np.linalg.norm(s.position - r["xyz"]) for s, r in common if r["ns"] == len(s.prns)]
     )
