@@ -234,7 +234,7 @@ def test_rtk_with_galileo_uses_a_reference_per_system():
     signals = ("G1C", "G5Q", "E1C", "E5Q")
     for k in range(3):
         fix = rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, signals=signals))
-    assert fix.status == "fix" and fix.ns == 6 and fix.nb == 20  # (6 - 1) * 2 per system
+    assert fix.status == "fix" and fix.ns == 12 and fix.nb == 20  # (6 - 1) * 2 per system
     np.testing.assert_allclose(fix.position, ROVER, atol=0.01)
 
 

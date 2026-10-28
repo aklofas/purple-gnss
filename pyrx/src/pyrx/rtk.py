@@ -58,7 +58,7 @@ class Fix:
     tow: float
     position: np.ndarray  # rover marker, ECEF m
     status: str  # "fix" or "float"
-    ns: int  # satellites used on the first signal
+    ns: int  # satellites used on the first signal of their system
     ratio: float
     age: float  # s, rover minus base epoch
     nb: int  # double-differenced ambiguities searched
@@ -324,8 +324,8 @@ class Rtk:
             return None
         x = self.x + K @ v
         P = (np.eye(n) - K @ H) @ self.P
-        first_sig = signals[0]
-        ns = len({sat for sat, sig in used if sig == first_sig})
+        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
+        ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
         if ns < 4:
             return None
         self.x, self.P = x, P

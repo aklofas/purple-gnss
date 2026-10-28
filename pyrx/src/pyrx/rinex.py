@@ -4,8 +4,10 @@ Written layouts follow the RINEX 3.05 tables: fixed-width header lines with the
 label in columns 61-80, observation records with one 14.3 field per observable
 followed by the two indicator columns, navigation records in seven lines of four
 19.12 values. Times are GPS time; the GPS epoch is 1980-01-06. The readers take
-our own files and public RINEX 3 files (plain, gzip or Hatanaka compressed)
-through georinex and keep the GPS L1 C/A observables and GPS ephemerides.
+our own files and public RINEX 3 files (plain, gzip or Hatanaka compressed):
+navigation files and the single-signal observation reader go through georinex;
+the multi-signal observation reader parses the text itself, because georinex
+drops the loss-of-lock indicators of some columns.
 """
 
 import gzip
@@ -180,50 +182,98 @@ def read_rinex_header(path) -> RinexHeader:
     return RinexHeader(marker, position, delta, antenna, receiver)
 
 
+def _parse_epoch_line(line: str) -> tuple[datetime, int, int]:
+    f = line[1:].split()
+    second = float(f[5])
+    t = datetime(int(f[0]), int(f[1]), int(f[2]), int(f[3]), int(f[4])) + timedelta(seconds=second)
+    return t, int(f[6]), int(f[7])
+
+
 def read_rinex_observations(
     path, signals: tuple[str, ...] = ("G1C",), tlim: tuple[datetime, datetime] | None = None
 ) -> list[Observations]:
     """Every satellite by every requested signal, one `Observations` per epoch.
 
-    A satellite is kept at an epoch when it has a pseudorange or carrier phase on
-    any requested signal; epochs without satellites are dropped.
+    Parses the RINEX 3 text itself (after Hatanaka or gzip decompression) so the
+    loss-of-lock indicators come through. A satellite is kept at an epoch when it
+    has a pseudorange or carrier phase on any requested signal; epochs without
+    satellites are dropped.
     """
-    meas = sorted({k + s[1:] for s in signals for k in "CLDS"})
-    ds = _load(path, use={s[0] for s in signals}, meas=meas, tlim=tlim, useindicators=True)
-    order = np.argsort(ds.sv.values)
-    sats = tuple(str(s) for s in ds.sv.values[order])
-    systems = np.array([s[0] for s in sats])
-    n_t, n_sv = len(ds.time), len(sats)
+    import hatanaka
 
-    def column(name, system, fill):
-        if name not in ds:
-            return np.full((n_t, n_sv), fill)
-        a = ds[name].values[:, order].astype(float)
-        a[:, systems != system] = nan
-        return a
-
-    arrays = {}
-    for kind in "CLDS":
-        arrays[kind] = np.stack([column(kind + s[1:], s[0], nan) for s in signals], axis=2)
-    lli = np.stack([column("L" + s[1:] + "lli", s[0], nan) for s in signals], axis=2)
-    lli = np.nan_to_num(lli, nan=0.0).astype(int)
+    text = hatanaka.decompress(Path(path))
+    lines = (text.decode() if isinstance(text, bytes) else text).splitlines()
+    types: dict[str, list[str]] = {}
+    system = ""
+    i = 0
+    for i, line in enumerate(lines):
+        label = line[60:].strip()
+        if label == "SYS / # / OBS TYPES":
+            if line[0] != " ":
+                system = line[0]
+                types[system] = []
+            types[system] += line[7:60].split()
+        elif label == "END OF HEADER":
+            break
+    # column of each requested signal's C, L, D, S code within its system's record
+    columns = []
+    for sig in signals:
+        codes = types.get(sig[0], [])
+        columns.append([codes.index(k + sig[1:]) if k + sig[1:] in codes else None for k in "CLDS"])
+    n_sig = len(signals)
     epochs = []
-    for i, t in enumerate(ds.time.values):
-        present = np.isfinite(arrays["C"][i]).any(axis=1) | np.isfinite(arrays["L"][i]).any(axis=1)
-        if not present.any():
+    while i + 1 < len(lines):
+        i += 1
+        line = lines[i]
+        if not line.startswith(">"):
             continue
-        week, tow = _week_tow(t)
+        t, flag, count = _parse_epoch_line(line)
+        if flag > 1:  # event records
+            i += count
+            continue
+        records = lines[i + 1 : i + 1 + count]
+        i += count
+        if tlim is not None and not (tlim[0] <= t <= tlim[1]):
+            continue
+        sats, values = [], []
+        for rec in records:
+            sat = rec[:3]
+            if sat[0] not in types:
+                continue
+            row = np.full((4, n_sig), nan)
+            lli = np.zeros(n_sig, dtype=int)
+            for j, sig in enumerate(signals):
+                if sig[0] != sat[0]:
+                    continue
+                for k, col in enumerate(columns[j]):
+                    if col is None:
+                        continue
+                    field = rec[3 + 16 * col : 3 + 16 * col + 14].strip()
+                    if field:
+                        row[k, j] = float(field)
+                        if k == 1:
+                            ind = rec[3 + 16 * col + 14 : 3 + 16 * col + 15].strip()
+                            lli[j] = int(ind) if ind else 0
+            if np.isfinite(row[0]).any() or np.isfinite(row[1]).any():
+                sats.append(sat)
+                values.append((row, lli))
+        if not sats:
+            continue
+        order = np.argsort(sats)
+        rows = np.array([values[k][0] for k in order])  # (n_sat, 4, n_sig)
+        ns = (t - GPS_EPOCH).total_seconds()
+        week = int(ns // WEEK_S)
         epochs.append(
             Observations(
                 week,
-                tow,
-                tuple(s for s, p in zip(sats, present) if p),
+                round(ns - week * WEEK_S, 6),
+                tuple(sats[k] for k in order),
                 tuple(signals),
-                arrays["C"][i][present],
-                arrays["L"][i][present],
-                arrays["D"][i][present],
-                arrays["S"][i][present],
-                lli[i][present],
+                rows[:, 0],
+                rows[:, 1],
+                rows[:, 2],
+                rows[:, 3],
+                np.array([values[k][1] for k in order], dtype=int),
             )
         )
     return epochs

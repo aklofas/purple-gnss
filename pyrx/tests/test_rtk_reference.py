@@ -118,3 +118,32 @@ def test_time_to_first_fix(captures, tmp_path, pair, signals, freq):
         tmp_path / "ttff", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", freq, 1, starts, 1800,
     )  # fmt: skip
     assert np.mean(ours) <= 2.0 * np.mean(theirs), (ours, theirs)
+
+
+def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
+    # RTKLIB with pos1-frequency=l1+l2+l5 and gps+gal uses GPS L1/L2/L5 and Galileo E1/E5b/E5a
+    signals = ("G1C", "G2W", "G5Q", "E1C", "E7Q", "E5Q")
+    base_name, rover_name, base_xyz, rover_xyz = PAIRS["MATE"]
+    rover, base, ephs, hb, hr = _load(captures, "MATE", signals)
+    assert any(e.system == "E" for e in ephs)
+    fixes = solve_rtk(rover, base, ephs, Station(np.array(base_xyz), hb.delta_enu), hr.delta_enu)
+    ref = rnx2rtkp_rtk(
+        capture_file(captures, rover_name), capture_file(captures, base_name), capture_file(captures, NAV),
+        tmp_path / "rtk", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", "l1+l2+l5", 9, ts=TS, te=TE,
+    )  # fmt: skip
+    fixed = [f for f in fixes if f.status == "fix"]
+    assert np.mean([f.ns for f in fixed]) >= 10  # GPS and Galileo both in the solution
+    assert len(fixed) / len(rover) >= sum(v["q"] == 1 for v in ref.values()) / len(rover) - 0.10
+    err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
+    assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.05
+
+
+def test_rtk_l1_l5_e1_e5a_fixes_the_marker(captures):
+    # the hardware's signal set; RTKLIB cannot run exactly this combination
+    _, _, base_xyz, rover_xyz = PAIRS["MATE"]
+    rover, base, ephs, hb, hr = _load(captures, "MATE", ("G1C", "G5Q", "E1C", "E5Q"))
+    fixes = solve_rtk(rover, base, ephs, Station(np.array(base_xyz), hb.delta_enu), hr.delta_enu)
+    fixed = [f for f in fixes if f.status == "fix"]
+    assert len(fixed) / len(rover) >= 0.90
+    err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
+    assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.05
