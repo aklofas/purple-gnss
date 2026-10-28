@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
@@ -132,3 +133,32 @@ def test_track_float32_seed_matches_float64():
     b = track_l1ca(src, f_if, 7, coff, dop, cn0)
     np.testing.assert_array_equal(a.code_offset, b.code_offset)
     np.testing.assert_array_equal(a.doppler, b.doppler)
+
+
+def test_track_result_phase_is_nco_phase_at_window_start():
+    fs, f_if = 8e6, 2.0001e6  # 2000.1 cycles per code period: the origin is not a whole cycle
+    src = _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0, seconds=1.5)
+    r = track_l1ca(src, f_if, 7, 3000 / fs, -2000.0, 45.0)
+    assert r.phase.shape == r.t.shape and np.all((0 <= r.phase) & (r.phase < 1))
+    assert r.phase[0] == pytest.approx((f_if * r.t[0]) % 1.0, abs=1e-9)
+    # from one window start to the next the NCO advances (f_if + doppler) cycles per second,
+    # with the Doppler in force during that epoch (doppler[k] applies from epoch k+1 on)
+    adv = (f_if + r.doppler[:-2]) * np.diff(r.t)[1:]
+    step = r.phase[2:] - r.phase[1:-1]
+    np.testing.assert_allclose((step - adv + 0.5) % 1.0 - 0.5, 0, atol=1e-6)
+
+
+def test_carrier_phase_origin_common_across_start_times():
+    # the same signal tracked from its first code period and from the next one: with a
+    # common origin the accumulated Doppler phases agree to a fraction of a cycle (mod 0.5,
+    # Costas); with a per-channel origin they differ by frac(f_if * 1 ms) = 0.1 cycles
+    fs, f_if = 8e6, 2.0001e6
+    src = _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0)
+    a = track_l1ca(src, f_if, 7, 3000 / fs, -2000.0, 45.0)
+    b = track_l1ca(src, f_if, 7, 3000 / fs, -2000.0, 45.0, t_start=CA_PERIOD)
+    assert b.t[0] == pytest.approx(a.t[1], abs=1 / fs)
+    ta, tb = a.t[1:], b.t[1:]  # carrier_phase[k] is the phase at the end of epoch k
+    k = slice(2000, 2980)
+    pb = np.interp(ta[k], tb, b.carrier_phase[1:])
+    d = (a.carrier_phase[1:][k] - pb + 0.25) % 0.5 - 0.25
+    assert np.abs(d).max() < 0.03

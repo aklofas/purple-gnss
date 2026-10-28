@@ -46,7 +46,11 @@ class TrackResult:
         within half a sample of t[k].
     doppler[k]: Hz, after epoch k's loop update (applies from epoch k+1 on).
     carrier_phase[k]: cycles, accumulated Doppler phase at the end of epoch k
-        (integral of doppler over the actual epoch spacing).
+        (integral of doppler over the actual epoch spacing). Every channel's
+        carrier NCO starts at the receiver's IF phase at sample 0, f_if * t[0]
+        modulo one cycle, so the accumulated phases of different channels share
+        one origin and are comparable to a fraction of a cycle.
+    phase[k]: cycles in [0, 1), the carrier NCO phase at t[k].
     cn0[k]: dB-Hz, estimate held between its 1 s updates.
     """
 
@@ -56,6 +60,7 @@ class TrackResult:
     code_offset: np.ndarray
     doppler: np.ndarray
     carrier_phase: np.ndarray
+    phase: np.ndarray
     cn0: np.ndarray
     locked: bool
     lost_at: float | None
@@ -90,6 +95,7 @@ def track_l1ca(
     out_coff = np.empty(n_max)
     out_fd = np.empty(n_max)
     out_adr = np.empty(n_max)
+    out_phase = np.empty(n_max)
     out_cn0 = np.empty(n_max)
 
     # plain floats throughout: a numpy float32 seed would otherwise propagate into
@@ -99,7 +105,9 @@ def track_l1ca(
     t_code = t_start + float(code_offset)  # s, start of the code period being integrated
     fd = float(doppler)
     cn0 = float(cn0)
-    phi = 0.0  # carrier phase (cycles) at the current window start
+    # carrier NCO phase (cycles) at the current window start, referenced to the
+    # IF phase at sample 0 so that all channels share one carrier-phase origin
+    phi = (f_if * round(t_code * fs) / fs) % 1.0
     adr = 0.0
     err_phase_prev = 0.0
     prompt_prev = 0j
@@ -123,6 +131,7 @@ def track_l1ca(
         prompt = complex(c[0])
         epoch = k + 1
         out_t[k] = start / fs
+        out_phase[k] = phi
         out_corr[k] = c
         out_coff[k] = t_code % t
 
@@ -184,6 +193,7 @@ def track_l1ca(
         code_offset=out_coff[:k],
         doppler=out_fd[:k],
         carrier_phase=out_adr[:k],
+        phase=out_phase[:k],
         cn0=out_cn0[:k],
         locked=lost_at is None,
         lost_at=lost_at,
