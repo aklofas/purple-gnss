@@ -39,30 +39,35 @@ a few minutes):
 
 | File | Source | SHA-256 |
 |---|---|---|
-| `L1_20211202_084700_4MHz_IQ.bin` | Pocket SDR sample set, GPS L1, 4 MHz I/Q, 100 ms | `0a8335d2f099e388b474d2afcca1ff91f61cde550dd32bf82fdf199d8a5b8033` |
-| `L1_20211201_054600_24MHz_I.bin` | Pocket SDR sample set, GPS L1, 24 MHz real, 6 MHz IF, 100 ms | `05c771f0c152e2bd11ccba0715198afc0aa56e5d420bec0993fa720ac8d508d0` |
-| `L1_20211226_082401_24MHz_I.bin` | Pocket SDR sample set, L1+L5 recording of 2021-12-26, GPS L1, 24 MHz real, 6 MHz IF, 30 s | `16c83d58716ae9ba577aac29344766373accb98b34b729afdac8cc2e1352252c` |
-| `L1_20220114_004440_8MHz_I.bin` | Pocket SDR sample set, L1+L2 recording of 2022-01-14, GPS L1, 8 MHz real, 2 MHz IF, 30 s | `388c550e2694067566c24fddae61abd1b316eb4bbd0820e0e8fff1818f164de7` |
-| `brdc/BRDC00WRD_R_20213600000_01D_GN.rnx` | BKG (`igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/`), worldwide GPS broadcast ephemeris, RINEX 3.05, 2021-12-26 | `92fe0754c16b3408691facabad44390ebfa2031ad641334ebe6f8660f8e554c2` |
-| `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | BKG (`.../BRDC/2022/014/`), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
-| `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | Pocket SDR C tracker (`pocket_trk`) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS` | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
+| `L1_20211202_084700_4MHz_IQ.bin` | `sample/` directory of the Pocket SDR repository (https://github.com/tomojitakasu/PocketSDR, commit eda8301), GPS L1, 4 MHz I/Q, 100 ms | `0a8335d2f099e388b474d2afcca1ff91f61cde550dd32bf82fdf199d8a5b8033` |
+| `L1_20211201_054600_24MHz_I.bin` | the same directory, GPS L1, 24 MHz real, 6 MHz IF, 100 ms | `05c771f0c152e2bd11ccba0715198afc0aa56e5d420bec0993fa720ac8d508d0` |
+| `L1_20211226_082401_24MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L5_20211226_082401_24MHz.zip (Pocket SDR sample data, linked from its `sample/` directory), GPS L1, 24 MHz real, 6 MHz IF, 30 s | `16c83d58716ae9ba577aac29344766373accb98b34b729afdac8cc2e1352252c` |
+| `L1_20220114_004440_8MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L2_20220114_004440_8MHz.zip, GPS L1, 8 MHz real, 2 MHz IF, 30 s | `388c550e2694067566c24fddae61abd1b316eb4bbd0820e0e8fff1818f164de7` |
+| `brdc/BRDC00WRD_R_20213600000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2021-12-26 | `92fe0754c16b3408691facabad44390ebfa2031ad641334ebe6f8660f8e554c2` |
+| `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.trk.log` | generated: Pocket SDR `pocket_trk.py` (commit eda8301) log of the 2021-12-26 recording, `$CH` channel state every 0.1 s; command below | `b9891175ed8fe7703f7b766e7e91a2bb9595e782d1d0a5d8dbbcf76920eef2f4` |
+| `pocketsdr-trk/L1_20220114_004440_8MHz_I.trk.log` | the same for the 2022-01-14 recording | `a9a5dc74a472c91a043465be5986f7b6b865cbb43f0e737ff09d41d358639746` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | generated: Pocket SDR C tracker (`pocket_trk`, commit eda8301) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS`; command below | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
 | `pocketsdr-trk/L1_20220114_004440_8MHz_I.ctrk.log` | the same for the 2022-01-14 recording (`$CH` only: no subframe 1 in the window, so Pocket SDR forms no observations) | `3308cc4bc7273ba09ac1a14879b9bce7dca9f696119c0718f48b1a2cb4c09e92` |
-| `igs/USUD00JPN_R_20213600000_01D_30S_MO.crx.gz` | BKG (`.../IGS/obs/2021/360/`), IGS station USUD (Usuda, Japan), 30 s observations of 2021-12-26, RINEX 3.04, Hatanaka-compressed; no Doppler logged | `b964f1f0a51ffca461712575c6dbfe915b7eac65cb0f1513c46c75e2dc78e1f2` |
+| `igs/USUD00JPN_R_20213600000_01D_30S_MO.crx.gz` | https://igs.bkg.bund.de/root_ftp/IGS/obs/2021/360/, IGS station USUD (Usuda, Japan), 30 s observations of 2021-12-26, RINEX 3.04, Hatanaka-compressed; no Doppler logged | `b964f1f0a51ffca461712575c6dbfe915b7eac65cb0f1513c46c75e2dc78e1f2` |
 | `igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz` | the station's GPS navigation file of that day from the same directory; the one with the `GPSA`/`GPSB` ionosphere lines, so it is the navigation input for the station and for the 2021-12-26 recording | `911fe136cd28a51ba5e0f81c5494af8c32b3cdf26bac7b68f6d34821a1105649` |
-| `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, from BKG (`.../IGS/products/orbits/2190/igs21900.sp3.Z`, decompressed) | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
-| `igs/usud00jpn_20260422.log` | IGS site log of USUD (`files.igs.org/pub/station/log/`): the marker's ITRF coordinates | `80c41b22ee394448803a869da5757eae68ba3bb65aca2d5edd09470236892e41` |
-| `igs/MATE00ITA_R_20213600000_01D_30S_MO.crx.gz` | BKG (`.../IGS/obs/2021/360/`), IGS station MATE (Matera, Italy), base of the 11 m pair, 2021-12-26, 30 s, RINEX 3.04, Hatanaka-compressed | `aa785104fa1352ca1f7fbb296f516982ae0fc904d3240a8fededc846efe7ab19` |
+| `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, https://igs.bkg.bund.de/root_ftp/IGS/products/orbits/2190/igs21900.sp3.Z decompressed | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
+| `igs/usud00jpn_20260422.log` | IGS site log of USUD, https://files.igs.org/pub/station/log/usud00jpn_20260422.log: the marker's ITRF coordinates | `80c41b22ee394448803a869da5757eae68ba3bb65aca2d5edd09470236892e41` |
+| `igs/MATE00ITA_R_20213600000_01D_30S_MO.crx.gz` | https://igs.bkg.bund.de/root_ftp/IGS/obs/2021/360/, IGS station MATE (Matera, Italy), base of the 11 m pair, 2021-12-26, 30 s, RINEX 3.04, Hatanaka-compressed | `aa785104fa1352ca1f7fbb296f516982ae0fc904d3240a8fededc846efe7ab19` |
 | `igs/MAT100ITA_R_20213600000_01D_30S_MO.crx.gz` | MAT1, rover of the Matera pair, same receiver and antenna types as MATE, 11.0 m away | `c776780c6437a7f26ad16043adc486cfcbdefcf38a45529198ed79c9b45ccacb` |
 | `igs/TLSE00FRA_R_20213600000_01D_30S_MO.crx.gz` | TLSE (Toulouse, France), base of the 1266 m pair, same day and format | `4c9a77cbd605c7283b374e3e70e409f0e9f5a2959e7d45331a63f7f639445178` |
 | `igs/TLSG00FRA_R_20213600000_01D_30S_MO.crx.gz` | TLSG, rover of the Toulouse pair, same antenna type as TLSE (different receivers), 1266 m away | `a41a6ffa9dc37db85a583926c3990f789a914fe88ce41d2bf3fcebf403780bf6` |
-| `igs/BRDC00WRD_R_20213600000_01D_MN.rnx.gz` | BKG (`.../IGS/BRDC/2021/360/`), worldwide mixed broadcast ephemeris (GPS and Galileo), RINEX 3.05, 2021-12-26 | `d69a64d9cdda9b2defa6a74405c600baf99c69ae640cc612943bfdd878d806ee` |
-| `igs/EUR0E03SNX_20213600000_07D_07D_SOL.SNX.gz` | BKG (`.../EUREF/products/2190/`), EUREF combined weekly SINEX of GPS week 2190: the marker coordinates of the four stations, the truth of the RTK tests | `07f0a8577aec588869fd8db02ebfd56592e480be4b6088da3b8ad98da2335f18` |
-| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from its RTCM3 output with `convbin` | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
-| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | RTKLIB `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
-| `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | BKG (`.../BRDC/2022/014/`), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
+| `igs/BRDC00WRD_R_20213600000_01D_MN.rnx.gz` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/, worldwide mixed broadcast ephemeris (GPS and Galileo), RINEX 3.05, 2021-12-26 | `d69a64d9cdda9b2defa6a74405c600baf99c69ae640cc612943bfdd878d806ee` |
+| `igs/EUR0E03SNX_20213600000_07D_07D_SOL.SNX.gz` | https://igs.bkg.bund.de/root_ftp/EUREF/products/2190/, EUREF combined weekly SINEX of GPS week 2190: the marker coordinates of the four stations, the truth of the RTK tests | `07f0a8577aec588869fd8db02ebfd56592e480be4b6088da3b8ad98da2335f18` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | generated: Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from the C tracker's RTCM3 output with `convbin`; command below | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | generated: RTKLIB 2.4.3 b34 `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix; command below | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
+| `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
+The rows marked generated were produced here with the commands below and are kept
+in the same directory as the recordings, with every file's checksum in its
+`SHA256SUMS`; the downloaded rows carry the checksum of the file as stored.
 
 The Pocket SDR tracking logs in the table were produced with Pocket SDR's
 `pocket_trk.py` (its library built with `USE_SOAPY=0 USE_FFTW=1`), run from the
