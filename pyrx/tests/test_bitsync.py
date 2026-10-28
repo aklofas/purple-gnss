@@ -108,3 +108,20 @@ def test_frame_sync_accepts_the_week_rollover_pair():
     stream = bit_sync(_prompts(bits, phase=0), 0)
     sfs = frame_sync(stream, prn=4)
     assert [s.tow_s for s in sfs] == [604788, 604794, 0]
+
+
+def test_decode_drops_a_parity_clean_subframe_with_the_wrong_tow_count():
+    # a bit-error pattern can leave a word parity-clean with a changed TOW count; the
+    # count of each block is fixed by its position in the sequence, so such a block is
+    # dropped on its own instead of poisoning the channel's time tags
+    tow0 = 5044
+    out, d29, d30 = [], 0, 0
+    for i, count in ((1, tow0), (2, tow0 + 1), (3, tow0 + 3), (1, tow0 + 3), (2, tow0 + 4)):
+        sf = encode_subframe(i, count, {1: SF1, 2: SF2, 3: SF3}[i], d29, d30)
+        d29, d30 = int(sf[298]), int(sf[299])
+        out.append(sf)
+    stream = bit_sync(_prompts(np.concatenate(out), phase=0), 0)
+    sfs = frame_sync(stream, prn=4)
+    assert [(s.sf_id, s.tow_s) for s in sfs] == [
+        (1, tow0 * 6 - 6), (2, (tow0 + 1) * 6 - 6), (1, (tow0 + 3) * 6 - 6), (2, (tow0 + 4) * 6 - 6)
+    ]  # fmt: skip

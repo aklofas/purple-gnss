@@ -188,7 +188,11 @@ class Subframe:
 
 
 def decode_subframe(bits300: np.ndarray, d29: int, d30: int, prn: int = 0) -> Subframe | None:
-    """Decode 300 received bits; None when any word fails parity or the ID is not 1..5."""
+    """Decode 300 received bits.
+
+    None when any word fails parity, the ID is not 1..5, or a subframe 4 or 5
+    carries a data ID other than 01 (the only one defined, 20.3.3.5.1.1).
+    """
     bits300 = np.asarray(bits300, dtype=np.uint8)
     d = np.zeros(SUBFRAME_BITS, dtype=np.uint8)
     for w in range(10):
@@ -199,6 +203,8 @@ def decode_subframe(bits300: np.ndarray, d29: int, d30: int, prn: int = 0) -> Su
         d29, d30 = int(word[28]), int(word[29])
     sf_id = _get(d, *_SF_ID)
     if not 1 <= sf_id <= 5:
+        return None
+    if sf_id in (4, 5) and _get(d, *_DATA_ID) != 1:
         return None
     tow_s = (_get(d, *_TOW_COUNT) * SUBFRAME_S - SUBFRAME_S) % WEEK_S
     fields = _unpack(d, _spec(sf_id, _get(d, *_PAGE[1][0])))

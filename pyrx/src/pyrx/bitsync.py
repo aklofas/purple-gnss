@@ -83,8 +83,9 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
     A start is verified by the preamble appearing there and one subframe later,
     the TLM and HOW words passing parity, a valid subframe ID, and the TOW
     counts of the two subframes differing by one. From there every 300-bit
-    block whose ten words all pass parity is returned; a block with a parity
-    failure is dropped on its own.
+    block whose ten words all pass parity and whose TOW count is the one its
+    position in the sequence requires is returned; a block with a parity
+    failure or another count is dropped on its own.
     """
     n = len(stream.bits)
     # the candidate's second subframe must hold its TLM and HOW words in full
@@ -102,16 +103,18 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
             if not 1 <= how[1] <= 5 or how_next[0] != (how[0] + 1) % TOW_COUNTS:
                 continue
             stream.inverted = bool(invert)
-            return _decode_from(b, p, d29, d30, stream.epoch, prn)
+            return _decode_from(b, p, d29, d30, stream.epoch, prn, how[0])
     return []
 
 
-def _decode_from(b, p, d29, d30, epoch, prn) -> list[Subframe]:
+def _decode_from(b, p, d29, d30, epoch, prn, count) -> list[Subframe]:
     out = []
     while p + SUBFRAME_BITS <= len(b):
         sf = decode_subframe(b[p : p + SUBFRAME_BITS], d29, d30, prn)
-        if sf is not None:
+        # parity is a weak code: a block can pass it with a changed count
+        if sf is not None and sf.tow_s == (count * SUBFRAME_S - SUBFRAME_S) % WEEK_S:
             out.append(replace(sf, epoch=int(epoch[p])))
         d29, d30 = int(b[p + SUBFRAME_BITS - 2]), int(b[p + SUBFRAME_BITS - 1])
         p += SUBFRAME_BITS
+        count = (count + 1) % TOW_COUNTS
     return out

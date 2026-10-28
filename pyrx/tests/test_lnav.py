@@ -134,27 +134,35 @@ def _tc(value, nbits):
     return f"{value & ((1 << nbits) - 1):0{nbits}b}"
 
 
-def test_subframe4_page18_decodes_the_broadcast_layout():
-    # Subframe 4 page 18 laid out word by word from IS-GPS-200 Figure 20-1 (sheet 8) and
-    # Table 20-X, without the decoder's field table: word 3 carries data ID, SV ID 56,
-    # alpha0 and alpha1; word 4 alpha2, alpha3, beta0; word 5 beta1, beta2, beta3; each an
-    # 8-bit two's complement. The integers are the GPSA/GPSB values broadcast on
-    # 2022-01-14 (12, -1, -1, 2 and 56, -10, -3, 14 in units of the LSB).
-    alpha, beta = (12, -1, -1, 2), (56, -10, -3, 14)
-    words = [
-        "".join(str(b) for b in PREAMBLE) + "0" * 16,  # TLM: preamble, message, reserved
-        _tc(5045, 17) + "00" + _tc(4, 3) + "00",  # HOW: TOW count, flags, ID 4, free bits
-        "01" + _tc(56, 6) + _tc(alpha[0], 8) + _tc(alpha[1], 8),
-        _tc(alpha[2], 8) + _tc(alpha[3], 8) + _tc(beta[0], 8),
-        _tc(beta[1], 8) + _tc(beta[2], 8) + _tc(beta[3], 8),
-    ] + ["0" * 24] * 5
+def _subframe_bits(words):
+    """300 transmitted bits from ten 24-character strings of data bits, parity chained."""
     d29 = d30 = 0
     bits = []
     for w in words:
         word = encode_word(np.array([int(c) for c in w], dtype=np.uint8), d29, d30)
         bits.extend(word)
         d29, d30 = int(word[28]), int(word[29])
-    sf = decode_subframe(np.array(bits, dtype=np.uint8), 0, 0, prn=10)
+    return np.array(bits, dtype=np.uint8)
+
+
+def _page18_words(data_id="01"):
+    alpha, beta = (12, -1, -1, 2), (56, -10, -3, 14)
+    return [
+        "".join(str(b) for b in PREAMBLE) + "0" * 16,  # TLM: preamble, message, reserved
+        _tc(5045, 17) + "00" + _tc(4, 3) + "00",  # HOW: TOW count, flags, ID 4, free bits
+        data_id + _tc(56, 6) + _tc(alpha[0], 8) + _tc(alpha[1], 8),
+        _tc(alpha[2], 8) + _tc(alpha[3], 8) + _tc(beta[0], 8),
+        _tc(beta[1], 8) + _tc(beta[2], 8) + _tc(beta[3], 8),
+    ] + ["0" * 24] * 5
+
+
+def test_subframe4_page18_decodes_the_broadcast_layout():
+    # Subframe 4 page 18 laid out word by word from IS-GPS-200 Figure 20-1 (sheet 8) and
+    # Table 20-X, without the decoder's field table: word 3 carries data ID, SV ID 56,
+    # alpha0 and alpha1; word 4 alpha2, alpha3, beta0; word 5 beta1, beta2, beta3; each an
+    # 8-bit two's complement. The integers are the GPSA/GPSB values broadcast on
+    # 2022-01-14 (12, -1, -1, 2 and 56, -10, -3, 14 in units of the LSB).
+    sf = decode_subframe(_subframe_bits(_page18_words()), 0, 0, prn=10)
     assert sf is not None and sf.sf_id == 4 and sf.tow_s == 5045 * 6 - 6
     assert sf.fields["page_sv_id"] == 56
     expect = {
@@ -162,6 +170,13 @@ def test_subframe4_page18_decodes_the_broadcast_layout():
         "beta0": 56 * 2**11, "beta1": -10 * 2**14, "beta2": -3 * 2**16, "beta3": 14 * 2**16,
     }  # fmt: skip
     assert {k: sf.fields[k] for k in expect} == expect
+
+
+def test_decode_rejects_a_page_whose_data_id_is_not_01():
+    # subframes 4 and 5 carry data ID 01 (IS-GPS-200 20.3.3.5.1.1); another value does
+    # not describe a page this decoder knows
+    assert decode_subframe(_subframe_bits(_page18_words("00")), 0, 0) is None
+    assert decode_subframe(_subframe_bits(_page18_words("10")), 0, 0) is None
 
 
 def test_decode_rejects_bad_parity_and_bad_id():
