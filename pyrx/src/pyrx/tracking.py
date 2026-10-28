@@ -36,13 +36,27 @@ TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, lat
 
 @dataclass
 class TrackResult:
+    """Per-epoch channel state; epoch k integrates one code period.
+
+    t[k]: s from the source start, the first sample of epoch k's window (the code
+        start rounded to the sample grid).
+    corr[k]: complex64 prompt, early, late, noise correlator sums of epoch k.
+    code_offset[k]: s, the code-period start used for epoch k, reduced into
+        [0, CA_PERIOD). The exact start is t[k] + wrap(code_offset[k] - t[k]),
+        within half a sample of t[k].
+    doppler[k]: Hz, after epoch k's loop update (applies from epoch k+1 on).
+    carrier_phase[k]: cycles, accumulated Doppler phase at the end of epoch k
+        (integral of doppler over the actual epoch spacing).
+    cn0[k]: dB-Hz, estimate held between its 1 s updates.
+    """
+
     prn: int
-    t: np.ndarray  # s, start of each epoch's integration window
-    corr: np.ndarray  # complex64 (n_epochs, 4): prompt, early, late, noise
-    code_offset: np.ndarray  # s, code-period start within [0, CA_PERIOD), after the update
-    doppler: np.ndarray  # Hz
-    carrier_phase: np.ndarray  # cycles, accumulated Doppler phase
-    cn0: np.ndarray  # dB-Hz, held between 1 s updates
+    t: np.ndarray
+    corr: np.ndarray
+    code_offset: np.ndarray
+    doppler: np.ndarray
+    carrier_phase: np.ndarray
+    cn0: np.ndarray
     locked: bool
     lost_at: float | None
 
@@ -78,8 +92,13 @@ def track_l1ca(
     out_adr = np.empty(n_max)
     out_cn0 = np.empty(n_max)
 
-    t_code = t_start + code_offset  # s, start of the code period being integrated
-    fd = doppler
+    # plain floats throughout: a numpy float32 seed would otherwise propagate into
+    # t_code and limit the code time to ~1e-10 s
+    t_start = float(t_start)
+    f_if = float(f_if)
+    t_code = t_start + float(code_offset)  # s, start of the code period being integrated
+    fd = float(doppler)
+    cn0 = float(cn0)
     phi = 0.0  # carrier phase (cycles) at the current window start
     adr = 0.0
     err_phase_prev = 0.0
@@ -103,6 +122,9 @@ def track_l1ca(
         ).astype(np.complex128)
         prompt = complex(c[0])
         epoch = k + 1
+        out_t[k] = start / fs
+        out_corr[k] = c
+        out_coff[k] = t_code % t
 
         # carrier: FLL during pull-in, Costas PLL after
         if epoch * t <= T_FLL_PULLIN:
@@ -137,17 +159,16 @@ def track_l1ca(
                 cn0 += 0.5 * (10.0 * log10(s / sum_n / t) - cn0)
             sum_p = sum_n = 0.0
 
-        # advance one code period with carrier aiding
-        adr += fd * t
-        t_code_next = t_code + t * (1.0 - fd / L1_FREQ)
+        # advance one code period with carrier aiding; the epoch spacing is the
+        # Doppler-scaled code period, and the carrier phase integrates over it
+        dt = t * (1.0 - fd / L1_FREQ)
+        adr += fd * dt
+        t_code_next = t_code + dt
         start_next = round(t_code_next * fs)
         phi += fc * (start_next - start) / fs
         phi -= floor(phi)
         t_code = t_code_next
 
-        out_t[k] = start / fs
-        out_corr[k] = c
-        out_coff[k] = t_code % t
         out_fd[k] = fd
         out_adr[k] = adr
         out_cn0[k] = cn0

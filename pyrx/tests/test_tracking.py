@@ -103,3 +103,32 @@ def test_track_channels_matches_sequential(tmp_path):
         np.testing.assert_array_equal(r.doppler, single.doppler)
         np.testing.assert_array_equal(r.code_offset, single.code_offset)
         assert r.locked and abs(r.doppler[-1] - dop) < 2.0
+
+
+def test_track_carrier_phase_integrates_doppler_over_epoch_spacing():
+    # carrier_phase[k] is the Doppler phase at the end of epoch k, so it must equal
+    # the sum of doppler * actual epoch spacing, not doppler * nominal 1 ms
+    r = track_l1ca(_src(doppler=4000.0, data_bits=False), 0.0, 7, 1000 / FS, 4000.0, 45.0)
+    expected = np.cumsum(r.doppler[:-1] * np.diff(r.t))
+    assert abs(r.carrier_phase[-2] - expected[-1]) < 0.01  # cycles, over 3 s
+
+
+def test_track_code_offset_is_this_epochs_code_start():
+    r = track_l1ca(_src(data_bits=False), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    # the window start t[k] is the code start rounded to a sample: the two differ by
+    # less than half a sample once code_offset is unwrapped around t[k]
+    residual = (r.code_offset - r.t + 0.5 * CA_PERIOD) % CA_PERIOD - 0.5 * CA_PERIOD
+    assert np.max(np.abs(residual)) <= 0.5 / FS + 1e-12
+    truth = (1000 / FS - r.t * 1234.0 / 1575.42e6) % CA_PERIOD
+    m = r.t >= 2.0
+    assert np.max(np.abs(r.code_offset[m] - truth[m])) * CA_CHIP_RATE < 0.05
+
+
+def test_track_float32_seed_matches_float64():
+    # same seed values either way (rounded to float32 once); only the dtype differs
+    src = _src(seconds=1.5)
+    f_if, coff, dop, cn0 = (np.float32(v) for v in (0.0, 1000 / FS, 1234.0, 45.0))
+    a = track_l1ca(src, float(f_if), 7, float(coff), float(dop), float(cn0))
+    b = track_l1ca(src, f_if, 7, coff, dop, cn0)
+    np.testing.assert_array_equal(a.code_offset, b.code_offset)
+    np.testing.assert_array_equal(a.doppler, b.doppler)
