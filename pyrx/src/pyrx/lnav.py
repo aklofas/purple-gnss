@@ -258,7 +258,8 @@ class Ephemeris:
 
     Units: seconds, metres, radians and their rates; `toc` and `toe` are seconds
     of week and `wn` the 10-bit week number. A Galileo record read from RINEX
-    uses the same fields (`iode` and `iodc` hold IODnav, `ura` the SISA index).
+    uses the same fields (`iode` and `iodc` hold IODnav; `ura` is the GPS URA
+    index whose interval holds the SISA in metres, not the SISA index).
     """
 
     prn: int
