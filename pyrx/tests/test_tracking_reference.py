@@ -50,9 +50,17 @@ def test_tracking_matches_pocketsdr(captures, name, fs, f_if, prns):
         assert np.max(np.abs(d_dop)) <= 10.0, prn
         d_coff = (r.code_offset[idx] - theirs[m, 2] + 0.5e-3) % 1e-3 - 0.5e-3
         assert np.max(np.abs(d_coff)) * CA_CHIP_RATE <= 0.1, prn
-    # No false lock: acquisition rejected the absent PRN (asserted above), and a channel
-    # forced onto it never reaches the 35 dB-Hz lock threshold that would admit it.
-    # Cross-correlation from the strong satellites keeps its estimate near 30 dB-Hz,
-    # which is why a tracker alone cannot be the gate; the acquisition threshold is.
+        # accumulated carrier phase, interpolated to the log times: a constant apart from
+        # the reference's, with no cycle slip it does not show (0.009 cycle largest step
+        # and 0.014 cycle spread measured over the file)
+        k = np.searchsorted(r.t, tt, side="right") - 1  # the epoch holding each log time
+        ours = r.carrier_phase[k - 1] + (tt - r.t[k]) * r.doppler[k - 1]
+        d = ours - theirs[m, 4]
+        d -= d[0]
+        assert np.abs(np.diff(d)).max() <= 0.1 and d.max() - d.min() <= 0.1, prn
+    # No false lock: acquisition rejected the absent PRN (asserted above, 38 dB-Hz
+    # threshold). A channel forced onto it stays well below that threshold but above the
+    # tracker's 25 dB-Hz loss-of-lock limit: cross-correlation from the strong satellites
+    # keeps its estimate near 30 dB-Hz, which is why a tracker alone cannot be the gate.
     absent = results[-1]
     assert not absent.locked or np.max(absent.cn0[absent.t >= 2.0]) < 35.0
