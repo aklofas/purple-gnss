@@ -1,0 +1,19 @@
+usage: pyrx-acq [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
+                [--t-start T_START] [--duration DURATION] [--plot PLOT]
+                file
+
+Acquire GPS L1 C/A PRNs in a recording and print one line per PRN.
+
+positional arguments:
+  file
+
+options:
+  -h, --help           show this help message and exit
+  --fs FS              sample rate (Hz)
+  --f-if F_IF          intermediate frequency (Hz)
+  --iq                 file holds interleaved I/Q bytes
+  --prn PRN            PRNs, e.g. 1-32 or 1,5,7
+  --t-start T_START    start offset in the file (s)
+  --duration DURATION  length to integrate (s), 0 for the whole file (default
+                       0.01)
+  --plot PLOT          directory for cn0.png and acq_prnNN.png

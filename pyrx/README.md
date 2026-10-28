@@ -29,6 +29,10 @@ pip install -e '.[dev]'
 pytest
 ```
 
+The files under `tests/golden/` pin the exact output of the RINEX writers and of every
+command on synthetic inputs; `PYRX_UPDATE_GOLDENS=1 pytest` rewrites them after a
+deliberate output change.
+
 The reference tests compare acquisition and tracking with Pocket SDR's results on
 its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`),
 the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),

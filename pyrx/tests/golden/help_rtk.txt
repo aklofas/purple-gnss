@@ -1,0 +1,28 @@
+usage: pyrx-rtk [-h] --base-xyz X Y Z [--base-delta E N U]
+                [--rover-delta E N U] [--signals SIGNALS]
+                [--mode {kinematic,static}] [--mask MASK] [--ts TS] [--te TE]
+                [-o OUT] [-v]
+                rover base nav
+
+RTK baseline per epoch from rover and base RINEX observation files and a
+navigation file.
+
+positional arguments:
+  rover                 rover RINEX observation file (plain, .gz or Hatanaka)
+  base                  base RINEX observation file
+  nav                   RINEX navigation file
+
+options:
+  -h, --help            show this help message and exit
+  --base-xyz X Y Z
+  --base-delta E N U    base marker to antenna reference point (m); default
+                        from the file header
+  --rover-delta E N U   rover marker to antenna reference point (m); default
+                        from the file header
+  --signals SIGNALS     signals to use, e.g. G1C,G2W,E1C,E5Q
+  --mode {kinematic,static}
+  --mask MASK           elevation mask (deg)
+  --ts TS               first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
+  --te TE               last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
+  -o OUT, --out OUT     write one line per solved epoch here
+  -v, --verbose         print one line per epoch

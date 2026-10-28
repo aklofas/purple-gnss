@@ -1,0 +1,20 @@
+usage: pyrx-trk [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
+                [--t-start T_START] [--duration DURATION] [--log LOG]
+                [--plot PLOT]
+                file
+
+Acquire and track GPS L1 C/A PRNs in a recording; print one line per PRN.
+
+positional arguments:
+  file
+
+options:
+  -h, --help           show this help message and exit
+  --fs FS              sample rate (Hz)
+  --f-if F_IF          intermediate frequency (Hz)
+  --iq                 file holds interleaved I/Q bytes
+  --prn PRN            PRNs, e.g. 1-32 or 1,5,7
+  --t-start T_START    start offset in the file (s)
+  --duration DURATION  length to track (s), 0 = all
+  --log LOG            CSV of channel state every 0.1 s
+  --plot PLOT          directory for trk_prnNN.png

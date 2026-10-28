@@ -1,7 +1,11 @@
 """Synthetic inputs shared by several test modules: a navigation frame, an ephemeris, a
 constellation visible from USUD, and the observations the package's own models predict."""
 
+import difflib
+import os
+import re
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 
@@ -226,3 +230,33 @@ def write_iq_int8(x, path):
     raw[0::2] = x.real.clip(-127, 127)
     raw[1::2] = (-x.imag).clip(-127, 127)
     raw.tofile(path)
+
+
+GOLDEN_DIR = Path(__file__).parent / "golden"
+
+
+def check_golden(name: str, text: str) -> None:
+    """Compare `text` with the golden file `tests/golden/<name>` byte for byte.
+
+    Set `PYRX_UPDATE_GOLDENS` to rewrite the file after a deliberate output change.
+    """
+    path = GOLDEN_DIR / name
+    if os.environ.get("PYRX_UPDATE_GOLDENS"):
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text)
+    expected = path.read_text()
+    if text != expected:
+        diff = difflib.unified_diff(
+            expected.splitlines(True), text.splitlines(True), f"golden/{name}", "actual"
+        )
+        raise AssertionError(f"output differs from {name}:\n" + "".join(diff))
+
+
+def without_date(text: str) -> str:
+    """The text with the date of its `PGM / RUN BY / DATE` line replaced."""
+    return re.sub(r"\d{8} \d{6} UTC", "<date>", text)
+
+
+def without_elapsed(text: str) -> str:
+    """The text with the value of its `TIME = x.xxx s` lines replaced."""
+    return re.sub(r"^TIME = \d+\.\d{3} s$", "TIME = <t> s", text, flags=re.MULTILINE)

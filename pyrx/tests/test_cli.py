@@ -11,10 +11,13 @@ from support import (
     SIGNALS,
     TOW,
     USUD,
+    check_golden,
     constellation,
     frame,
     synthetic_pair,
     truth_epoch,
+    without_date,
+    without_elapsed,
     write_iq_int8,
 )
 
@@ -51,6 +54,7 @@ def test_acq_main_prints_table_and_plots(tmp_path, capsys):
     assert "PRN=   9" in out and out.strip().endswith("s")
     assert (tmp_path / "cn0.png").exists() and (tmp_path / "acq_prn07.png").exists()
     assert not (tmp_path / "acq_prn09.png").exists()
+    check_golden("cli_acq.out", without_elapsed(out))
 
 
 def test_acq_main_defaults_to_first_10ms(tmp_path, capsys):
@@ -84,6 +88,8 @@ def test_trk_main_tracks_and_logs(tmp_path, capsys):
     assert lines[0] == "time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles"
     assert 24 <= len(lines) - 1 <= 26  # 2.5 s at 0.1 s
     assert (tmp_path / "trk_prn07.png").exists()
+    check_golden("cli_trk.out", without_elapsed(out))
+    check_golden("cli_trk.csv", log.read_text())
 
 
 def test_nav_main_prints_and_writes_json(tmp_path, capsys):
@@ -100,6 +106,8 @@ def test_nav_main_prints_and_writes_json(tmp_path, capsys):
     assert "PRN  4  bits sync  subframes 1@30258,2@30264,3@30270  ephemeris IODE 149" in out
     data = json.loads(out_json.read_text())
     assert data["ephemeris"]["4"]["iode"] == 149 and data["ionosphere"] is None
+    check_golden("cli_nav.out", without_elapsed(out))
+    check_golden("cli_nav.json", out_json.read_text())
 
 
 def test_rinex_main_writes_obs_and_nav(tmp_path, capsys):
@@ -120,6 +128,9 @@ def test_rinex_main_writes_obs_and_nav(tmp_path, capsys):
     # week 2048 + 142 = 2190, receiver time about 30256 + 0.068 + T_e: 2021-12-26 08:24:1x..3x
     assert obs.read_text().count("> 2021 12 26 08 24 ") == n_epochs
     assert nav.read_text().count("\nG04 ") == 1
+    check_golden("cli_rinex.out", without_elapsed(out))
+    check_golden("cli_rinex.obs", without_date(obs.read_text()))
+    check_golden("cli_rinex.nav", without_date(nav.read_text()))
     assert rinex_main([str(f), "--fs", "2.5e6", "--iq", "--prn", "9", "--obs", str(obs)]) == 2
 
 
@@ -135,6 +146,8 @@ def test_pvt_main_solves_a_synthetic_file(tmp_path, capsys):
     lines = out.read_text().splitlines()
     assert lines[0].startswith("% week tow lat lon height clock_s ns gdop vx vy vz ddtr")
     assert len(lines) == 4 and lines[1].split()[:2] == ["2190", "28800.000"]
+    check_golden("cli_pvt.out", without_elapsed(text))
+    check_golden("cli_pvt.pos", out.read_text())
     assert pvt_main([str(obs), str(nav), "--ts", "2021-12-26 09:00:00"]) == 2
 
 
@@ -157,6 +170,8 @@ def test_rtk_main_fixes_a_synthetic_pair(tmp_path, capsys):
     lines = out.read_text().splitlines()
     assert lines[0].startswith("% week tow x y z Q ns ratio age") and len(lines) == 5
     assert lines[-1].split()[5] == "1" and abs(float(lines[-1].split()[2]) - ROVER[0]) < 0.01
+    check_golden("cli_rtk.out", without_elapsed(text))
+    check_golden("cli_rtk.pos", out.read_text())
     assert rtk_main([*args, "--ts", "2021-12-26 09:00:00"]) == 2
 
 
@@ -172,6 +187,7 @@ def test_mains_report_no_detection_with_exit_2(tmp_path, capsys):
     err = capsys.readouterr().err
     assert err.count("no PRN detected") == 3 and "--f-if" in err
     assert not (tmp_path / "o.obs").exists()
+    check_golden("cli_no_detection.err", err)
 
 
 def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
@@ -184,3 +200,13 @@ def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
     assert rtk_main([str(obs), str(obs), str(nav), "--base-xyz", *map(str, USUD)]) == 2
     err = capsys.readouterr().err
     assert err.count("RINEX 3") == 2 and "Traceback" not in err
+    check_golden("cli_rejected.err", err)
+
+
+@pytest.mark.parametrize("main", [acq_main, trk_main, nav_main, rinex_main, pvt_main, rtk_main])
+def test_help_golden(main, capsys, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "80")
+    with pytest.raises(SystemExit) as e:
+        main(["--help"])
+    assert e.value.code == 0
+    check_golden(f"help_{main.__name__.removesuffix('_main')}.txt", capsys.readouterr().out)

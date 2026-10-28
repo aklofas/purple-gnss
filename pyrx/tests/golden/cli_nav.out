@@ -1,0 +1,2 @@
+PRN  4  bits sync  subframes 1@30258,2@30264,3@30270  ephemeris IODE 149 toe 28800
+TIME = <t> s

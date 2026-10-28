@@ -1,9 +1,28 @@
+from dataclasses import replace
 from datetime import datetime
-from math import isnan
+from math import isnan, nan
 
+import numpy as np
 import pytest
 from conftest import capture_file
-from support import SF1, SF2, SF3
+from support import (
+    ALL_SIGNALS,
+    AMB_B,
+    AMB_R,
+    IONO,
+    ROVER,
+    SF1,
+    SF2,
+    SF3,
+    TOW,
+    USUD,
+    as_galileo,
+    check_golden,
+    constellation,
+    synthetic_pair,
+    truth_epoch,
+    without_date,
+)
 
 from pyrx.lnav import Ionosphere, assemble_ephemeris, decode_subframe, encode_subframe
 from pyrx.observables import Epoch, Observation
@@ -19,6 +38,7 @@ from pyrx.rinex import (
     ura_metres,
     write_rinex_nav,
     write_rinex_obs,
+    write_rinex_observations,
 )
 
 
@@ -293,3 +313,43 @@ def test_read_rinex_nav_drops_a_record_with_a_blank_field(tmp_path):
     (tmp_path / "b.nav").write_text(GAL_NAV.replace(health, " " * 19 + health[19:]))
     ephs, _ = read_rinex_nav(tmp_path / "b.nav")
     assert [e.system for e in ephs] == ["E"]
+
+
+def test_write_rinex_obs_golden(tmp_path):
+    ephs = constellation()
+    epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(3)]
+    obs = epochs[1].obs
+    obs[2] = replace(obs[2], doppler=nan, lli=1)  # a blank field and a nonzero LLI
+    obs[4] = replace(obs[4], carrier_phase=nan, cn0=nan)
+    write_rinex_obs(tmp_path / "o.obs", epochs, "GOLD")
+    check_golden("write_rinex_obs.obs", without_date((tmp_path / "o.obs").read_text()))
+    write_rinex_obs(tmp_path / "e.obs", [])
+    check_golden("write_rinex_obs_empty.obs", without_date((tmp_path / "e.obs").read_text()))
+
+
+def test_write_rinex_observations_golden(tmp_path):
+    rng = np.random.default_rng(3)
+    ephs = constellation() + as_galileo(constellation())
+    pairs = [
+        synthetic_pair(ephs, USUD, ROVER, TOW + 30.0 * k, ALL_SIGNALS, AMB_R, AMB_B, rng)
+        for k in range(2)
+    ]
+    rover = [p[0] for p in pairs]
+    P, lli = rover[0].pseudorange.copy(), rover[0].lli.copy()
+    P[1, 0] = nan  # a missing pseudorange
+    lli[2, 1] = 3  # slip and half-cycle
+    rover[0] = replace(rover[0], pseudorange=P, lli=lli)
+    write_rinex_observations(tmp_path / "o.obs", rover, "GOLD")
+    check_golden("write_rinex_observations.obs", without_date((tmp_path / "o.obs").read_text()))
+    write_rinex_observations(tmp_path / "e.obs", [])
+    check_golden(
+        "write_rinex_observations_empty.obs", without_date((tmp_path / "e.obs").read_text())
+    )
+
+
+def test_write_rinex_nav_golden(tmp_path):
+    ephs = constellation() + as_galileo(constellation())
+    write_rinex_nav(tmp_path / "n.nav", ephs, {e.prn: TOW for e in ephs}, IONO)
+    check_golden("write_rinex_nav.nav", without_date((tmp_path / "n.nav").read_text()))
+    write_rinex_nav(tmp_path / "e.nav", [], {})
+    check_golden("write_rinex_nav_empty.nav", without_date((tmp_path / "e.nav").read_text()))

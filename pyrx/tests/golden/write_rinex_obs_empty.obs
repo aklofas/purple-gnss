@@ -1,0 +1,11 @@
+     3.05           OBSERVATION DATA    G: GPS              RINEX VERSION / TYPE
+pyrx                                    <date> PGM / RUN BY / DATE
+PYRX                                                        MARKER NAME
+                                                            OBSERVER / AGENCY
+                    pyrx                                    REC # / TYPE / VERS
+                                                            ANT # / TYPE
+        0.0000        0.0000        0.0000                  APPROX POSITION XYZ
+        0.0000        0.0000        0.0000                  ANTENNA: DELTA H/E/N
+G    4 C1C L1C D1C S1C                                      SYS / # / OBS TYPES
+G L1C                                                       SYS / PHASE SHIFT
+                                                            END OF HEADER

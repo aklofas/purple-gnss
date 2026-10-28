@@ -1,0 +1,25 @@
+usage: pyrx-rinex [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
+                  [--t-start T_START] [--duration DURATION]
+                  [--interval INTERVAL] [--week WEEK] [--marker MARKER] --obs
+                  OBS [--nav NAV]
+                  file
+
+Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and
+navigation files.
+
+positional arguments:
+  file
+
+options:
+  -h, --help           show this help message and exit
+  --fs FS              sample rate (Hz)
+  --f-if F_IF          intermediate frequency (Hz)
+  --iq                 file holds interleaved I/Q bytes
+  --prn PRN            PRNs, e.g. 1-32 or 1,5,7
+  --t-start T_START    start offset in the file (s)
+  --duration DURATION  length to process (s), 0 = all
+  --interval INTERVAL  observation epoch interval (s)
+  --week WEEK          GPS week (needed without subframe 1)
+  --marker MARKER      RINEX marker name
+  --obs OBS            RINEX observation file to write
+  --nav NAV            RINEX navigation file to write
