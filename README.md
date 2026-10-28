@@ -1,4 +1,4 @@
-# purple-gps
+# purple-gnss
 
 An open RTK GNSS receiver built from scratch: the antenna and processing hardware, the
 firmware that runs on it, and the positioning math that turns raw observations into a
