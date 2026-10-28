@@ -6,8 +6,8 @@
 
 ## Where we are today
 
-The project is early. The hardware is in design and the firmware has not
-started. What exists is the reference receiver:
+This project is early. The hardware is in design and the firmware has not
+started. What exists today is the reference receiver:
 
 | Part | Status | Start here |
 |---|---|---|
