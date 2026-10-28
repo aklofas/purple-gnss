@@ -454,13 +454,15 @@ def write_rinex_nav(
     ephemerides: list[Ephemeris],
     transmit_tow: dict[int, float],
     iono: Ionosphere | None = None,
-    week: int | None = None,
     program: str = "pyrx",
 ) -> None:
     """Write decoded GPS ephemerides (and Klobuchar parameters) as a RINEX 3.05 navigation file.
 
     `transmit_tow[prn]` is the seconds of week of the subframe 1 each ephemeris came
-    from. `week` overrides the week derived from each ephemeris' 10-bit week number.
+    from. The record's epoch (toc) and week field are those of the data set's own
+    week: an ephemeris broadcast in the last hours of a week has its toe and toc in
+    the next one (the subframe's week number is the transmission week), and a reader
+    that dates toe by the record's week would otherwise place it a week early.
     """
     out = [
         _line(
@@ -474,7 +476,12 @@ def write_rinex_nav(
             out.append(_line(f"{name} {values}", "IONOSPHERIC CORR"))
     out.append(_line("", "END OF HEADER"))
     for eph in ephemerides:
-        w = week if week is not None else full_week(eph.wn)
+        ttr = transmit_tow[eph.prn]
+        w = full_week(eph.wn)
+        if eph.toe < ttr - WEEK_S / 2:
+            w += 1
+        elif eph.toe > ttr + WEEK_S / 2:
+            w -= 1
         t = gps_datetime(w, eph.toc)
         out.append(
             f"G{eph.prn:02d} {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "
@@ -487,7 +494,7 @@ def write_rinex_nav(
             (eph.i0, eph.crc, eph.omega, eph.omega_dot),
             (eph.idot, eph.code_l2, w, eph.l2p),
             (ura_metres(eph.ura), eph.health, eph.tgd, eph.iodc),
-            (transmit_tow[eph.prn], 4.0 if eph.fit == 0 else 6.0, 0.0, 0.0),
+            (ttr, 4.0 if eph.fit == 0 else 6.0, 0.0, 0.0),
         ]
         for row in rows:
             out.append("    " + "".join(_e19(float(v)) for v in row) + "\n")

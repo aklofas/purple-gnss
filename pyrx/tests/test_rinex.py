@@ -217,3 +217,24 @@ def test_read_rinex_nav_skips_fnav_records(tmp_path):
     (tmp_path / "m.nav").write_text(GAL_NAV)
     ephs, _ = read_rinex_nav(tmp_path / "m.nav")
     assert len([e for e in ephs if e.system == "E"]) == 1  # the 258 (F/NAV) record is dropped
+
+
+def test_nav_writer_dates_a_next_week_data_set_in_its_own_week(tmp_path):
+    # an ephemeris broadcast in the last two hours of a week has toe and toc at the start
+    # of the next week: the record's epoch and week field belong to that week, with the
+    # transmission time left in the broadcast week (negative relative to it)
+    sf1 = dict(SF1, wn=142, toc=0)
+    sf2 = dict(SF2, toe=0)
+    sfs = [
+        decode_subframe(encode_subframe(i, 99600 + i, f), 0, 0, prn=4)
+        for i, f in ((1, sf1), (2, sf2), (3, SF3))
+    ]
+    eph = assemble_ephemeris(sfs)
+    write_rinex_nav(tmp_path / "w.nav", [eph], {4: sfs[0].tow_s})
+    text = (tmp_path / "w.nav").read_text()
+    assert "G04 2022 01 02 00 00 00" in text  # Sunday of week 2191, not week 2190
+    rows = text.split("END OF HEADER\n")[1].splitlines()
+    assert float(rows[5].split()[2].replace("D", "E")) == 2191.0
+    assert float(rows[7].split()[0].replace("D", "E")) == sfs[0].tow_s
+    [rec], _ = read_rinex_nav(tmp_path / "w.nav")
+    assert (rec.wn, rec.toe, rec.toc) == (143, 0.0, 0.0)

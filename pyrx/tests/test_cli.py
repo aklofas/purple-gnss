@@ -112,7 +112,7 @@ def test_pvt_main_solves_a_synthetic_file(tmp_path, capsys):
     epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(3)]
     obs, nav, out = tmp_path / "s.obs", tmp_path / "s.nav", tmp_path / "s.pos"
     write_rinex_obs(obs, epochs)
-    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs}, week=2190)
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
     assert pvt_main([str(obs), str(nav), "-o", str(out)]) == 0
     text = capsys.readouterr().out
     assert "EPOCHS 3 of 3  mean lat 36.1331" in text and "clock 1.000 ms" in text
@@ -132,7 +132,7 @@ def test_rtk_main_fixes_a_synthetic_pair(tmp_path, capsys):
     rov, base, nav, out = (tmp_path / n for n in ("r.obs", "b.obs", "n.nav", "fix.txt"))
     write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
     write_rinex_observations(base, [p[1] for p in pairs], "BASE")
-    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs}, week=2190)
+    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
     args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C,G2W"]
     assert rtk_main([*args, "-o", str(out)]) == 0
     text = capsys.readouterr().out

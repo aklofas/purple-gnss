@@ -114,7 +114,7 @@ def test_rtklib_fix(captures, tmp_path, case):
     ephs = [ln.ephemeris for ln in lnavs if ln.ephemeris is not None]
     tow1 = {ln.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}
     nav = tmp_path / "pyrx.nav"
-    write_rinex_nav(nav, ephs, tow1, week=week)
+    write_rinex_nav(nav, ephs, tow1)
     sol_own, _ = rnx2rtkp_single(obs, nav, tmp_path / "own")
     assert len(sol_own) == len(sol)
     for a, b in zip(sol, sol_own):

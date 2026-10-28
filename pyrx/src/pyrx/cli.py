@@ -225,7 +225,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
         if ephs:
             tow1 = {ln.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}
             iono = next((ln.ionosphere for ln in lnavs if ln.ionosphere is not None), None)
-            write_rinex_nav(args.nav, ephs, tow1, iono, week)
+            write_rinex_nav(args.nav, ephs, tow1, iono)
         else:
             print("no ephemeris decoded, navigation file not written")
     print(f"TIME = {elapsed:.3f} s")
