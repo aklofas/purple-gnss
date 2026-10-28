@@ -50,4 +50,4 @@ def sample_code(
 ) -> np.ndarray:
     """`n` samples of `code` at sample rate `fs`, sample k holding chip floor(phase + k*rate/fs)."""
     chip_index = np.floor(phase_chips + np.arange(n, dtype=np.float64) * (chip_rate / fs))
-    return np.take(code, chip_index.astype(np.int64), mode="wrap").astype(np.float32)
+    return code[chip_index.astype(np.int64) % len(code)].astype(np.float32)
