@@ -107,19 +107,25 @@ def test_time_to_first_fix(captures, tmp_path, pair, signals, freq):
     base_name, rover_name, base_xyz, _ = PAIRS[pair]
     rover, base, ephs, hb, hr = _load(captures, pair, signals)
     station = Station(np.array(base_xyz), hb.delta_enu)
+    # restarts every 30 min on windows of 60 epochs (the day starts the GPS week, so the
+    # time of week of a restart is its offset into the day)
+    starts = [1800.0 * k for k in range(12)]
     ours = []
-    for k in range(12):  # restarts every 30 min, 30 min windows (61 epochs)
-        t0 = 1800.0 * k
+    for t0 in starts:
         rov = [o for o in rover if t0 <= o.tow < t0 + 1800.0]
         bas = [o for o in base if t0 - 30.0 <= o.tow < t0 + 1800.0]
         fixes = solve_rtk(rov, bas, ephs, station, hr.delta_enu)
-        first = next((i for i, f in enumerate(fixes) if f.status == "fix"), 60)
-        ours.append(first + 1)
-    starts = [f"2021/12/26 {k // 2:02d}:{30 * (k % 2):02d}:00" for k in range(12)]
+        ours.append(next((f.tow for f in fixes if f.status == "fix"), None))
     theirs = rnx2rtkp_ttff(
         capture_file(captures, rover_name), capture_file(captures, base_name), capture_file(captures, NAV),
-        tmp_path / "ttff", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", freq, 1, starts, 1800,
+        tmp_path / "ttff", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", freq, 1,
+        [f"2021/12/26 {int(t0) // 3600:02d}:{int(t0) % 3600 // 60:02d}:00" for t0 in starts], 1770,
     )  # fmt: skip
+    # time to first fix in elapsed epochs from the restart, the first epoch counting as 1;
+    # every restart must fix within its window on both sides
+    assert None not in ours and None not in theirs, (ours, theirs)
+    ours = [(tow - t0) / 30.0 + 1 for tow, t0 in zip(ours, starts)]
+    theirs = [(tow - t0) / 30.0 + 1 for tow, t0 in zip(theirs, starts)]
     assert np.mean(ours) <= 2.0 * np.mean(theirs), (ours, theirs)
 
 

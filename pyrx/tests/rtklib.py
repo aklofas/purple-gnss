@@ -232,8 +232,11 @@ def rnx2rtkp_rtk(
 
 def rnx2rtkp_ttff(
     rover, base, nav, out_dir, base_xyz, base_up, rover_up, mode, freq, navsys, starts, length_s
-) -> list[int]:
-    """First fixed epoch (index + 1) of RTKLIB restarted at each start; the window length + 1 if none."""
+) -> list[float | None]:
+    """Time of week of RTKLIB's first fixed epoch when restarted at each start; None if none.
+
+    Each window runs from its start to `length_s` after it, both ends included.
+    """
     conf = RTK_CONF.format(
         mode=mode, freq=freq, navsys=navsys, rover_up=rover_up, base_up=base_up,
         base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2],
@@ -244,6 +247,6 @@ def rnx2rtkp_ttff(
             "%Y/%m/%d %H:%M:%S"
         )
         sols = _rtk_run(rover, base, nav, out_dir, conf, f"w{k:02d}", ts, te)
-        q = [v["q"] for _, v in sorted(sols.items())]
-        out.append(q.index(1) + 1 if 1 in q else length_s // 30 + 1)
+        fixed = sorted(tow for (_, tow), v in sols.items() if v["q"] == 1)
+        out.append(fixed[0] if fixed else None)
     return out
