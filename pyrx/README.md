@@ -381,8 +381,9 @@ Every tracking epoch integrates one code period, so once a subframe has tagged o
 epoch with its GPS time, the code start of epoch k was transmitted at
 `tow + (k - epoch) * 1 ms` for every epoch of the channel. The receiver clock is
 set once per recording: sample 0 is given the GPS time of the latest transmit time
-seen at sample 0 plus 68 ms of nominal travel time, which puts pseudoranges near
-their true values and leaves the remaining bias to the position solution.
+seen at sample 0 plus 68 ms of nominal travel time, rounded to a whole
+millisecond, which puts pseudoranges near their true values and leaves the
+remaining bias to the position solution.
 Observation epochs are the receiver times at which that clock reads a multiple of
 the interval; a channel is sampled there by interpolating between the two code
 starts that bracket the epoch, from its first bit-synced epoch on. Pseudorange is
