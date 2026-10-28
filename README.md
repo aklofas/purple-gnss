@@ -39,26 +39,6 @@ RINEX file and `pyrx-rtk` gives the RTK fix.
 | Running the receiver on a recording | [`pyrx/README.md`](pyrx/README.md), every command and the recordings it was checked on |
 | Looking up a term | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md) |
 
-## Design direction
-
-Dual-frequency L1/L5 RTK, with the RF chain built to cover L2, E6 and the
-other systems' bands as a configuration change. A Lattice CrossLink-NX FPGA
-for the correlators, an STM32H7 for the loops and the positioning, and MAX2771
-front-ends, one per antenna and band. The first prototype uses a single
-antenna; the architecture is being laid out so that later revisions can carry
-a four-element array. Positioning without paid services: RTK against a base,
-post-processed kinematic from logs, Galileo HAS precise point positioning, and
-SBAS, in that order of preference.
-
-## Validated against
-
-Every stage of `pyrx` is checked against an independent reference on real
-recordings: Pocket SDR for acquisition, tracking and observables, the
-published broadcast ephemerides for the navigation decode, IGS final orbits
-for the orbit computation, and RTKLIB and the EUREF station coordinates for
-the standalone and RTK fixes. The numbers are in
-[`pyrx/README.md`](pyrx/README.md).
-
 ## Status
 
 Pre-release. The Python receiver is complete for GPS L1 C/A from samples and
