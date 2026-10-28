@@ -35,14 +35,16 @@ DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
 
 
 def parse_prns(s: str) -> list[int]:
-    """'1-3,7' -> [1, 2, 3, 7]."""
+    """'1-3,7' -> [1, 2, 3, 7]; repeats are dropped, PRNs outside 1-32 are an argument error."""
     prns: list[int] = []
-    for part in s.split(","):
-        if "-" in part:
-            lo, hi = part.split("-")
-            prns.extend(range(int(lo), int(hi) + 1))
-        else:
-            prns.append(int(part))
+    try:
+        for part in s.split(","):
+            lo, hi = part.split("-") if "-" in part else (part, part)
+            if not 1 <= int(lo) <= int(hi) <= 32:
+                raise ValueError
+            prns.extend(p for p in range(int(lo), int(hi) + 1) if p not in prns)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{s!r}: PRNs 1-32 as e.g. 1-32 or 1,5,7") from None
     return prns
 
 
@@ -53,7 +55,7 @@ def acq_main(argv: list[str] | None = None) -> int:
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
     p.add_argument(
         "--duration",
@@ -67,7 +69,7 @@ def acq_main(argv: list[str] | None = None) -> int:
     duration = args.duration if args.duration > 0 else None
     samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
     t0 = time.perf_counter()
-    results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in parse_prns(args.prn)]
+    results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
     elapsed = time.perf_counter() - t0
     for r in results:
         print(
@@ -92,7 +94,7 @@ def trk_main(argv: list[str] | None = None) -> int:
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
     p.add_argument("--duration", type=float, default=0.0, help="length to track (s), 0 = all")
     p.add_argument("--log", default=None, help="CSV of channel state every 0.1 s")
@@ -101,7 +103,7 @@ def trk_main(argv: list[str] | None = None) -> int:
 
     head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
     seeds = []
-    for prn in parse_prns(args.prn):
+    for prn in args.prn:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
@@ -132,7 +134,7 @@ def nav_main(argv: list[str] | None = None) -> int:
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
     p.add_argument("--duration", type=float, default=0.0, help="length to decode (s), 0 = all")
     p.add_argument("--json", default=None, help="write decoded ephemerides and ionosphere here")
@@ -140,7 +142,7 @@ def nav_main(argv: list[str] | None = None) -> int:
 
     head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
     seeds = []
-    for prn in parse_prns(args.prn):
+    for prn in args.prn:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
@@ -177,7 +179,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
     p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
@@ -189,7 +191,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
 
     head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
     seeds = []
-    for prn in parse_prns(args.prn):
+    for prn in args.prn:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))

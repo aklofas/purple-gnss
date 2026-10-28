@@ -1,7 +1,9 @@
+import argparse
 import json
 import re
 
 import numpy as np
+import pytest
 from test_navdecode import _frame
 from test_pvt import TOW, USUD, constellation, truth_epoch
 from test_rtk import AMB_B, AMB_R, ROVER, SIGNALS, synthetic_pair
@@ -21,6 +23,18 @@ def _write_iq_int8(x, path):
 
 def test_parse_prns():
     assert parse_prns("1-3,7") == [1, 2, 3, 7]
+    assert parse_prns("1,1-3,3") == [1, 2, 3]  # repeats dropped, order kept
+    for bad in ("", "0", "33", "5-1", "1-", "a", "1,,2"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            parse_prns(bad)
+
+
+def test_prn_argument_errors_are_usage_errors(tmp_path, capsys):
+    f = tmp_path / "s.bin"
+    _write_iq_int8(np.zeros(1000, dtype=complex), f)
+    with pytest.raises(SystemExit) as e:
+        acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "1-33"])
+    assert e.value.code == 2 and "--prn" in capsys.readouterr().err
 
 
 def test_acq_main_prints_table_and_plots(tmp_path, capsys):
