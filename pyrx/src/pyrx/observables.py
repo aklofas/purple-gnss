@@ -13,9 +13,16 @@ bias is left to the position solution. Receiver epochs are the instants at which
 interpolating between the two code starts that bracket the epoch.
 
 Conventions (RINEX): pseudorange `C_LIGHT * (t_rx - t_tx)`; carrier phase is the
-negated accumulated Doppler phase (phase grows with range), plus half a cycle
-when the Costas loop locked on inverted data; Doppler is positive for an
+negated accumulated Doppler phase (phase grows with range), less half a cycle
+while the Costas loop is locked on inverted data; Doppler is positive for an
 approaching satellite, as tracking reports it.
+
+Carrier validity (RINEX loss-of-lock indicator, as Pocket SDR sets it): bit 1 on
+the observations within the first 2 s of a channel and on the first observation
+after the data polarity changed, that is after a half-cycle slip of the Costas
+loop; bit 2 where the polarity is not established by a decoded subframe: before
+the first subframe, and from the end of the last subframe before a polarity
+change to the start of the first subframe after it.
 """
 
 from dataclasses import dataclass
@@ -23,13 +30,19 @@ from math import ceil, floor
 
 import numpy as np
 
+from pyrx.bitsync import EPOCHS_PER_BIT
 from pyrx.codes import CA_PERIOD
+from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
 from pyrx.tracking import TrackResult
 
 C_LIGHT = 299792458.0  # m/s
 WEEK_S = 604800
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
+T_LOCK = 2.0  # s a channel must have run before its carrier phase counts as locked
+SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
+LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
+LLI_HALF_CYCLE = 2
 GPS_WEEK_ROLLOVER = 2048  # first week of the current 1024-week era (2019-04-07)
 
 
@@ -66,6 +79,15 @@ class Observation:
     carrier_phase: float  # cycles
     doppler: float  # Hz
     cn0: float  # dB-Hz
+    lli: int = 0  # RINEX loss-of-lock indicator of the carrier phase
+
+
+def _polarities(lnav: LnavResult) -> tuple[np.ndarray, np.ndarray]:
+    """First-bit epoch of every decoded subframe and whether it came with the data
+    polarity opposite to the one frame sync settled on."""
+    starts = np.array([sf.epoch for sf in lnav.subframes], dtype=int)
+    flipped = np.array([not np.array_equal(sf.bits[:8], PREAMBLE) for sf in lnav.subframes])
+    return starts, flipped
 
 
 @dataclass(frozen=True)
@@ -123,6 +145,27 @@ def receiver_time0(tracks: list[TrackResult], lnavs: list[LnavResult]) -> float:
     return round(max(t_tx0) + TRAVEL_TIME_NOMINAL, 3)
 
 
+def _carrier_state(ln: LnavResult, polarity, k: int, last_k: int) -> tuple[bool, int]:
+    """Data polarity in effect at epoch k and the loss-of-lock bits it earns.
+
+    The polarity is that of the latest subframe begun at or before k (frame sync's
+    before the first). A subframe of the other polarity means the Costas loop
+    slipped half a cycle somewhere between the end of the previous subframe and
+    the start of that one: the epochs in between may be half a cycle off, and the
+    first observation on the new polarity is a slip.
+    """
+    starts, flipped = polarity
+    j = int(np.searchsorted(starts, k, side="right")) - 1
+    if j < 0:
+        return bool(ln.stream.inverted), LLI_HALF_CYCLE
+    lli = 0
+    if j + 1 < len(starts) and flipped[j + 1] != flipped[j] and k >= starts[j] + SUBFRAME_EPOCHS:
+        lli |= LLI_HALF_CYCLE
+    if j >= 1 and flipped[j] != flipped[j - 1] and last_k < starts[j]:
+        lli |= LLI_SLIP
+    return bool(ln.stream.inverted) != bool(flipped[j]), lli
+
+
 def make_observables(
     tracks: list[TrackResult],
     lnavs: list[LnavResult],
@@ -157,12 +200,14 @@ def make_observables(
     weeks_on = floor(first * interval / WEEK_S)  # every epoch past the boundary: the next week
     if week is None and origin_week is not None:
         week = origin_week + weeks_on
+    polarity = [_polarities(ln) for _, ln, _, _, _ in per]
+    last_k = [-1] * len(per)  # epoch of each channel's previous observation
     epochs = []
     for i in range(first, last + 1):
         t = i * interval - rx0
         tow = i * interval - weeks_on * WEEK_S
         obs = []
-        for tr, ln, tc, tt, k0 in per:
+        for c, (tr, ln, tc, tt, k0) in enumerate(per):
             k = int(np.searchsorted(tc, t, side="right")) - 1
             if k < max(k0, 1) or k + 1 >= len(tc):
                 continue
@@ -170,7 +215,10 @@ def make_observables(
             t_tx = tt[k] + f * CA_PERIOD
             # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
-            phase = -(adr + (0.5 if ln.stream.inverted else 0.0))
+            inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
+            if tr.t[k] - tr.t[0] <= T_LOCK:
+                lli |= LLI_SLIP
+            phase = -(adr + (0.5 if inverted else 0.0))
             obs.append(
                 Observation(
                     tr.prn,
@@ -178,8 +226,10 @@ def make_observables(
                     float(phase),
                     float(tr.doppler[k]),
                     float(tr.cn0[k]),
+                    lli,
                 )
             )
+            last_k[c] = k
         if obs:
             epochs.append(Epoch(week, float(tow), sorted(obs, key=lambda o: o.prn)))
     return epochs

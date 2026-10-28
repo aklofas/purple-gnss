@@ -351,11 +351,10 @@ Observation epochs are the receiver times at which that clock reads a multiple o
 the interval; a channel is sampled there by interpolating between the two code
 starts that bracket the epoch, from its first bit-synced epoch on. Pseudorange is
 the light time between receiver and transmit time; carrier phase is the negated
-accumulated Doppler phase (it grows with range) plus half a cycle when the Costas
-loop locked on inverted data, with every channel's carrier NCO referenced to the
+accumulated Doppler phase (it grows with range) less half a cycle while the Costas
+loop is locked on inverted data, with every channel's carrier NCO referenced to the
 receiver's IF phase at sample 0 so the phases of different channels share one
-origin; Doppler is positive for an approaching satellite. No loss-of-lock
-indicators are written.
+origin; Doppler is positive for an approaching satellite.
 
 Time: an epoch's `tow` is seconds from the start of its `week`. Within one run it
 increases monotonically and may reach or exceed 604800 when a recording crosses
@@ -364,12 +363,19 @@ returns `tow` in [0, 604800) with the week of the time stamp. Consumers form a
 continuous time as `week * 604800 + tow` when they need one, and reduce every
 difference against an ephemeris time of week into half a week either way.
 
-Carrier phase: a channel's phase, and so its RINEX `L1C`, is continuous with one
-unknown integer ambiguity from the channel's first bit-synced epoch to the end of
-the run or to loss of lock; a lost channel is not re-acquired within a run, so no
-ambiguity change happens inside a file. The half-cycle polarity is resolved once by
-frame sync and applies throughout. No loss-of-lock or signal-strength flags are
-written. The standalone solution does not use the carrier phase.
+Carrier phase: a channel's phase, and so its RINEX `L1C`, runs from the channel's
+first bit-synced epoch to the end of the run or to loss of lock; a lost channel is
+not re-acquired within a run. The data polarity, and with it the half cycle added
+to the phase, is read from the preamble of every decoded subframe: a subframe of
+the opposite polarity means the Costas loop slipped half a cycle since the previous
+one. The loss-of-lock indicator written with `L1C` follows Pocket SDR's: bit 1
+(slip possible) on the observations within the first 2 s of a channel and on the
+first observation after a polarity change; bit 2 (half-cycle ambiguity) where no
+decoded subframe establishes the polarity, that is before a channel's first
+subframe and between the last subframe before a polarity change and the first
+after it. A slip that leaves the polarity unchanged (a whole cycle) is not detected
+inside a file. No signal-strength flags are written. The standalone solution does
+not use the carrier phase.
 
 ## Navigation message decode
 

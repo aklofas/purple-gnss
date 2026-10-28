@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 from test_navdecode import _frame
 
+from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
-from pyrx.navdecode import decode_lnav
+from pyrx.lnav import PREAMBLE, Subframe
+from pyrx.navdecode import LnavResult, decode_lnav
 from pyrx.observables import (
     C_LIGHT,
     full_week,
@@ -15,7 +17,7 @@ from pyrx.observables import (
 )
 from pyrx.samples import ArraySamples
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import L1_FREQ, track_l1ca
+from pyrx.tracking import L1_FREQ, TrackResult, track_l1ca
 
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 
@@ -142,3 +144,49 @@ def test_week_comes_from_subframe_1_without_an_ephemeris():
     track, lnav = _channel(4, 500, 800.0)
     partial = dataclasses.replace(lnav, ephemeris=None)
     assert make_observables([track], [partial])[0].week == 2190
+
+
+def _still_channel(subframes, inverted=False, n=30000, k0=1500):
+    """A 30 s channel at zero Doppler with a zero carrier phase and the given subframes.
+
+    `subframes` is (first-bit epoch, seconds of week, polarity flipped) per decoded
+    subframe; a flipped subframe's bits came complemented relative to the polarity
+    frame sync settled on.
+    """
+    zeros = np.zeros(n)
+    track = TrackResult(
+        4, np.arange(n) * CA_PERIOD, np.zeros((n, 4), np.complex64), zeros, zeros, zeros, zeros,
+        np.full(n, 45.0), True, None,
+    )  # fmt: skip
+    sfs = []
+    for epoch, tow, flipped in subframes:
+        bits = np.zeros(300, dtype=np.uint8)
+        bits[:8] = PREAMBLE ^ int(flipped)
+        sfs.append(Subframe(4, 1, tow, {"wn": 142}, epoch, bits))
+    stream = BitStream(np.zeros(1, np.uint8), np.array([k0]), k0 % 20, 1.0, inverted)
+    return track, LnavResult(4, stream, sfs, None, None)
+
+
+@pytest.mark.parametrize("inverted", [False, True])
+def test_polarity_change_sets_the_half_cycle_and_slip_indicators(inverted):
+    # subframes at 2 s and 14 s, the second received with the opposite data polarity: the
+    # transition happened after the first ended (8 s) and before the second began, so the
+    # phases in between may be half a cycle off; the first observation on the new polarity
+    # is a slip; before the first subframe the polarity rests on frame sync alone
+    track, lnav = _still_channel([(2000, 10.0, False), (14000, 22.0, True), (20000, 28.0, True)], inverted)
+    epochs = make_observables([track], [lnav], week=2190)
+    half = 0.5 if inverted else 0.0
+    by_tow = {e.tow: (e.obs[0].lli, e.obs[0].carrier_phase) for e in epochs}
+    assert epochs[0].tow == 10.0 and epochs[-1].tow == 38.0
+    assert by_tow[10.0] == (3, -half)  # within 2 s of the channel start, polarity unverified
+    assert by_tow[11.0] == (0, -half) and by_tow[16.0] == (0, -half)
+    assert by_tow[17.0] == (2, -half) and by_tow[22.0] == (2, -half)
+    assert by_tow[23.0] == (1, half - 0.5) and by_tow[24.0] == (0, half - 0.5)
+    assert by_tow[38.0] == (0, half - 0.5)
+
+
+def test_steady_polarity_marks_only_the_lock_in():
+    track, lnav = _still_channel([(2000, 10.0, False), (8000, 16.0, False)])
+    epochs = make_observables([track], [lnav], week=2190)
+    assert [e.obs[0].lli for e in epochs] == [3] + [0] * (len(epochs) - 1)
+    assert all(e.obs[0].carrier_phase == 0.0 for e in epochs)

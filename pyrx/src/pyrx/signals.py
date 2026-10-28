@@ -68,6 +68,7 @@ def to_epoch(obs: Observations, signal: str = "G1C") -> Epoch:
                     float(obs.carrier_phase[i, j]),
                     float(obs.doppler[i, j]),
                     float(obs.cn0[i, j]),
+                    int(obs.lli[i, j]),
                 )
             )
     return Epoch(obs.week, obs.tow, sorted(out, key=lambda o: o.prn))

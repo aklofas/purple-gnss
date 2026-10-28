@@ -14,6 +14,7 @@ from pyrx.rinex import (
     read_rinex_header,
     read_rinex_nav,
     read_rinex_obs,
+    read_rinex_observations,
     ura_index,
     ura_metres,
     write_rinex_nav,
@@ -238,3 +239,22 @@ def test_nav_writer_dates_a_next_week_data_set_in_its_own_week(tmp_path):
     assert float(rows[7].split()[0].replace("D", "E")) == sfs[0].tow_s
     [rec], _ = read_rinex_nav(tmp_path / "w.nav")
     assert (rec.wn, rec.toe, rec.toc) == (143, 0.0, 0.0)
+
+
+def test_obs_writer_carries_the_loss_of_lock_indicator(tmp_path):
+    epochs = [
+        Epoch(
+            2190,
+            30260.0,
+            [
+                Observation(4, 22235454.255, -116848778.204, 421.142, 43.3, lli=3),
+                Observation(16, 20653742.563, 108536284.235, -698.28, 46.9),
+            ],
+        )
+    ]
+    write_rinex_obs(tmp_path / "l.obs", epochs)
+    text = (tmp_path / "l.obs").read_text()
+    assert "G04  22235454.255  -116848778.2043        421.142          43.300" in text
+    assert "G16  20653742.563   108536284.235        -698.280          46.900" in text
+    [back] = read_rinex_observations(tmp_path / "l.obs", ("G1C",))
+    assert back.sats == ("G04", "G16") and back.lli[:, 0].tolist() == [3, 0]

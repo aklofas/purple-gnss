@@ -131,8 +131,8 @@ def write_rinex_obs(path, epochs: list[Epoch], marker: str = "PYRX", program: st
             f"{sec:10.7f}  0 {len(e.obs):2d}\n"
         )
         for o in e.obs:
-            values = (o.pseudorange, o.carrier_phase, o.doppler, o.cn0)
-            fields = ("" if isnan(v) else f"{v:14.3f}  " for v in values)
+            values = ((o.pseudorange, 0), (o.carrier_phase, o.lli), (o.doppler, 0), (o.cn0, 0))
+            fields = ("" if isnan(v) else f"{v:14.3f}{lli or ' '} " for v, lli in values)
             out.append(f"G{o.prn:02d}" + "".join(f"{f:16s}" for f in fields) + "\n")
     Path(path).write_text("".join(out))
 
