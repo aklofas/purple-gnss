@@ -1,12 +1,12 @@
 # pyrx
 
-An offline GNSS receiver in Python. It reads recorded IF samples and will grow stage
-by stage into a full receiver: acquisition, tracking, navigation-message decode,
-observables, a standalone position fix, and finally an RTK fix. Acquisition,
-tracking, navigation-message decode and observables written as RINEX exist so
-far. Each stage is checked against an external reference before the next one is
-started: Pocket SDR for acquisition, tracking and observables, broadcast ephemeris
-files for the navigation decode, RTKLIB for positioning.
+An offline GNSS receiver in Python: acquisition, tracking, navigation-message
+decode and observables written as RINEX from recorded GPS L1 C/A IF samples, and a
+standalone position fix and an RTK fix from RINEX files, our own or public ones
+(GPS L1/L2/L5 and Galileo E1/E5a/E5b). Each stage is checked against an external
+reference: Pocket SDR for acquisition, tracking and observables, broadcast
+ephemeris files for the navigation decode, IGS orbits, RTKLIB and the EUREF
+station coordinates for positioning.
 
 ## Why Python
 
@@ -29,13 +29,18 @@ pip install -e '.[dev]'
 pytest
 ```
 
-The reference tests compare acquisition, tracking and observables with Pocket
-SDR's results on its sample recordings, the navigation decode with the day's
-broadcast ephemeris, and the position RTKLIB computes from our RINEX with the one
-it computes from Pocket SDR's. They need the environment variable `PYRX_CAPTURES`
-pointing at a directory holding these files, and skip when it is unset (the fix
-positioning and RTK tests also skip when `rnx2rtkp` is not on the path; the RTK tests take
-a few minutes):
+The reference tests compare acquisition and tracking with Pocket SDR's results on
+its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`),
+the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),
+the transmit times with Pocket SDR's C tracker and the fix RTKLIB computes from our
+RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`),
+the broadcast orbits with the IGS final orbit (`test_orbits_reference.py`), the
+standalone fix with RTKLIB on the recordings and on a day of an IGS station
+(`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
+coordinates on two station pairs (`test_rtk_reference.py`). They need the
+environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
+and skip when it is unset; the observables, positioning and RTK tests also skip
+when `rnx2rtkp` is not on the path, and the RTK tests take a few minutes:
 
 | File | Source | SHA-256 |
 |---|---|---|
