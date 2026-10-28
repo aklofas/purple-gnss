@@ -7,6 +7,7 @@ from conftest import capture_file
 
 from pyrx.acquisition import acquire_l1ca
 from pyrx.navdecode import decode_lnav
+from pyrx.rinex import read_rinex_nav
 from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
 
@@ -84,11 +85,8 @@ SF_FIELDS = {
 def test_lnav_matches_broadcast(
     captures, name, fs, f_if, prns, nav_name, iono_name, week, tow0, sf_ids
 ):
-    pytest.importorskip("georinex")
-    from rinex_nav import load_gps_iono, load_gps_nav
-
-    nav = load_gps_nav(capture_file(captures, nav_name))
-    iono = load_gps_iono(capture_file(captures, iono_name)) if iono_name else None
+    ephs, _ = read_rinex_nav(capture_file(captures, nav_name))
+    iono = read_rinex_nav(capture_file(captures, iono_name))[1] if iono_name else None
     path = capture_file(captures, name)
     head = read_samples(path, fs, iq=False, duration=0.010)
     seeds = []
@@ -107,34 +105,34 @@ def test_lnav_matches_broadcast(
             assert abs(sf.tow_s - t_epoch - tow0) <= 0.1, (prn, sf.sf_id, sf.tow_s, t_epoch)
             if sf.sf_id not in SF_FIELDS:
                 continue
-            rec = _find(nav, prn, sf)
+            rec = _find(ephs, prn, sf)
             assert rec is not None, (prn, sf.sf_id, sf.fields)
             for f, lsb in SF_FIELDS[sf.sf_id]:
-                assert sf.fields[f] == pytest.approx(rec[f], rel=1e-11, abs=0.5 * lsb), (
+                assert sf.fields[f] == pytest.approx(getattr(rec, f), rel=1e-11, abs=0.5 * lsb), (
                     prn,
                     sf.sf_id,
                     f,
                 )
             if sf.sf_id == 1:
-                assert sf.fields["wn"] == rec["week"] % 1024, prn
+                assert sf.fields["wn"] == rec.wn, prn
         if res.ephemeris is not None:
             complete += 1
         if res.ionosphere is not None and iono is not None:
             # the header stores five significant digits
-            assert res.ionosphere.alpha == pytest.approx(iono[0], rel=1e-4)
-            assert res.ionosphere.beta == pytest.approx(iono[1], rel=1e-4)
+            assert res.ionosphere.alpha == pytest.approx(iono.alpha, rel=1e-4)
+            assert res.ionosphere.beta == pytest.approx(iono.beta, rel=1e-4)
     # satellites differ in range by up to 20 ms of light time
     assert max(starts) - min(starts) <= 0.03
     assert complete == (len(prns) if 1 in sf_ids else 0)
 
 
-def _find(nav, prn, sf):
+def _find(ephs, prn, sf):
     """The record whose IODE (sf2/sf3) or IODC (sf1) matches the subframe."""
-    for (p, iode, iodc), rec in nav.items():
-        if p != prn:
+    for rec in ephs:
+        if rec.prn != prn:
             continue
-        if sf.sf_id == 1 and iodc == sf.fields["iodc"]:
+        if sf.sf_id == 1 and rec.iodc == sf.fields["iodc"]:
             return rec
-        if sf.sf_id in (2, 3) and iode == sf.fields["iode"]:
+        if sf.sf_id in (2, 3) and rec.iode == sf.fields["iode"]:
             return rec
     return None

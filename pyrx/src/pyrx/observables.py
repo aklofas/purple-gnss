@@ -65,6 +65,17 @@ class Observation:
 
 @dataclass(frozen=True)
 class Epoch:
+    """Observations of all channels at one receiver epoch.
+
+    `tow` is seconds from the start of `week`. Within one `make_observables` run it
+    increases monotonically and may reach or exceed 604800 when a recording crosses
+    the week boundary; `week` does not change within a run. The RINEX reader
+    returns `tow` in [0, 604800) with the week of the time stamp. Consumers form a
+    continuous time as `week * WEEK_S + tow` when they need one and reduce every
+    difference against an ephemeris time of week (`toe`, `toc`) into
+    [-302400, 302400) with `orbits.wrap_week`.
+    """
+
     week: int | None
     tow: float  # GPS seconds of week of the receiver epoch
     obs: list[Observation]  # ascending PRN

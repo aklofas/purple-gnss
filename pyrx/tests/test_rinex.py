@@ -1,12 +1,21 @@
 from datetime import datetime
+from math import isnan
 
 import pytest
-from rinex_nav import load_gps_iono, load_gps_nav
 from test_lnav import SF1, SF2, SF3
 
 from pyrx.lnav import Ionosphere, assemble_ephemeris, decode_subframe, encode_subframe
 from pyrx.observables import Epoch, Observation
-from pyrx.rinex import gps_datetime, ura_metres, write_rinex_nav, write_rinex_obs
+from pyrx.rinex import (
+    URA_BOUNDS,
+    gps_datetime,
+    read_rinex_nav,
+    read_rinex_obs,
+    ura_index,
+    ura_metres,
+    write_rinex_nav,
+    write_rinex_obs,
+)
 
 
 def test_gps_datetime():
@@ -74,16 +83,82 @@ def test_nav_round_trip(tmp_path):
         "     3.05           N: GNSS NAV DATA    G: GPS              RINEX VERSION / TYPE"
     )
     assert "GPSA   1.1176D-08 -7.4506D-09 -5.9605D-08  1.1921D-07       IONOSPHERIC CORR" in text
-    nav = load_gps_nav(tmp_path / "t.nav")
-    rec = nav[(4, 149, 917)]
+    [rec], iono_read = read_rinex_nav(tmp_path / "t.nav")
     for name in (
         "af0", "af1", "af2", "crs", "delta_n", "m0", "cuc", "e", "cus", "sqrt_a", "toe",
         "cic", "omega0", "cis", "i0", "crc", "omega", "omega_dot", "idot", "tgd",
     ):  # fmt: skip
-        assert rec[name] == pytest.approx(getattr(eph, name), rel=1e-11, abs=1e-20), name
-    assert rec["week"] == 2190 and rec["toc"] == 28800 and rec["ura"] == 2.0
-    assert rec["health"] == 0
-    assert load_gps_iono(tmp_path / "t.nav") == (
-        pytest.approx(iono.alpha, rel=1e-4),
-        pytest.approx(iono.beta, rel=1e-4),
+        assert getattr(rec, name) == pytest.approx(getattr(eph, name), rel=1e-11, abs=1e-20), name
+    assert (rec.prn, rec.wn, rec.toc, rec.ura, rec.health, rec.iode, rec.iodc, rec.fit) == (
+        4, 142, 28800, 0, 0, 149, 917, 0
+    )  # fmt: skip
+    assert iono_read.alpha == pytest.approx(iono.alpha, rel=1e-4)
+    assert iono_read.beta == pytest.approx(iono.beta, rel=1e-4)
+
+
+def test_ura_index_round_trips_the_nominal_values():
+    assert [ura_index(ura_metres(i)) for i in range(15)] == list(range(15))
+    assert ura_index(2.4) == 0 and ura_index(2.41) == 1
+    assert ura_index(6144.0) == 14 and ura_index(7000.0) == 15  # 6144 m is the top interval's bound
+    assert len(URA_BOUNDS) == 15 and URA_BOUNDS[0] == 2.4 and URA_BOUNDS[14] == 6144.0
+
+
+def test_read_rinex_obs_round_trip(tmp_path):
+    epochs = [
+        Epoch(2190, 30260.0, [
+            Observation(4, 22235454.255, -116848778.204, 421.142, 43.3),
+            Observation(16, 20653742.563, 108536284.235, -698.28, 46.9),
+        ]),
+        Epoch(2190, 30261.0, [Observation(4, 22235373.830, -116848357.260, 420.9, 43.2)]),
+    ]  # fmt: skip
+    write_rinex_obs(tmp_path / "t.obs", epochs)
+    assert read_rinex_obs(tmp_path / "t.obs") == epochs
+    assert (
+        read_rinex_obs(
+            tmp_path / "t.obs",
+            (datetime(2021, 12, 26, 8, 24, 20, 500000), datetime(2021, 12, 26, 9)),
+        )
+        == epochs[1:]
     )
+
+
+def test_read_rinex_obs_without_doppler(tmp_path):
+    lines = [
+        "     3.04           OBSERVATION DATA    M                   RINEX VERSION / TYPE",
+        "G    2 C1C L1C                                              SYS / # / OBS TYPES",
+        "  2021    12    26     8    24   20.0000000     GPS         TIME OF FIRST OBS",
+        "                                                            END OF HEADER",
+        "> 2021 12 26 08 24 20.0000000  0  2",
+        "G04  22235454.255  -116848778.204",
+        "G16  20653742.563",
+    ]
+    (tmp_path / "s.obs").write_text("\n".join(lines) + "\n")
+    [epoch] = read_rinex_obs(tmp_path / "s.obs")
+    assert (epoch.week, epoch.tow) == (2190, 30260.0)
+    assert [o.prn for o in epoch.obs] == [4, 16]
+    assert epoch.obs[0].pseudorange == 22235454.255 and isnan(epoch.obs[0].doppler)
+    assert isnan(epoch.obs[1].carrier_phase) and isnan(epoch.obs[1].cn0)
+
+
+def test_write_rinex_obs_leaves_missing_values_blank(tmp_path):
+    nan = float("nan")
+    write_rinex_obs(
+        tmp_path / "m.obs", [Epoch(2190, 30260.0, [Observation(4, 22235454.255, 0.0, nan, nan)])]
+    )
+    text = (tmp_path / "m.obs").read_text()
+    assert "nan" not in text
+    [epoch] = read_rinex_obs(tmp_path / "m.obs")
+    o = epoch.obs[0]
+    assert (o.prn, o.pseudorange, o.carrier_phase) == (4, 22235454.255, 0.0)
+    assert isnan(o.doppler) and isnan(o.cn0)
+
+
+def test_read_rinex_nav_without_ionosphere(tmp_path):
+    sfs = [
+        decode_subframe(encode_subframe(i, 5044 + i, f), 0, 0, prn=4)
+        for i, f in ((1, SF1), (2, SF2), (3, SF3))
+    ]
+    eph = assemble_ephemeris(sfs)
+    write_rinex_nav(tmp_path / "n.nav", [eph], {4: sfs[0].tow_s})
+    ephs, iono = read_rinex_nav(tmp_path / "n.nav")
+    assert iono is None and len(ephs) == 1
