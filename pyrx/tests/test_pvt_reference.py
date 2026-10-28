@@ -62,8 +62,14 @@ def test_fix_matches_rtklib_and_the_marker_on_usud(captures, tmp_path):
     mismatched = [s.tow for s, r in common if r["ns"] != len(s.prns)]
     assert len(mismatched) <= 2, mismatched
     for s, r in common:
-        if r["ns"] == len(s.prns):
-            assert np.linalg.norm(s.position - r["xyz"]) < 1.0, (s.tow, s.position - r["xyz"])
+        bound = 1.0 if r["ns"] == len(s.prns) else 5.0
+        assert np.linalg.norm(s.position - r["xyz"]) < bound, (s.tow, s.position - r["xyz"])
+    # same models number for number: over the day the two solvers differ by 0.9 mm in the
+    # mean and 0.08 mm at the 99th percentile; a model applied differently shifts the mean
+    d = np.array(
+        [np.linalg.norm(s.position - r["xyz"]) for s, r in common if r["ns"] == len(s.prns)]
+    )
+    assert d.mean() < 2e-3 and np.percentile(d, 99) < 1e-3, (d.mean(), np.percentile(d, 99))
     assert all(s.velocity is None for s in ours)
     mean = np.mean([s.position for s in ours], axis=0)
     assert np.linalg.norm(mean - USUD_XYZ) < 5.0, mean - USUD_XYZ
