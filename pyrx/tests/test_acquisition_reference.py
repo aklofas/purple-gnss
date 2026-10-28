@@ -21,6 +21,9 @@ REF_4MHZ = {
     31: (0.28975e-3, -246, 46.7),
     32: (0.69150e-3, -3210, 40.8),
 }
+# PRN 18 (4 MHz) and PRN 29 (24 MHz) sit at our 38 dB-Hz detection threshold (36.5 and
+# 38.3 dB-Hz here), so whether they are detected is not checked; the 40 dB-Hz bound on
+# every PRN outside the reference set still holds them.
 WEAK_4MHZ = set(range(1, 33)) - set(REF_4MHZ) - {18}  # Pocket SDR below 36 dB-Hz
 
 REF_24MHZ = {
@@ -41,7 +44,9 @@ def _check(results, ref, weak, fs):
         assert abs(r.doppler - dop) <= 500.0, prn
         assert abs(r.cn0 - cn0) <= 2.0, prn
     for prn in weak:
-        assert not results[prn].detected and results[prn].cn0 < 40.0, prn
+        assert not results[prn].detected, prn
+    for prn in set(range(1, 33)) - set(ref):  # no extra detection above 40 dB-Hz
+        assert results[prn].cn0 < 40.0, (prn, results[prn].cn0)
 
 
 def test_reference_l1_4mhz_iq(captures):
