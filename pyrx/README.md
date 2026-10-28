@@ -34,7 +34,7 @@ SDR's results on its sample recordings, the navigation decode with the day's
 broadcast ephemeris, and the position RTKLIB computes from our RINEX with the one
 it computes from Pocket SDR's. They need the environment variable `PYRX_CAPTURES`
 pointing at a directory holding these files, and skip when it is unset (the fix
-test also skips when `rnx2rtkp` is not on the path):
+and positioning tests also skip when `rnx2rtkp` is not on the path):
 
 | File | Source | SHA-256 |
 |---|---|---|
@@ -46,6 +46,10 @@ test also skips when `rnx2rtkp` is not on the path):
 | `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | BKG (`.../BRDC/2022/014/`), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | Pocket SDR C tracker (`pocket_trk`) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS` | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
 | `pocketsdr-trk/L1_20220114_004440_8MHz_I.ctrk.log` | the same for the 2022-01-14 recording (`$CH` only: no subframe 1 in the window, so Pocket SDR forms no observations) | `3308cc4bc7273ba09ac1a14879b9bce7dca9f696119c0718f48b1a2cb4c09e92` |
+| `igs/USUD00JPN_R_20213600000_01D_30S_MO.crx.gz` | BKG (`.../IGS/obs/2021/360/`), IGS station USUD (Usuda, Japan), 30 s observations of 2021-12-26, RINEX 3.04, Hatanaka-compressed; no Doppler logged | `b964f1f0a51ffca461712575c6dbfe915b7eac65cb0f1513c46c75e2dc78e1f2` |
+| `igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz` | the station's GPS navigation file of that day from the same directory; the one with the `GPSA`/`GPSB` ionosphere lines, so it is the navigation input for the station and for the 2021-12-26 recording | `911fe136cd28a51ba5e0f81c5494af8c32b3cdf26bac7b68f6d34821a1105649` |
+| `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, from BKG (`.../IGS/products/orbits/2190/igs21900.sp3.Z`, decompressed) | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
+| `igs/usud00jpn_20260422.log` | IGS site log of USUD (`files.igs.org/pub/station/log/`): the marker's ITRF coordinates | `80c41b22ee394448803a869da5757eae68ba3bb65aca2d5edd09470236892e41` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from its RTCM3 output with `convbin` | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | RTKLIB `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
 | `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | BKG (`.../BRDC/2022/014/`), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
@@ -183,7 +187,9 @@ out-timeform=tow
 out-outstat=residual
 ```
 
-(`-y 2` writes the `.stat` file with the residuals and the velocity).
+(`-y 2` writes the `.stat` file with the residuals and the velocity). USUD is
+29 km from the site of both recordings, which is why its day serves as the
+long-run check.
 
 ## Standalone positioning
 
