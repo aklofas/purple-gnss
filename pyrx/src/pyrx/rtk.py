@@ -113,7 +113,10 @@ class Rtk:
             tuple[str, str]
         ] = []  # bias states in state-vector order after the position
         self.biases: dict[tuple[str, str], _Bias] = {}
-        self.gf: dict[tuple[str, str], float] = {}
+        self.gf: dict[
+            tuple[str, str], float
+        ] = {}  # geometry-free against the system's first signal
+        self.lli: dict[tuple[str, str], tuple[int, int]] = {}  # last rover and base indicators
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
@@ -224,10 +227,13 @@ class Rtk:
 
         # single differences, slips and ambiguity states (RTKLIB udbias)
         sd = {}  # (sat, signal) -> (phase m, code m)
+        halves = {}
+        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
         for sat in common:
             yr_p, yr_c, _, _, lli_r = yr[sat]
             yb_p, yb_c, _, _, lli_b = yb[sat]
-            first = {}
+            ref_sig = first_sigs[sat[0]]
+            ref_phase = None
             for j, sig in enumerate(signals):
                 jb = cols[j]
                 if jb is None or not (isfinite(yr_p[j]) and isfinite(yb_p[jb])):
@@ -235,13 +241,16 @@ class Rtk:
                 key = (sat, sig)
                 phase = yr_p[j] - yb_p[jb]
                 code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
-                slip = bool((lli_r[j] | lli_b[jb]) & 1)
-                half = bool((lli_r[j] | lli_b[jb]) & 2)
-                system = sig[0]
-                if system not in first:
-                    first[system] = (sig, phase)
-                else:
-                    ref_sig, ref_phase = first[system]
+                # a loss-of-lock flag, or a half-cycle flag changing, at either receiver
+                prev_r, prev_b = self.lli.get(key, (lli_r[j], lli_b[jb]))
+                slip = bool((lli_r[j] | lli_b[jb]) & 1) or bool(
+                    ((prev_r ^ lli_r[j]) | (prev_b ^ lli_b[jb])) & 2
+                )
+                self.lli[key] = (int(lli_r[j]), int(lli_b[jb]))
+                halves[key] = bool((lli_r[j] | lli_b[jb]) & 2)
+                if sig == ref_sig:
+                    ref_phase = phase
+                elif ref_phase is not None:  # geometry-free against the first signal, when present
                     gf = ref_phase - phase
                     prev = self.gf.get(key)
                     if prev is not None and abs(gf - prev) > opt.slip_threshold:
@@ -254,7 +263,6 @@ class Rtk:
                 if code is not None:
                     sd[key] = (phase, code)
                     if key in self.biases:
-                        self.biases[key].half = half
                         i = self._index(key)
                         self.P[i, i] += opt.bias_noise**2 * abs(tt)
         # align existing states to the current single-differenced clock, create the rest
@@ -270,7 +278,7 @@ class Rtk:
             for k, v in news.items():
                 if k not in self.biases:
                     self._add(k, v, opt.bias_sigma**2)
-                    self.biases[k].half = False
+                self.biases[k].half = halves[k]
 
         # double differences (RTKLIB ddres)
         rows, v, blocks = [], [], []

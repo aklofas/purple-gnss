@@ -182,11 +182,17 @@ def read_rinex_header(path) -> RinexHeader:
     return RinexHeader(marker, position, delta, antenna, receiver)
 
 
-def _parse_epoch_line(line: str) -> tuple[datetime, int, int]:
-    f = line[1:].split()
-    second = float(f[5])
-    t = datetime(int(f[0]), int(f[1]), int(f[2]), int(f[3]), int(f[4])) + timedelta(seconds=second)
-    return t, int(f[6]), int(f[7])
+def _parse_epoch_line(line: str) -> tuple[datetime | None, int, int]:
+    """Time (None for an event record, whose time may be blank), epoch flag and record count."""
+    flag = int(line[31])
+    count = int(line[32:35])
+    if flag > 1:
+        return None, flag, count
+    f = line[1:31].split()
+    t = datetime(int(f[0]), int(f[1]), int(f[2]), int(f[3]), int(f[4])) + timedelta(
+        seconds=float(f[5])
+    )
+    return t, flag, count
 
 
 def read_rinex_observations(

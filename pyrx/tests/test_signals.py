@@ -107,3 +107,13 @@ def test_write_rinex_observations_round_trip(tmp_path):
     np.testing.assert_allclose(back[0].pseudorange, epochs[0].pseudorange)
     np.testing.assert_allclose(back[0].carrier_phase, epochs[0].carrier_phase)
     np.testing.assert_array_equal(back[0].lli, epochs[0].lli)
+
+
+def test_read_rinex_observations_skips_event_records(tmp_path):
+    event = (
+        ">                              4  1\n"
+        "antenna moved                                               COMMENT\n"
+    )
+    (tmp_path / "e.obs").write_text(HEADER + event + RINEX[len(HEADER) :])
+    epochs = read_rinex_observations(tmp_path / "e.obs", ("G1C",))
+    assert [e.tow for e in epochs] == [0.0, 30.0] and epochs[0].sats == ("G04", "G16")

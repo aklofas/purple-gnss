@@ -252,3 +252,46 @@ def test_solve_rtk_reports_the_marker_and_skips_unpaired_epochs():
     assert [f.tow for f in fixes] == [TOW, TOW + 30.0, TOW + 60.0, TOW + 90.0]
     assert fixes[2].age == 30.0 and fixes[-1].status == "fix"
     np.testing.assert_allclose(fixes[-1].position, marker_from_arp(ROVER, delta), atol=0.01)
+
+
+def test_rtk_keeps_ambiguities_when_the_first_signal_is_missing_for_an_epoch():
+    rng = np.random.default_rng(21)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    signals = ("G1C", "G2W", "G5Q")
+    for k in range(5):
+        drop = {("G03", "G1C")} if k == 3 else ()
+        fix = rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, signals=signals, drop=drop))
+        assert fix is not None
+    # the geometry-free test is skipped, not fooled, when L1 is absent: L2 and L5 keep their locks
+    locks = {sig: rtk.biases[("G03", sig)].lock for sig in signals}
+    assert locks == {"G1C": 4, "G2W": 5, "G5Q": 5}
+    assert fix.status == "fix" and fix.nb == 15
+    np.testing.assert_allclose(fix.position, ROVER, atol=0.01)
+
+
+def test_rtk_resets_on_a_half_cycle_transition():
+    rng = np.random.default_rng(22)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    amb = dict(AMB_R)
+    for k in range(3):
+        rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, amb_r=amb, signals=("G1C",)))
+    # the receiver tracks G03 with an unresolved half cycle for one epoch, then resolves it
+    amb[("G03", "G1C")] += 0.5
+    fix = rtk.step(
+        *_pair(rng, ephs, TOW + 90.0, amb_r=amb, lli={("G03", "G1C"): 2}, signals=("G1C",))
+    )
+    assert fix is not None and rtk.biases[("G03", "G1C")].half
+    amb[("G03", "G1C")] += 0.5
+    fixes = [
+        rtk.step(*_pair(rng, ephs, TOW + 120.0 + 30.0 * k, amb_r=amb, signals=("G1C",)))
+        for k in range(3)
+    ]
+    assert (
+        rtk.biases[("G03", "G1C")].lock == 3
+    )  # reset at the transition, not kept half a cycle off
+    assert fixes[-1].status == "fix"
+    for f in fixes:
+        if f.status == "fix":
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01)
