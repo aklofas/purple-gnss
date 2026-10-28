@@ -32,6 +32,9 @@ from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
 
 DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
+NO_DETECTION = (
+    f"no PRN detected in the first {DEFAULT_WINDOW * 1e3:.0f} ms: check --fs, --f-if and --iq"
+)
 
 
 def parse_prns(s: str) -> list[int]:
@@ -107,6 +110,9 @@ def trk_main(argv: list[str] | None = None) -> int:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    if not seeds:
+        print(NO_DETECTION, file=sys.stderr)
+        return 2
     t0 = time.perf_counter()
     duration = args.duration if args.duration > 0 else None
     results = track_channels(
@@ -146,6 +152,9 @@ def nav_main(argv: list[str] | None = None) -> int:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    if not seeds:
+        print(NO_DETECTION, file=sys.stderr)
+        return 2
     t0 = time.perf_counter()
     duration = args.duration if args.duration > 0 else None
     tracks = track_channels(
@@ -195,6 +204,9 @@ def rinex_main(argv: list[str] | None = None) -> int:
         acq = acquire_l1ca(head, args.fs, args.f_if, prn)
         if acq.detected:
             seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    if not seeds:
+        print(NO_DETECTION, file=sys.stderr)
+        return 2
     t0 = time.perf_counter()
     duration = args.duration if args.duration > 0 else None
     tracks = track_channels(

@@ -156,3 +156,17 @@ def test_rtk_main_fixes_a_synthetic_pair(tmp_path, capsys):
     assert lines[0].startswith("% week tow x y z Q ns ratio age") and len(lines) == 5
     assert lines[-1].split()[5] == "1" and abs(float(lines[-1].split()[2]) - ROVER[0]) < 0.01
     assert rtk_main([*args, "--ts", "2021-12-26 09:00:00"]) == 2
+
+
+def test_mains_report_no_detection_with_exit_2(tmp_path, capsys):
+    fs = 4e6
+    x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.02), 45.0, True)
+    f = tmp_path / "s.bin"
+    _write_iq_int8(x, f)
+    common = [str(f), "--fs", "4e6", "--iq", "--prn", "9"]  # PRN 9 is not in the file
+    assert trk_main(common) == 2
+    assert nav_main(common) == 2
+    assert rinex_main([*common, "--obs", str(tmp_path / "o.obs")]) == 2
+    err = capsys.readouterr().err
+    assert err.count("no PRN detected") == 3 and "--f-if" in err
+    assert not (tmp_path / "o.obs").exists()
