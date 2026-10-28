@@ -76,7 +76,9 @@ def test_transmit_time_matches_pocketsdr(captures, case):
         ours = tt[k] + (t - tc[k]) / (tc[k + 1] - tc[k]) * 1e-3
         # Pocket SDR: the code start `coff` after `time` was transmitted at `tow`
         theirs = (rows[inside, 5] - rows[inside, 1]) * 1e-3
-        assert np.abs(ours - theirs).max() < 100e-9, (track.prn, np.abs(ours - theirs).max())
+        # 16 ns measured; the gate sits below half a sample at 24 MHz (20.8 ns), so a code
+        # start rounded to the sample grid fails at either rate
+        assert np.abs(ours - theirs).max() < 20e-9, (track.prn, np.abs(ours - theirs).max())
 
 
 @pytest.mark.parametrize("case", CASES, ids=IDS)
