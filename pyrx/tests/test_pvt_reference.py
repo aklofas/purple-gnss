@@ -1,5 +1,7 @@
 """Our standalone fix against RTKLIB's, on our recordings and on a day of the IGS station USUD."""
 
+from datetime import datetime
+
 import numpy as np
 import pymap3d as pm
 import pytest
@@ -74,3 +76,27 @@ def test_fix_matches_rtklib_and_the_marker_on_usud(captures, tmp_path):
     assert all(s.velocity is None for s in ours)
     mean = np.mean([s.position for s in ours], axis=0)
     assert np.linalg.norm(mean - USUD_XYZ) < 5.0, mean - USUD_XYZ
+
+
+def test_fix_without_ionosphere_coefficients_matches_rtklib_on_usud(captures, tmp_path):
+    # the worldwide GPS-only broadcast file has no GPSA/GPSB: both solvers fall back to the
+    # same default Klobuchar coefficients (1.0 mm mean and 0.12 m worst measured over the
+    # hour; 5.4 m mean without the defaults)
+    obs = capture_file(captures, USUD_OBS)
+    nav = capture_file(captures, "brdc/BRDC00WRD_R_20213600000_01D_GN.rnx")
+    window = (datetime(2021, 12, 26, 8, 0), datetime(2021, 12, 26, 9, 0))
+    epochs = read_rinex_obs(obs, tlim=window)
+    ephs, iono = read_rinex_nav(nav)
+    assert iono is None and len(epochs) == 121
+    ours = solve(epochs, ephs, iono)
+    ref, _ = rnx2rtkp_models(
+        obs, nav, tmp_path / "rtk", ts="2021/12/26 08:00:00", te="2021/12/26 09:00:00"
+    )
+    common = [(s, ref[_key(s)]) for s in ours if _key(s) in ref]
+    assert len(common) == 121 and all(r["ns"] == len(s.prns) for s, r in common)
+    d = np.array([np.linalg.norm(s.position - r["xyz"]) for s, r in common])
+    assert d.mean() < 2e-3 and np.percentile(d, 99) < 1e-3 and d.max() < 1.0, (
+        d.mean(),
+        np.percentile(d, 99),
+        d.max(),
+    )

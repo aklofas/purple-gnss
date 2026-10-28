@@ -30,6 +30,11 @@ _ERR_CBIAS = 0.3  # m, code bias error
 _ERR_BRDCI = 0.5  # fraction of the broadcast ionospheric delay
 _ERR_SAAS = 0.3  # m, Saastamoinen error at the zenith
 _MIN_EL_WEIGHT = radians(5.0)  # elevation floor of the weights, as RTKLIB's varerr
+# Klobuchar coefficients used when the navigation file carries none (RTKLIB's ion_default)
+IONO_DEFAULT = Ionosphere(
+    (0.1118e-07, -0.7451e-08, -0.5961e-07, 0.1192e-06),
+    (0.1167e06, -0.2294e06, -0.1311e06, 0.1049e07),
+)
 _CONVERGED_POS = 1e-4  # m
 _CONVERGED_VEL = 1e-6  # m/s
 
@@ -76,8 +81,7 @@ def _position(epoch, sats, iono, mask, x):
                 az, el = azimuth_elevation(x[:3], s.position)
                 if el < mask:
                     continue
-                if iono is not None:
-                    dion = klobuchar(iono, lat, lon, az, el, epoch.tow)
+                dion = klobuchar(iono, lat, lon, az, el, epoch.tow)
                 dtrp = saastamoinen(lat, h, el)
                 var = _variance(eph.ura, el, dion)
             p = o.pseudorange - C_LIGHT * eph.tgd
@@ -133,9 +137,11 @@ def solve_epoch(
 
     `x0` seeds the position (ECEF m); from None the iteration starts at the Earth's
     centre. Satellites without an ephemeris within 2 h, unhealthy ones and those
-    below `mask_deg` are left out; without Klobuchar coefficients the ionosphere
-    is not corrected.
+    below `mask_deg` are left out. `iono` None (a navigation file without
+    GPSA/GPSB) means RTKLIB's default Klobuchar coefficients, as `rnx2rtkp` does.
     """
+    if iono is None:
+        iono = IONO_DEFAULT
     sats = []
     for o in epoch.obs:
         if not isfinite(o.pseudorange):

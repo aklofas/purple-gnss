@@ -318,8 +318,10 @@ before any difference with an ephemeris time, so a file crossing the week bounda
 is handled.
 
 The ionosphere is corrected with the Klobuchar model from the navigation file's
-`GPSA`/`GPSB` coefficients; a file without them gets no ionospheric correction (not
-default coefficients). The troposphere is corrected with Saastamoinen using the
+`GPSA`/`GPSB` coefficients; a file without them (the worldwide GPS-only broadcast
+files, or our own navigation file from a recording too short to hold subframe 4
+page 18) gets RTKLIB's default coefficients, as `rnx2rtkp` applies. The
+troposphere is corrected with Saastamoinen using the
 standard atmosphere at the receiver height and 70 % humidity.
 
 Position and receiver clock bias are found by iterated weighted least squares over

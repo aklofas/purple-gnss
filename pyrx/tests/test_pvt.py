@@ -8,7 +8,7 @@ from pyrx.lnav import Ionosphere
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
 from pyrx.observables import C_LIGHT, Epoch, Observation
 from pyrx.orbits import OMEGA_E, satellite_state
-from pyrx.pvt import LAMBDA_L1, _variance, solve, solve_epoch
+from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1, _variance, solve, solve_epoch
 
 USUD = np.array([-3855263.0361, 3427432.5571, 3741020.2929])
 TOW = 28800.0
@@ -35,7 +35,11 @@ def constellation():
     return out
 
 
-def truth_epoch(ephs, xyz, dtr, vel=None, ddtr=None, week=2190, tow=TOW, iono=None, tropo=True):
+def truth_epoch(
+    ephs, xyz, dtr, vel=None, ddtr=None, week=2190, tow=TOW, iono=IONO_DEFAULT, tropo=True
+):
+    """Pseudoranges (and Dopplers) of the package's own models; the ionosphere is the one
+    the solver assumes when it gets none, so a test may solve without passing it."""
     lat, lon, h = geodetic(xyz)
     obs = []
     for eph in ephs:
@@ -89,12 +93,17 @@ def test_solve_epoch_without_doppler():
     assert sol.velocity is None and sol.clock_drift is None
 
 
-def test_solve_epoch_without_ionosphere():
+def test_solve_epoch_without_coefficients_uses_rtklib_defaults():
+    # a navigation file without GPSA/GPSB gets RTKLIB's default Klobuchar coefficients, so
+    # the two solvers still agree on such files; the broadcast set, when present, is used
     ephs = constellation()
-    ep = truth_epoch(ephs, USUD, 0.0, iono=IONO)
-    far = solve_epoch(ep, ephs, None).position  # no correction applied: a few metres off, mostly up
-    assert 1.0 < np.linalg.norm(far - USUD) < 30.0
-    np.testing.assert_allclose(solve_epoch(ep, ephs, IONO).position, USUD, atol=1e-3, rtol=0)
+    ep = truth_epoch(ephs, USUD, 0.0, iono=IONO_DEFAULT)
+    np.testing.assert_allclose(solve_epoch(ep, ephs, None).position, USUD, atol=1e-3, rtol=0)
+    strong = Ionosphere(tuple(3 * a for a in IONO.alpha), IONO.beta)
+    ep = truth_epoch(ephs, USUD, 0.0, iono=strong)
+    off = solve_epoch(ep, ephs, None).position  # the defaults leave metres, mostly up
+    assert 1.0 < np.linalg.norm(off - USUD) < 30.0
+    np.testing.assert_allclose(solve_epoch(ep, ephs, strong).position, USUD, atol=1e-3, rtol=0)
 
 
 def test_solve_epoch_applies_the_elevation_mask():
