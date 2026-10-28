@@ -201,9 +201,9 @@ def read_rinex_observations(
     """Every satellite by every requested signal, one `Observations` per epoch.
 
     Parses the RINEX 3 text itself (after Hatanaka or gzip decompression) so the
-    loss-of-lock indicators come through. A satellite is kept at an epoch when it
-    has a pseudorange or carrier phase on any requested signal; epochs without
-    satellites are dropped.
+    loss-of-lock indicators come through. A blank or 0.0 field is a missing value.
+    A satellite is kept at an epoch when it has a pseudorange or carrier phase on
+    any requested signal; epochs without satellites are dropped.
     """
     import hatanaka
 
@@ -255,7 +255,7 @@ def read_rinex_observations(
                     if col is None:
                         continue
                     field = rec[3 + 16 * col : 3 + 16 * col + 14].strip()
-                    if field:
+                    if field and float(field) != 0.0:  # 0.0 is a missing value, as a blank
                         row[k, j] = float(field)
                         if k == 1:
                             ind = rec[3 + 16 * col + 14 : 3 + 16 * col + 15].strip()
@@ -294,15 +294,17 @@ def _week_tow(t: np.datetime64) -> tuple[int, float]:
 def read_rinex_obs(path, tlim: tuple[datetime, datetime] | None = None) -> list[Epoch]:
     """GPS L1 C/A observations (C1C L1C D1C S1C) of a RINEX 3 observation file.
 
-    A satellite without a pseudorange at an epoch is skipped and an epoch without
-    satellites dropped; a missing carrier phase, Doppler or C/N0 is `nan`. `tlim`
-    bounds the epochs in GPS time.
+    A blank or 0.0 field is a missing value. A satellite without a pseudorange at
+    an epoch is skipped and an epoch without satellites dropped; a missing carrier
+    phase, Doppler or C/N0 is `nan`. `tlim` bounds the epochs in GPS time.
     """
     ds = _load(path, meas=list(OBS_TYPES), tlim=tlim)
     svs = [int(sv[1:]) for sv in ds.sv.values]
     order = np.argsort(svs)
     empty = np.full((len(ds.time), len(svs)), nan)
-    c1, l1, d1, s1 = (ds[k].values if k in ds else empty for k in OBS_TYPES)
+    c1, l1, d1, s1 = (
+        np.where(ds[k].values == 0.0, nan, ds[k].values) if k in ds else empty for k in OBS_TYPES
+    )  # 0.0 is a missing value, as a blank
     epochs = []
     for i, t in enumerate(ds.time.values):
         obs = [

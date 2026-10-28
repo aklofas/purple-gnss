@@ -153,8 +153,34 @@ def test_write_rinex_obs_leaves_missing_values_blank(tmp_path):
     assert "nan" not in text
     [epoch] = read_rinex_obs(tmp_path / "m.obs")
     o = epoch.obs[0]
-    assert (o.prn, o.pseudorange, o.carrier_phase) == (4, 22235454.255, 0.0)
-    assert isnan(o.doppler) and isnan(o.cn0)
+    assert (o.prn, o.pseudorange) == (4, 22235454.255)
+    assert isnan(o.carrier_phase) and isnan(o.doppler) and isnan(o.cn0)  # 0.000 is "missing"
+
+
+ZERO_OBS = """\
+     3.04           OBSERVATION DATA    M                   RINEX VERSION / TYPE
+G    4 C1C L1C D1C S1C                                      SYS / # / OBS TYPES
+  2021    12    26     8    24   20.0000000     GPS         TIME OF FIRST OBS
+                                                            END OF HEADER
+> 2021 12 26 08 24 20.0000000  0  3
+G04         0.000  -116848778.204           0.000          43.300
+G16  20653742.563           0.000        -698.280           0.000
+G25         0.000           0.000           0.000           0.000
+"""
+
+
+def test_readers_take_numeric_zero_as_missing(tmp_path):
+    (tmp_path / "z.obs").write_text(ZERO_OBS)
+    [epoch] = read_rinex_obs(tmp_path / "z.obs")  # a zero pseudorange has no single-point use
+    assert [o.prn for o in epoch.obs] == [16]
+    o = epoch.obs[0]
+    assert o.pseudorange == 20653742.563 and o.doppler == -698.28
+    assert isnan(o.carrier_phase) and isnan(o.cn0)
+    [obs] = read_rinex_observations(tmp_path / "z.obs", ("G1C",))
+    assert obs.sats == ("G04", "G16")  # G25 has neither code nor phase
+    assert isnan(obs.pseudorange[0, 0]) and obs.carrier_phase[0, 0] == -116848778.204
+    assert isnan(obs.doppler[0, 0]) and obs.cn0[0, 0] == 43.3
+    assert obs.pseudorange[1, 0] == 20653742.563 and isnan(obs.carrier_phase[1, 0])
 
 
 def test_read_rinex_nav_without_ionosphere(tmp_path):
