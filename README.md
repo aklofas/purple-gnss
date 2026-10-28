@@ -1,13 +1,13 @@
-# purple-gnss
+# Purple GNSS
 
-**An open RTK GNSS receiver built from scratch.** The antenna and processing
-hardware, the firmware that runs on it, and the positioning math that turns raw
-satellite measurements into a centimetre-level fix, as one project, with every
-layer in the open: Verilog on an open FPGA toolchain, C on a Cortex-M7, KiCad
-for the boards, and Python for the reference receiver that proves each
-algorithm before it is ported.
+**An Open Source RTK GNSS Receiver.** The antenna and processing hardware, the
+firmware that runs on it, and the positioning math that turns raw satellite
+measurements into a centimetre-level fix, as one project, with every layer in
+the open: Verilog on an open FPGA toolchain, C on a Cortex-M7, KiCad for the
+boards, and Python for the reference receiver that proves each algorithm
+before it is ported.
 
-*A GNSS receiver you can read all the way down.*
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 ## What is here today
 
@@ -72,4 +72,5 @@ interfaces will change.
 
 ## License
 
-Not yet chosen. Until a license file is added, all rights are reserved.
+Licensed under **MIT** ([`LICENSE-MIT`](LICENSE-MIT)) or **Apache-2.0** ([`LICENSE-APACHE`](LICENSE-APACHE)),
+at your option.

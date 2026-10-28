@@ -1,6 +1,6 @@
-# purple-gnss documentation
+# Purple GNSS documentation
 
-purple-gnss is an open RTK GNSS receiver built from scratch: the antenna and
+Purple GNSS is an open-source RTK GNSS receiver built from scratch: the antenna and
 processing hardware, the firmware on it, and the positioning math that turns
 raw satellite measurements into a centimetre-level fix. The project is early.
 What exists today is `pyrx`, an offline receiver in Python that takes recorded
