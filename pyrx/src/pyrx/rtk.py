@@ -132,6 +132,7 @@ class Rtk:
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
+        self.last_base_time: float | None = None
 
     # --- state bookkeeping ---------------------------------------------------------------
 
@@ -236,6 +237,9 @@ class Rtk:
         signals = rover.signals
         cols = [base.signals.index(s) if s in base.signals else None for s in signals]
         age = t - _time(base)
+        # a base epoch reused for several rover epochs reports its slips once
+        base_new = _time(base) != self.last_base_time
+        self.last_base_time = _time(base)
 
         # single differences, slips and ambiguity states (RTKLIB udbias)
         sd = {}  # (sat, signal) -> (phase m, code m)
@@ -255,8 +259,10 @@ class Rtk:
                 code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
                 # a loss-of-lock flag, or a half-cycle flag changing, at either receiver
                 prev_r, prev_b = self.lli.get(key, (lli_r[j], lli_b[jb]))
-                slip = bool((lli_r[j] | lli_b[jb]) & 1) or bool(
-                    ((prev_r ^ lli_r[j]) | (prev_b ^ lli_b[jb])) & 2
+                slip = (
+                    bool(lli_r[j] & 1)
+                    or (base_new and bool(lli_b[jb] & 1))
+                    or bool(((prev_r ^ lli_r[j]) | (prev_b ^ lli_b[jb])) & 2)
                 )
                 self.lli[key] = (int(lli_r[j]), int(lli_b[jb]))
                 halves[key] = bool((lli_r[j] | lli_b[jb]) & 2)

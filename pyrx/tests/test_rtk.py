@@ -325,3 +325,22 @@ def test_rtk_seeds_from_l1_ca_and_needs_a_gps_signal(monkeypatch):
     galileo = _galileo(ephs)
     with pytest.raises(ValueError, match="GPS"):
         _rtk(galileo).step(*_pair(rng, galileo, TOW, signals=("E1C", "E5Q")))
+
+
+def test_a_reused_base_epoch_applies_its_slip_flag_once():
+    # a 1 Hz rover against a 30 s base reuses one base epoch for 30 rover epochs; a slip the
+    # base flagged resets the ambiguity at the first rover epoch that sees it, not at all 30
+    rng = np.random.default_rng(24)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    key = ("G03", "G1C")
+    rover0, base = _pair(rng, ephs, TOW, signals=("G1C",))
+    flags = base.lli.copy()
+    flags[base.sats.index("G03"), 0] = 1
+    base = replace(base, lli=flags)
+    rtk.step(rover0, base)
+    assert rtk.biases[key].lock == 1  # flagged at the base: a fresh state
+    for k in range(1, 4):
+        rover, _ = _pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",))
+        rtk.step(rover, base)
+    assert rtk.biases[key].lock == 4
