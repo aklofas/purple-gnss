@@ -1,3 +1,5 @@
+from math import pi
+
 import numpy as np
 import pytest
 
@@ -64,10 +66,28 @@ IONO = {
 }
 
 
+# LSB of every scaled field in the decoded units (IS-GPS-200 Tables 20-I, 20-III and
+# 20-X; angles in semicircles become radians); fields not listed are integers
+SC = 2**-31 * pi
+LSB = {
+    "tgd": 2**-31, "toc": 2**4, "af2": 2**-55, "af1": 2**-43, "af0": 2**-31,
+    "crs": 2**-5, "delta_n": 2**-43 * pi, "m0": SC, "cuc": 2**-29, "e": 2**-33,
+    "cus": 2**-29, "sqrt_a": 2**-19, "toe": 2**4,
+    "cic": 2**-29, "omega0": SC, "cis": 2**-29, "i0": SC, "crc": 2**-5, "omega": SC,
+    "omega_dot": 2**-43 * pi, "idot": 2**-43 * pi,
+    "alpha0": 2**-30, "alpha1": 2**-27, "alpha2": 2**-24, "alpha3": 2**-24,
+    "beta0": 2**11, "beta1": 2**14, "beta2": 2**16, "beta3": 2**16,
+}  # fmt: skip
+
+
 def _quantised(fields, decoded):
-    # every decoded value must equal the encoded one to within one LSB of its scale
+    # the encoder rounds to the field's LSB, so a decoded value is within half an LSB of
+    # the value given; integer fields are exact
     for k, v in fields.items():
-        assert decoded[k] == pytest.approx(v, rel=1e-6, abs=2e-9), k
+        if k in LSB:
+            assert abs(decoded[k] - v) <= 0.5 * LSB[k] * (1 + 1e-12), (k, decoded[k], v)
+        else:
+            assert decoded[k] == v, k
 
 
 def test_encode_word_roundtrip_and_parity():
@@ -108,6 +128,40 @@ def test_subframe4_page18_roundtrip():
     sf = decode_subframe(bits, 0, 0)
     assert sf.sf_id == 4 and sf.fields["page_sv_id"] == 56
     _quantised(IONO, sf.fields)
+
+
+def _tc(value, nbits):
+    return f"{value & ((1 << nbits) - 1):0{nbits}b}"
+
+
+def test_subframe4_page18_decodes_the_broadcast_layout():
+    # Subframe 4 page 18 laid out word by word from IS-GPS-200 Figure 20-1 (sheet 8) and
+    # Table 20-X, without the decoder's field table: word 3 carries data ID, SV ID 56,
+    # alpha0 and alpha1; word 4 alpha2, alpha3, beta0; word 5 beta1, beta2, beta3; each an
+    # 8-bit two's complement. The integers are the GPSA/GPSB values broadcast on
+    # 2022-01-14 (12, -1, -1, 2 and 56, -10, -3, 14 in units of the LSB).
+    alpha, beta = (12, -1, -1, 2), (56, -10, -3, 14)
+    words = [
+        "".join(str(b) for b in PREAMBLE) + "0" * 16,  # TLM: preamble, message, reserved
+        _tc(5045, 17) + "00" + _tc(4, 3) + "00",  # HOW: TOW count, flags, ID 4, free bits
+        "01" + _tc(56, 6) + _tc(alpha[0], 8) + _tc(alpha[1], 8),
+        _tc(alpha[2], 8) + _tc(alpha[3], 8) + _tc(beta[0], 8),
+        _tc(beta[1], 8) + _tc(beta[2], 8) + _tc(beta[3], 8),
+    ] + ["0" * 24] * 5
+    d29 = d30 = 0
+    bits = []
+    for w in words:
+        word = encode_word(np.array([int(c) for c in w], dtype=np.uint8), d29, d30)
+        bits.extend(word)
+        d29, d30 = int(word[28]), int(word[29])
+    sf = decode_subframe(np.array(bits, dtype=np.uint8), 0, 0, prn=10)
+    assert sf is not None and sf.sf_id == 4 and sf.tow_s == 5045 * 6 - 6
+    assert sf.fields["page_sv_id"] == 56
+    expect = {
+        "alpha0": 12 * 2**-30, "alpha1": -(2**-27), "alpha2": -(2**-24), "alpha3": 2 * 2**-24,
+        "beta0": 56 * 2**11, "beta1": -10 * 2**14, "beta2": -3 * 2**16, "beta3": 14 * 2**16,
+    }  # fmt: skip
+    assert {k: sf.fields[k] for k in expect} == expect
 
 
 def test_decode_rejects_bad_parity_and_bad_id():
