@@ -6,14 +6,13 @@
 
 ## Where we are today
 
-This project is early. The hardware is in design and the firmware has not
-started. What exists today is the reference receiver:
+This project is early. The hardware is in design. What exists today is the
+reference receiver:
 
 | Part | Status | Start here |
 |---|---|---|
 | **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A samples to RINEX, and RINEX to a standalone or RTK fix; each stage checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
 | **Hardware** (RF front-end, FPGA correlators, MCU board) | In design | |
-| **Firmware** | Not started | |
 
 ## See it in 30 seconds
 
