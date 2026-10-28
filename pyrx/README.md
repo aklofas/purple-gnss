@@ -158,6 +158,25 @@ columns: `week tow lat lon height clock_s ns gdop vx vy vz ddtr` (degrees, metre
 seconds, satellites used, geometric dilution of precision, ECEF velocity in m/s and
 clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 
+## RTK from the command line
+
+```sh
+pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
+```
+
+Solves the baseline from a base station of known position to the rover, epoch by
+epoch, from two RINEX observation files (plain, gzip or Hatanaka compressed, ours
+or public) and a navigation file. `--base-xyz` is the base marker; the
+marker-to-antenna offsets are taken from each file's `ANTENNA: DELTA H/E/N` unless
+given. `--signals` lists the signals to use as system letter plus RINEX attribute
+(GPS `G1C G2W G5Q`, Galileo `E1C E5Q E7Q`); the seed needs a GPS L1 signal. The
+command prints the numbers of fixed and float epochs, the mean fixed baseline in
+the base's east-north-up frame and the median ratio, then the run time; `-v`
+prints one line per solved epoch; `-o` writes those lines with the header
+`% week tow x y z Q ns ratio age` (rover marker in ECEF metres, `Q` 1 fixed 2
+float, satellites used, ratio, age of the base epoch). It returns 2 when no
+epoch solves.
+
 ## Checking the fix
 
 ```sh
@@ -187,9 +206,99 @@ out-timeform=tow
 out-outstat=residual
 ```
 
-(`-y 2` writes the `.stat` file with the residuals and the velocity). USUD is
+(`-y 2` writes the `.stat` file with the residuals and the velocity).
+
+For RTK, `rnx2rtkp -k rtk.conf -y 2 -o fix.pos rover.obs base.obs brdc.rnx` with
+
+```
+pos1-posmode=kinematic        # or static
+pos1-frequency=l1+l2          # l1, or l1+l2+l5 for GPS L5 and Galileo E5a
+pos1-soltype=forward
+pos1-elmask=15
+pos1-snrmask_r=off
+pos1-dynamics=off
+pos1-tidecorr=off
+pos1-ionoopt=brdc
+pos1-tropopt=saas
+pos1-sateph=brdc
+pos1-navsys=1                 # 9 for GPS and Galileo
+pos2-armode=continuous
+pos2-arthres=3
+pos2-arlockcnt=0
+pos2-arelmask=0
+pos2-arminfix=10
+pos2-elmaskhold=0
+pos2-aroutcnt=5
+pos2-maxage=30
+pos2-slipthres=0.05
+pos2-rejionno=30
+pos2-niter=1
+out-solformat=xyz
+out-outhead=on
+out-timesys=gpst
+out-timeform=tow
+out-outstat=residual
+ant1-antdelu=<rover ARP height above its marker>
+ant2-postype=xyz
+ant2-pos1=<base marker X>
+ant2-pos2=<base marker Y>
+ant2-pos3=<base marker Z>
+ant2-antdelu=<base ARP height above its marker>
+```
+
+is the configuration `pyrx-rtk` mirrors (RTKLIB applies the antenna offsets as
+range corrections, which agrees with moving the stations to their antenna
+reference points to well under a millimetre). Epochs where RTKLIB finds no
+relative solution produce no output line. USUD is
 29 km from the site of both recordings, which is why its day serves as the
 long-run check.
+
+## RTK
+
+Observations enter as arrays of every satellite by every requested signal, with
+the RINEX loss-of-lock indicators. The base station is its marker plus the antenna
+offset; the rover's single-point fix (the standalone solver on its GPS L1 C/A
+pseudoranges) seeds each epoch.
+
+The state is the rover antenna position and one single-differenced (rover minus
+base) carrier-phase ambiguity in cycles per satellite and signal. In kinematic mode
+the position is reset to the seed with a 30 m sigma every epoch; in static mode it
+is carried. Ambiguities are created from code minus phase with a 30-cycle sigma,
+removed after five epochs without use, on a loss-of-lock flag at either receiver,
+or when the single-differenced geometry-free combination of a satellite's first
+and another signal jumps by more than 5 cm.
+
+Residuals use the geometric range with the Earth-rotation term to the antenna
+reference point, the satellite clock with its relativistic term, and the
+hydrostatic Saastamoinen zenith delay mapped with the Niell dry function. Nothing
+else is applied: no ionosphere, no wet troposphere, no group delays, no antenna
+phase-centre model (the reference pairs have identical antennas). This is exactly
+what RTKLIB's single-baseline mode applies, so the two solvers can be compared
+number for number. Double differences are formed per system against the highest
+satellite, carrier phase and code, with RTKLIB's single-difference variance
+`2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) and the
+block covariance of a shared reference; a double difference beyond 30 m is
+dropped. One Kalman update per epoch, linearised at the seed; fewer than four
+satellites on the first signal gives no solution.
+
+Integer ambiguities are searched with LAMBDA (decorrelation and a depth-first
+search keeping the two best candidates) over the double differences of the
+satellites used this epoch whose ambiguity has survived at least one validated
+epoch, with the lowest-numbered satellite of each system and signal as reference.
+A fix is accepted when at least two ambiguities were searched and the ratio of the
+second to the best squared norm is at least 3; the float states are kept
+(continuous mode, no hold). Galileo E1/E5a and GPS L5 run through the same engine
+with a reference satellite per system.
+
+The reference tests run on 6 h of two IGS station pairs of 2021-12-26, MATE–MAT1
+(Matera, 11 m) and TLSE–TLSG (Toulouse, 1266 m), against the EUREF combined
+weekly SINEX coordinates of the markers and against RTKLIB with the configuration
+above: fixed epochs within 1 cm mean and 2 cm at the 95th percentile of the
+published position, fix rate within 10 points of RTKLIB's, agreement with RTKLIB's
+fixed positions within 1 cm at the 95th percentile, and time to first fix over
+restarts every 30 min within twice RTKLIB's mean. GPS L5 with Galileo E1/E5b/E5a is
+checked on the Matera pair against RTKLIB's three-frequency run, and the
+hardware's own set, GPS L1/L5 with Galileo E1/E5a, against the published position.
 
 ## Standalone positioning
 

@@ -10,20 +10,24 @@ from math import degrees, nan
 from pathlib import Path
 
 import numpy as np
+import pymap3d as pm
 
 from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
-from pyrx.models import geodetic
+from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav
 from pyrx.observables import make_observables
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.pvt import ELEVATION_MASK, solve
 from pyrx.rinex import (
     gps_datetime,
+    read_rinex_header,
     read_rinex_nav,
     read_rinex_obs,
+    read_rinex_observations,
     write_rinex_nav,
     write_rinex_obs,
 )
+from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
 
@@ -280,6 +284,84 @@ def pvt_main(argv: list[str] | None = None) -> int:
         lines = ["% week tow lat lon height clock_s ns gdop vx vy vz ddtr"]
         lines += [_solution_line(s) for s in sols]
         out.write_text("\n".join(lines) + "\n")
+    print(f"TIME = {elapsed:.3f} s")
+    return 0
+
+
+def _time_limits(ts: str | None, te: str | None):
+    if ts is None and te is None:
+        return None
+    start = datetime.fromisoformat(ts) if ts else datetime(1980, 1, 6)
+    end = datetime.fromisoformat(te) if te else datetime(2100, 1, 1)
+    return (start, end)
+
+
+def rtk_main(argv: list[str] | None = None) -> int:
+    """RTK baseline per epoch from rover and base RINEX observation files and a navigation file."""
+    p = argparse.ArgumentParser(prog="pyrx-rtk", description=rtk_main.__doc__)
+    p.add_argument("rover", help="rover RINEX observation file (plain, .gz or Hatanaka)")
+    p.add_argument("base", help="base RINEX observation file")
+    p.add_argument("nav", help="RINEX navigation file")
+    p.add_argument("--base-xyz", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    p.add_argument(
+        "--base-delta", type=float, nargs=3, default=None, metavar=("E", "N", "U"),
+        help="base marker to antenna reference point (m); default from the file header",
+    )  # fmt: skip
+    p.add_argument(
+        "--rover-delta", type=float, nargs=3, default=None, metavar=("E", "N", "U"),
+        help="rover marker to antenna reference point (m); default from the file header",
+    )  # fmt: skip
+    p.add_argument("--signals", default="G1C,G2W", help="signals to use, e.g. G1C,G2W,E1C,E5Q")
+    p.add_argument("--mode", choices=("kinematic", "static"), default="kinematic")
+    p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
+    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
+    p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
+    args = p.parse_args(argv)
+
+    signals = tuple(args.signals.split(","))
+    tlim = _time_limits(args.ts, args.te)
+    t0 = time.perf_counter()
+    rover_delta = args.rover_delta or read_rinex_header(args.rover).delta_enu
+    base_delta = args.base_delta or read_rinex_header(args.base).delta_enu
+    rover = read_rinex_observations(args.rover, signals, tlim)
+    base = read_rinex_observations(args.base, signals, tlim)
+    ephs, iono = read_rinex_nav(args.nav)
+    station = Station(np.array(args.base_xyz), np.asarray(base_delta, dtype=float))
+    fixes = solve_rtk(
+        rover, base, ephs, station, np.asarray(rover_delta, dtype=float),
+        RtkOptions(mode=args.mode, mask_deg=args.mask), iono,
+    )  # fmt: skip
+    elapsed = time.perf_counter() - t0
+
+    def line(f):
+        q = 1 if f.status == "fix" else 2
+        x, y, z = f.position
+        return f"{f.week} {f.tow:.3f} {x:.4f} {y:.4f} {z:.4f} {q} {f.ns} {f.ratio:.1f} {f.age:.2f}"
+
+    if args.verbose:
+        for f in fixes:
+            print(line(f))
+    if not fixes:
+        print(f"no epoch solved of {len(rover)} rover epochs read", file=sys.stderr)
+        return 2
+    fixed = [f for f in fixes if f.status == "fix"]
+    lat, lon, h = geodetic(station.marker)
+    if fixed:
+        enu = np.array([pm.ecef2enu(*f.position, lat, lon, h, deg=False) for f in fixed])
+        e, n, u = enu.mean(axis=0)
+        ratio = float(np.median([f.ratio for f in fixed]))
+    else:
+        e = n = u = ratio = nan
+    print(
+        f"EPOCHS {len(fixed)} fixed {len(fixes) - len(fixed)} float of {len(rover)}  "
+        f"mean fixed baseline E {e:.4f} N {n:.4f} U {u:.4f} m  ratio median {ratio:.1f}"
+    )
+    if args.out is not None:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(["% week tow x y z Q ns ratio age", *map(line, fixes)]) + "\n")
     print(f"TIME = {elapsed:.3f} s")
     return 0
 

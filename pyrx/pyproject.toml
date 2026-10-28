@@ -18,6 +18,7 @@ pyrx-trk = "pyrx.cli:trk_main"
 pyrx-nav = "pyrx.cli:nav_main"
 pyrx-rinex = "pyrx.cli:rinex_main"
 pyrx-pvt = "pyrx.cli:pvt_main"
+pyrx-rtk = "pyrx.cli:rtk_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

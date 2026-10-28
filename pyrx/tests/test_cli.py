@@ -3,10 +3,11 @@ import re
 
 import numpy as np
 from test_navdecode import _frame
-from test_pvt import USUD, constellation, truth_epoch
+from test_pvt import TOW, USUD, constellation, truth_epoch
+from test_rtk import AMB_B, AMB_R, ROVER, SIGNALS, synthetic_pair
 
-from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, trk_main
-from pyrx.rinex import write_rinex_nav, write_rinex_obs
+from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, rtk_main, trk_main
+from pyrx.rinex import write_rinex_nav, write_rinex_obs, write_rinex_observations
 from pyrx.synth import synth_l1ca
 
 
@@ -119,3 +120,25 @@ def test_pvt_main_solves_a_synthetic_file(tmp_path, capsys):
     assert lines[0].startswith("% week tow lat lon height clock_s ns gdop vx vy vz ddtr")
     assert len(lines) == 4 and lines[1].split()[:2] == ["2190", "28800.000"]
     assert pvt_main([str(obs), str(nav), "--ts", "2021-12-26 09:00:00"]) == 2
+
+
+def test_rtk_main_fixes_a_synthetic_pair(tmp_path, capsys):
+    rng = np.random.default_rng(20)
+    ephs = constellation()
+    pairs = [
+        synthetic_pair(ephs, USUD, ROVER, TOW + 30.0 * k, SIGNALS, AMB_R, AMB_B, rng)
+        for k in range(4)
+    ]
+    rov, base, nav, out = (tmp_path / n for n in ("r.obs", "b.obs", "n.nav", "fix.txt"))
+    write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
+    write_rinex_observations(base, [p[1] for p in pairs], "BASE")
+    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs}, week=2190)
+    args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C,G2W"]
+    assert rtk_main([*args, "-o", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert "EPOCHS 3 fixed 1 float of 4" in text or "EPOCHS 4 fixed 0 float of 4" in text
+    assert "baseline E" in text
+    lines = out.read_text().splitlines()
+    assert lines[0].startswith("% week tow x y z Q ns ratio age") and len(lines) == 5
+    assert lines[-1].split()[5] == "1" and abs(float(lines[-1].split()[2]) - ROVER[0]) < 0.01
+    assert rtk_main([*args, "--ts", "2021-12-26 09:00:00"]) == 2

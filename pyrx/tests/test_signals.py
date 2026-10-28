@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pyrx.rinex import read_rinex_header, read_rinex_observations
+from pyrx.rinex import read_rinex_header, read_rinex_observations, write_rinex_observations
 from pyrx.signals import signal_frequency, to_epoch, wavelength
 
 HEADER = """\
@@ -92,3 +92,18 @@ def test_read_rinex_header(tmp_path):
     assert h.receiver.startswith("SEPT POLARX5TR")
     np.testing.assert_allclose(h.position, [4628684.7755, 119996.7157, 4372109.7032])
     np.testing.assert_allclose(h.delta_enu, [0.0, 0.0, 0.441])
+
+
+def test_write_rinex_observations_round_trip(tmp_path):
+    (tmp_path / "t.obs").write_text(RINEX)
+    signals = ("G1C", "G2W", "E1C", "E5Q")
+    epochs = read_rinex_observations(tmp_path / "t.obs", signals)
+    write_rinex_observations(tmp_path / "w.obs", epochs, "TEST")
+    text = (tmp_path / "w.obs").read_text()
+    assert "G    8 C1C L1C D1C S1C C2W L2W D2W S2W" in text and "E    8 C1C L1C D1C S1C C5Q" in text
+    assert "nan" not in text
+    back = read_rinex_observations(tmp_path / "w.obs", signals)
+    assert [b.tow for b in back] == [0.0, 30.0] and back[0].sats == epochs[0].sats
+    np.testing.assert_allclose(back[0].pseudorange, epochs[0].pseudorange)
+    np.testing.assert_allclose(back[0].carrier_phase, epochs[0].carrier_phase)
+    np.testing.assert_array_equal(back[0].lli, epochs[0].lli)
