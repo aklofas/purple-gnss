@@ -212,7 +212,6 @@ class Rtk:
         t = _time(rover)
         tt = 0.0 if self.last_time is None else t - self.last_time
         self.last_time = t
-        self._age()
         if base is None:
             return None
         seed = solve_epoch(
@@ -223,6 +222,9 @@ class Rtk:
         )
         if seed is None:
             return None
+        # outages count only on epochs that reach the relative solution (RTKLIB returns
+        # before udbias without a base, beyond the age limit or without a seed)
+        self._age()
         if opt.mode == "kinematic" or not self.P[:3, :3].any():
             self.x[:3] = seed.position
             self.P[:3, :] = 0.0
@@ -348,18 +350,17 @@ class Rtk:
             K = self.P @ H.T @ np.linalg.inv(S)
         except np.linalg.LinAlgError:
             return None
-        x = self.x + K @ v
-        P = (np.eye(n) - K @ H) @ self.P
-        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
-        ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
-        if ns < 4:
-            return None
-        self.x, self.P = x, P
+        self.x = self.x + K @ v
+        self.P = (np.eye(n) - K @ H) @ self.P
         for key in used:
             b = self.biases[key]
             b.lock += 1
             b.outc = 0
             b.used = True
+        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
+        ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
+        if ns < 4:  # the update stands, the epoch has no solution (RTKLIB SOLQ_NONE)
+            return None
 
         # ambiguity resolution (RTKLIB resamb_LAMBDA, continuous mode)
         pairs = []

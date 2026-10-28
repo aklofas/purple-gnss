@@ -344,3 +344,43 @@ def test_a_reused_base_epoch_applies_its_slip_flag_once():
         rover, _ = _pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",))
         rtk.step(rover, base)
     assert rtk.biases[key].lock == 4
+
+
+def test_ambiguities_survive_a_base_gap_longer_than_the_outage_limit():
+    # 1 Hz rover, 30 s base with one epoch missing: the rover epochs that get no base (or
+    # no seed) never reach the relative solution, so they must not count as outages; the
+    # ambiguities are kept and the fix resumes at once when the base returns
+    rng = np.random.default_rng(25)
+    ephs = constellation()
+    station = Station(USUD, np.zeros(3))
+    rover, base = [], []
+    for k in range(90):
+        r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, SIGNALS, AMB_R, AMB_B, rng)
+        rover.append(r)
+        if k in (0, 60):  # the base epoch at 30 s is missing
+            base.append(b)
+    rtk = Rtk(ephs, station, np.zeros(3))
+    fixes = {}
+    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+        f = rtk.step(r, b)
+        if f is not None:
+            fixes[r.tow - TOW] = f
+    assert sorted(fixes) == [*range(31), *range(60, 90)]
+    assert all(rtk.biases[k].lock == 61 for k in rtk.biases)  # one per relative epoch
+    assert fixes[60.0].status == "fix"
+    np.testing.assert_allclose(fixes[60.0].position, ROVER, atol=0.01, rtol=0)
+
+
+def test_an_epoch_with_fewer_than_four_satellites_still_updates_the_filter():
+    # RTKLIB commits the float update and the lock counts, then reports no solution
+    rng = np.random.default_rng(26)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    for k in range(2):
+        rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, signals=("G1C",)))
+    drop = {(f"G{p:02d}", "G1C") for p in (4, 5, 6)}
+    assert rtk.step(*_pair(rng, ephs, TOW + 60.0, signals=("G1C",), drop=drop)) is None
+    assert {k: b.lock for k, b in rtk.biases.items()} == {
+        ("G01", "G1C"): 3, ("G02", "G1C"): 3, ("G03", "G1C"): 3,
+        ("G04", "G1C"): 2, ("G05", "G1C"): 2, ("G06", "G1C"): 2,
+    }  # fmt: skip
