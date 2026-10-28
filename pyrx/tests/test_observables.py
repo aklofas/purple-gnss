@@ -61,7 +61,7 @@ def test_pseudorange_matches_synthetic_truth():
         assert 40.0 < e.obs[0].cn0 < 50.0
     phases = np.array([e.obs[0].carrier_phase for e in epochs])
     rate = np.diff(phases) / np.diff([e.tow for e in epochs])
-    np.testing.assert_allclose(rate, -fd, atol=0.5)
+    np.testing.assert_allclose(rate, -fd, atol=0.5, rtol=0)
 
 
 def test_two_channels_pseudorange_difference():

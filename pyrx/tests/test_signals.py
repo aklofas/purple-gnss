@@ -90,8 +90,8 @@ def test_read_rinex_header(tmp_path):
     h = read_rinex_header(tmp_path / "t.obs")
     assert h.marker == "TEST" and h.antenna == "TRM59800.00     NONE"
     assert h.receiver.startswith("SEPT POLARX5TR")
-    np.testing.assert_allclose(h.position, [4628684.7755, 119996.7157, 4372109.7032])
-    np.testing.assert_allclose(h.delta_enu, [0.0, 0.0, 0.441])
+    np.testing.assert_array_equal(h.position, [4628684.7755, 119996.7157, 4372109.7032])
+    np.testing.assert_array_equal(h.delta_enu, [0.0, 0.0, 0.441])
 
 
 def test_write_rinex_observations_round_trip(tmp_path):
@@ -104,8 +104,8 @@ def test_write_rinex_observations_round_trip(tmp_path):
     assert "nan" not in text
     back = read_rinex_observations(tmp_path / "w.obs", signals)
     assert [b.tow for b in back] == [0.0, 30.0] and back[0].sats == epochs[0].sats
-    np.testing.assert_allclose(back[0].pseudorange, epochs[0].pseudorange)
-    np.testing.assert_allclose(back[0].carrier_phase, epochs[0].carrier_phase)
+    np.testing.assert_allclose(back[0].pseudorange, epochs[0].pseudorange, atol=5e-4, rtol=0)
+    np.testing.assert_allclose(back[0].carrier_phase, epochs[0].carrier_phase, atol=5e-4, rtol=0)
     np.testing.assert_array_equal(back[0].lli, epochs[0].lli)
 
 

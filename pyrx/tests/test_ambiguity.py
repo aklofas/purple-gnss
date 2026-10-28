@@ -19,7 +19,7 @@ def test_decorrelate_is_unimodular_and_reconstructs_q():
     Z, L, D = decorrelate(Q)
     assert abs(round(np.linalg.det(Z))) == 1 and Z.dtype.kind == "i"
     Qz = Z @ Q @ Z.T
-    np.testing.assert_allclose(L.T @ np.diag(D) @ L, Qz, atol=1e-10)
+    np.testing.assert_allclose(L.T @ np.diag(D) @ L, Qz, atol=1e-10, rtol=0)
     c = Qz / np.sqrt(np.outer(np.diag(Qz), np.diag(Qz)))
     # decorrelated: correlations at or below one half, the bound of the integer reduction
     assert np.abs(c - np.eye(len(c))).max() <= 0.5 + 1e-9

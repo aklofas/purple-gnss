@@ -80,7 +80,7 @@ def test_station_arp_and_back():
     arp = station_arp(st)
     assert np.linalg.norm(arp - USUD) == pytest.approx(1.053, abs=1e-6)
     assert np.linalg.norm(arp) > np.linalg.norm(USUD)  # up
-    np.testing.assert_allclose(marker_from_arp(arp, st.delta_enu), USUD, atol=1e-6)
+    np.testing.assert_allclose(marker_from_arp(arp, st.delta_enu), USUD, atol=1e-6, rtol=0)
 
 
 def test_zenith_hydrostatic_matches_saastamoinen_dry():

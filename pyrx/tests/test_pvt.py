@@ -74,9 +74,9 @@ def test_solve_epoch_recovers_position_clock_and_velocity():
     ep = truth_epoch(ephs, USUD, 1.5e-4, vel, ddtr, iono=IONO)
     sol = solve_epoch(ep, ephs, IONO)
     assert sol is not None and sol.prns == (1, 2, 3, 4, 5, 6)
-    np.testing.assert_allclose(sol.position, USUD, atol=1e-3)
+    np.testing.assert_allclose(sol.position, USUD, atol=1e-3, rtol=0)
     assert sol.clock_bias == pytest.approx(1.5e-4, abs=1e-12)
-    np.testing.assert_allclose(sol.velocity, vel, atol=1e-3)
+    np.testing.assert_allclose(sol.velocity, vel, atol=1e-3, rtol=0)
     assert sol.clock_drift == pytest.approx(ddtr, abs=1e-12)
     assert np.abs(sol.residuals).max() < 1e-3 and 0 < sol.gdop < 30
     assert (sol.week, sol.tow) == (2190, TOW)
@@ -85,7 +85,7 @@ def test_solve_epoch_recovers_position_clock_and_velocity():
 def test_solve_epoch_without_doppler():
     ephs = constellation()
     sol = solve_epoch(truth_epoch(ephs, USUD, 0.0), ephs)
-    np.testing.assert_allclose(sol.position, USUD, atol=1e-3)
+    np.testing.assert_allclose(sol.position, USUD, atol=1e-3, rtol=0)
     assert sol.velocity is None and sol.clock_drift is None
 
 
@@ -94,7 +94,7 @@ def test_solve_epoch_without_ionosphere():
     ep = truth_epoch(ephs, USUD, 0.0, iono=IONO)
     far = solve_epoch(ep, ephs, None).position  # no correction applied: a few metres off, mostly up
     assert 1.0 < np.linalg.norm(far - USUD) < 30.0
-    np.testing.assert_allclose(solve_epoch(ep, ephs, IONO).position, USUD, atol=1e-3)
+    np.testing.assert_allclose(solve_epoch(ep, ephs, IONO).position, USUD, atol=1e-3, rtol=0)
 
 
 def test_solve_epoch_applies_the_elevation_mask():
@@ -114,7 +114,7 @@ def test_solve_epoch_excludes_unhealthy_stale_and_unknown():
     ep = Epoch(ep.week, ep.tow, ep.obs + [Observation(7, 2.2e7, float("nan"), float("nan"), 40.0)])
     sol = solve_epoch(ep, ephs)
     assert sol.prns == (3, 4, 5, 6)
-    np.testing.assert_allclose(sol.position, USUD, atol=1e-3)
+    np.testing.assert_allclose(sol.position, USUD, atol=1e-3, rtol=0)
 
 
 def test_solve_epoch_needs_four_satellites():
@@ -138,7 +138,9 @@ def test_solve_converges_from_the_earth_centre_and_seeds_the_next_epoch():
     ep1 = truth_epoch(ephs, USUD + np.array([1.0, 2.0, 3.0]), 1e-3, tow=TOW + 1.0)
     sols = solve([ep0, ep1], ephs)
     assert len(sols) == 2
-    np.testing.assert_allclose(sols[1].position - sols[0].position, [1.0, 2.0, 3.0], atol=1e-3)
+    np.testing.assert_allclose(
+        sols[1].position - sols[0].position, [1.0, 2.0, 3.0], atol=1e-3, rtol=0
+    )
 
 
 def test_solve_skips_unsolvable_epochs():

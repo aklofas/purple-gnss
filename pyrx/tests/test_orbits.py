@@ -54,7 +54,7 @@ def test_satellite_state_is_a_near_circular_gps_orbit():
     dt = 1.0
     s2 = satellite_state(eph, eph.toe + dt)
     np.testing.assert_allclose(
-        (s2.position - s.position) / dt, (s.velocity + s2.velocity) / 2, atol=1e-3
+        (s2.position - s.position) / dt, (s.velocity + s2.velocity) / 2, atol=1e-3, rtol=0
     )
 
 
@@ -69,7 +69,7 @@ def test_satellite_state_at_toe_matches_closed_form_for_zero_eccentricity():
         np.cos(u) * np.sin(big_omega) + np.sin(u) * np.cos(eph.i0) * np.cos(big_omega),
         np.sin(u) * np.sin(eph.i0),
     ])  # fmt: skip
-    np.testing.assert_allclose(s.position, expected, atol=1e-6)
+    np.testing.assert_allclose(s.position, expected, atol=1e-6, rtol=0)
     assert s.clock == pytest.approx(satellite_clock(eph, eph.toe))  # no relativity when e = 0
 
 
@@ -86,7 +86,7 @@ def test_satellite_state_wraps_week():
     eph = _eph(toe=604000.0, toc=604000.0)
     a = satellite_state(eph, 604100.0)
     b = satellite_state(eph, 604100.0 - 604800.0)  # the same instant written in the next week
-    np.testing.assert_allclose(a.position, b.position, atol=1e-6)
+    np.testing.assert_allclose(a.position, b.position, atol=1e-6, rtol=0)
 
 
 def test_select_ephemeris_by_system():
