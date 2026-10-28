@@ -384,3 +384,24 @@ def test_an_epoch_with_fewer_than_four_satellites_still_updates_the_filter():
         ("G01", "G1C"): 3, ("G02", "G1C"): 3, ("G03", "G1C"): 3,
         ("G04", "G1C"): 2, ("G05", "G1C"): 2, ("G06", "G1C"): 2,
     }  # fmt: skip
+
+
+def test_ratio_is_reported_as_zero_when_the_best_candidate_has_no_residual(monkeypatch):
+    # RTKLIB accepts the fix when the best squared norm is zero and reports ratio 0.0
+    import pyrx.rtk as rtk_module
+
+    original = rtk_module.lambda_fix
+    monkeypatch.setattr(
+        rtk_module, "lambda_fix", lambda y, Q, m: (original(y, Q, m)[0], [0.0, 1.0])
+    )
+    rng = np.random.default_rng(27)
+    ephs = constellation()
+    fix = _rtk(ephs).step(*_pair(rng, ephs, TOW))
+    assert fix.status == "fix" and fix.ratio == 0.0
+
+
+def test_zero_innovation_limit_means_no_limit():
+    rng = np.random.default_rng(28)
+    ephs = constellation()
+    fix = _rtk(ephs, max_innovation=0.0).step(*_pair(rng, ephs, TOW))
+    assert fix is not None and fix.nb == 10

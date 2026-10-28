@@ -7,6 +7,14 @@ system. The seed, the residual model, the weights, the slip and outage rules, th
 filter and the ratio test are those of RTKLIB's single-baseline kinematic and
 static modes with its default options, so the two solvers compare number for
 number on the same files.
+
+Deliberate differences from RTKLIB, kept because they are at least as sound and
+do not change the default-configuration comparisons: the phase-minus-code offset
+that aligns existing ambiguity states to the current clock is averaged per signal
+(RTKLIB: per frequency index across systems); the geometry-free slip test runs
+against the first signal for every other signal present (RTKLIB stops at the
+first missing one); and of two reference candidates at exactly the same
+elevation the first by satellite id is taken (RTKLIB the last).
 """
 
 from dataclasses import dataclass
@@ -43,7 +51,7 @@ class RtkOptions:
     max_age: float = 30.0  # s, oldest base epoch used
     max_outage: int = 5  # epochs a satellite may be missing before its ambiguity is dropped
     slip_threshold: float = 0.05  # m, geometry-free jump
-    max_innovation: float = 30.0  # m, a double difference beyond this is dropped
+    max_innovation: float = 30.0  # m, a double difference beyond this is dropped; 0 for no limit
     phase_error: float = 0.003  # m, a priori phase error (constant and per sine of elevation)
     code_ratio: float = 100.0  # code error relative to phase
     bias_sigma: float = 30.0  # cycles, initial ambiguity sigma
@@ -327,7 +335,7 @@ class Rtk:
                             i, j = self._index((sat, sig)), self._index((ref, sig))
                             res -= lam * (self.x[i] - self.x[j])
                             h[i], h[j] = lam, -lam
-                        if abs(res) > opt.max_innovation:
+                        if opt.max_innovation > 0.0 and abs(res) > opt.max_innovation:
                             continue
                         rows.append(h)
                         v.append(res)
@@ -394,7 +402,7 @@ class Rtk:
             Qab = self.P[:3] @ D.T
             try:
                 cands, s = lambda_fix(y, Qb, 2)
-                ratio = 999.9 if s[0] <= 0.0 else min(s[1] / s[0], 999.9)
+                ratio = 0.0 if s[0] <= 0.0 else min(s[1] / s[0], 999.9)
                 if s[0] <= 0.0 or ratio >= opt.ratio_threshold:
                     position = self.x[:3] - Qab @ np.linalg.solve(Qb, y - cands[0])
                     status = "fix"
