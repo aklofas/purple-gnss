@@ -251,7 +251,8 @@ class Ephemeris:
     """Clock and orbit parameters of one satellite from subframes 1, 2 and 3.
 
     Units: seconds, metres, radians and their rates; `toc` and `toe` are seconds
-    of week and `wn` the 10-bit week number.
+    of week and `wn` the 10-bit week number. A Galileo record read from RINEX
+    uses the same fields (`iode` and `iodc` hold IODnav, `ura` the SISA index).
     """
 
     prn: int
@@ -285,6 +286,8 @@ class Ephemeris:
     omega: float
     omega_dot: float
     idot: float
+    system: str = "G"  # "G" GPS, "E" Galileo (same Kepler set; `tgd` is then BGD E5a/E1)
+    tgd2: float = 0.0  # s, Galileo BGD E5b/E1
 
 
 @dataclass(frozen=True)

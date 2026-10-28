@@ -55,6 +55,10 @@ _NAV_NAMES = {
     "TGD": "tgd",
     "IODC": "iodc",
 }
+_GAL_NAMES = {k: v for k, v in _NAV_NAMES.items() if v in (
+    "af0", "af1", "af2", "crs", "delta_n", "m0", "cuc", "e", "cus", "sqrt_a", "toe",
+    "cic", "omega0", "cis", "i0", "crc", "omega", "omega_dot", "idot",
+)}  # fmt: skip
 
 
 def gps_datetime(week: int, tow: float) -> datetime:
@@ -270,28 +274,63 @@ def _read_iono(path) -> Ionosphere | None:
     return None
 
 
+def _gps_record(r, prn, toc) -> Ephemeris:
+    f = {ours: float(r[theirs].values) for theirs, ours in _NAV_NAMES.items()}
+    for k in ("iode", "iodc", "health", "code_l2", "l2p"):
+        f[k] = int(f[k])
+    return Ephemeris(
+        prn=prn,
+        wn=int(r["GPSWeek"].values) % 1024,
+        ura=ura_index(float(r["SVacc"].values)),
+        toc=toc,
+        fit=1 if float(r["FitIntvl"].values) > 4 else 0,
+        aodo=0,
+        **f,
+    )
+
+
+def _galileo_record(r, prn, toc) -> Ephemeris | None:
+    """A Galileo record, or None for an F/NAV record (RTKLIB keeps I/NAV, data-source bit 9)."""
+    if not int(r["DataSrc"].values) & 512:
+        return None
+    f = {ours: float(r[theirs].values) for theirs, ours in _GAL_NAMES.items()}
+    iodnav = int(r["IODnav"].values)
+    return Ephemeris(
+        prn=prn,
+        wn=int(r["GALWeek"].values) % 1024,
+        code_l2=0,
+        ura=ura_index(float(r["SISA"].values)),
+        health=int(r["health"].values),
+        iodc=iodnav,
+        iode=iodnav,
+        l2p=0,
+        toc=toc,
+        fit=0,
+        aodo=0,
+        system="E",
+        tgd=float(r["BGDe5a"].values),
+        tgd2=float(r["BGDe5b"].values),
+        **f,
+    )
+
+
 def read_rinex_nav(path) -> tuple[list[Ephemeris], Ionosphere | None]:
-    """GPS ephemerides and Klobuchar coefficients (None without GPSA/GPSB) of a RINEX 3 file."""
-    ds = _load(path)
+    """GPS and Galileo ephemerides and Klobuchar coefficients (None without GPSA/GPSB).
+
+    Galileo keeps the I/NAV records only, as RTKLIB's `rnx2rtkp` does.
+    """
+    ds = _load(path, use={"G", "E"})
     ephs = []
     for sv in ds.sv.values:
         recs = ds.sel(sv=sv).dropna(dim="time", how="all")
+        name = str(sv).split("_")[0]  # georinex suffixes a second record at the same time
+        prn = int(name[1:])
         for t in recs.time.values:
             r = recs.sel(time=t)
-            f = {ours: float(r[theirs].values) for theirs, ours in _NAV_NAMES.items()}
-            for k in ("iode", "iodc", "health", "code_l2", "l2p"):
-                f[k] = int(f[k])
-            ephs.append(
-                Ephemeris(
-                    prn=int(sv[1:]),
-                    wn=int(r["GPSWeek"].values) % 1024,
-                    ura=ura_index(float(r["SVacc"].values)),
-                    toc=_week_tow(t)[1],
-                    fit=1 if float(r["FitIntvl"].values) > 4 else 0,
-                    aodo=0,
-                    **f,
-                )
-            )
+            toc = _week_tow(t)[1]
+            eph = _galileo_record(r, prn, toc) if name[0] == "E" else _gps_record(r, prn, toc)
+            if eph is not None:
+                ephs.append(eph)
     return ephs, _read_iono(path)
 
 

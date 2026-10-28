@@ -7,6 +7,7 @@ from test_lnav import SF1, SF2, SF3
 
 from pyrx.lnav import Ionosphere, assemble_ephemeris, decode_subframe, encode_subframe
 from pyrx.observables import Epoch, Observation
+from pyrx.orbits import sat_id
 from pyrx.rinex import (
     URA_BOUNDS,
     gps_datetime,
@@ -169,3 +170,50 @@ def test_read_rinex_nav_without_ionosphere(tmp_path):
 def test_read_rinex_header_of_a_hatanaka_file(captures):
     h = read_rinex_header(capture_file(captures, "igs/TLSG00FRA_R_20213600000_01D_30S_MO.crx.gz"))
     assert h.marker == "TLSG" and h.delta_enu[2] == 0.441
+
+
+GAL_NAV = """\
+     3.05           N: GNSS NAV DATA    M: MIXED            RINEX VERSION / TYPE
+                                                            END OF HEADER
+E01 2021 12 26 00 10 00-5.458160885610e-04-8.071765478235e-12 0.000000000000e+00
+     1.000000000000e+00 3.565625000000e+01 3.232277494475e-09 1.742238364867e+00
+     1.659616827965e-06 2.746939426288e-04 5.688518285751e-06 5.440608743668e+03
+     6.000000000000e+02 2.235174179077e-08 3.002451169377e+00 6.519258022308e-08
+     9.756833324185e-01 2.242500000000e+02-2.166523904760e-01-5.679879446920e-09
+    -1.050043738536e-10 5.170000000000e+02 2.190000000000e+03 0.000000000000e+00
+     3.120000000000e+00 0.000000000000e+00 9.313225746155e-10 6.984919309616e-10
+     1.775000000000e+03
+E01 2021 12 26 00 10 00-5.458170000000e-04-8.071765478235e-12 0.000000000000e+00
+     1.000000000000e+00 3.565625000000e+01 3.232277494475e-09 1.742238364867e+00
+     1.659616827965e-06 2.746939426288e-04 5.688518285751e-06 5.440608743668e+03
+     6.000000000000e+02 2.235174179077e-08 3.002451169377e+00 6.519258022308e-08
+     9.756833324185e-01 2.242500000000e+02-2.166523904760e-01-5.679879446920e-09
+    -1.050043738536e-10 2.580000000000e+02 2.190000000000e+03 0.000000000000e+00
+     3.120000000000e+00 0.000000000000e+00 9.313225746155e-10 0.000000000000e+00
+     1.775000000000e+03
+G04 2021 12 26 00 00 00-1.976881176233e-04 1.477928890381e-12 0.000000000000e+00
+     1.440000000000e+02-5.093750000000e+01 4.405897809043e-09 1.002758171737e+00
+    -2.583488821983e-06 1.603024313226e-03 9.605661034584e-06 5.153669235229e+03
+     0.000000000000e+00-1.117587089539e-08 1.083721621721e+00 6.519258022308e-08
+     9.607089453838e-01 1.943750000000e+02-3.125643079512e+00-7.928187383685e-09
+     9.464679956196e-11 1.000000000000e+00 2.190000000000e+03 0.000000000000e+00
+     2.000000000000e+00 0.000000000000e+00-4.190951585770e-09 9.120000000000e+02
+    -7.182000000000e+03 4.000000000000e+00
+"""
+
+
+def test_read_rinex_nav_galileo_record(tmp_path):
+    (tmp_path / "m.nav").write_text(GAL_NAV)
+    ephs, iono = read_rinex_nav(tmp_path / "m.nav")
+    assert iono is None and sorted(sat_id(e) for e in ephs) == ["E01", "G04"]
+    e = next(e for e in ephs if e.system == "E")
+    assert (e.prn, e.wn, e.toe, e.iode, e.iodc, e.health) == (1, 2190 % 1024, 600.0, 1, 1, 0)
+    assert e.ura == ura_index(3.12) == 1
+    assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10
+    assert e.toc == 600.0 and e.sqrt_a == pytest.approx(5440.608743668)
+
+
+def test_read_rinex_nav_skips_fnav_records(tmp_path):
+    (tmp_path / "m.nav").write_text(GAL_NAV)
+    ephs, _ = read_rinex_nav(tmp_path / "m.nav")
+    assert len([e for e in ephs if e.system == "E"]) == 1  # the 258 (F/NAV) record is dropped

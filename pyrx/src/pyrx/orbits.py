@@ -19,9 +19,11 @@ from pyrx.lnav import Ephemeris
 from pyrx.observables import WEEK_S
 
 MU_GPS = 3.986005e14  # m^3/s^2, WGS 84 value of the ICD
+MU_GAL = 3.986004418e14  # m^3/s^2, GTRF value of the Galileo OS SIS ICD
 OMEGA_E = 7.2921151467e-5  # rad/s, WGS 84 Earth rotation rate
 F_REL = -4.442807633e-10  # s/sqrt(m), relativistic clock constant
-MAX_TOE_AGE = 7200.0  # s, oldest ephemeris used, as RTKLIB
+MAX_TOE_AGE = 7200.0  # s, oldest GPS ephemeris used, as RTKLIB
+MAX_TOE_AGE_GAL = 14400.0  # s, the same for Galileo
 _DT = 0.5e-3  # s, half the central-difference step
 
 
@@ -38,13 +40,21 @@ def wrap_week(dt: float) -> float:
     return (dt + WEEK_S / 2) % WEEK_S - WEEK_S / 2
 
 
-def select_ephemeris(ephs: list[Ephemeris], prn: int, t: float) -> Ephemeris | None:
-    """The PRN's record with `toe` nearest to `t`, or None when none is within 2 h."""
-    mine = [e for e in ephs if e.prn == prn]
+def sat_id(eph: Ephemeris) -> str:
+    """RINEX satellite id of a record, e.g. `G04`."""
+    return f"{eph.system}{eph.prn:02d}"
+
+
+def select_ephemeris(
+    ephs: list[Ephemeris], prn: int, t: float, system: str = "G"
+) -> Ephemeris | None:
+    """The satellite's record with `toe` nearest to `t`, or None beyond the age limit."""
+    mine = [e for e in ephs if e.prn == prn and e.system == system]
     if not mine:
         return None
     best = min(mine, key=lambda e: abs(wrap_week(t - e.toe)))
-    return best if abs(wrap_week(t - best.toe)) <= MAX_TOE_AGE else None
+    limit = MAX_TOE_AGE_GAL if system == "E" else MAX_TOE_AGE
+    return best if abs(wrap_week(t - best.toe)) <= limit else None
 
 
 def satellite_clock(eph: Ephemeris, t: float) -> float:
@@ -56,7 +66,7 @@ def satellite_clock(eph: Ephemeris, t: float) -> float:
 def _position_clock(eph: Ephemeris, t: float) -> tuple[np.ndarray, float]:
     tk = wrap_week(t - eph.toe)
     a = eph.sqrt_a**2
-    n = sqrt(MU_GPS / a**3) + eph.delta_n
+    n = sqrt((MU_GAL if eph.system == "E" else MU_GPS) / a**3) + eph.delta_n
     m = eph.m0 + n * tk
     big_e = m
     for _ in range(30):

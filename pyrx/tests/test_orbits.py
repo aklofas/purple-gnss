@@ -5,7 +5,14 @@ import pytest
 from test_lnav import SF1, SF2, SF3
 
 from pyrx.lnav import assemble_ephemeris, decode_subframe, encode_subframe
-from pyrx.orbits import OMEGA_E, satellite_clock, satellite_state, select_ephemeris, wrap_week
+from pyrx.orbits import (
+    OMEGA_E,
+    sat_id,
+    satellite_clock,
+    satellite_state,
+    select_ephemeris,
+    wrap_week,
+)
 
 
 def _eph(**changes):
@@ -80,3 +87,23 @@ def test_satellite_state_wraps_week():
     a = satellite_state(eph, 604100.0)
     b = satellite_state(eph, 604100.0 - 604800.0)  # the same instant written in the next week
     np.testing.assert_allclose(a.position, b.position, atol=1e-6)
+
+
+def test_select_ephemeris_by_system():
+    g = _eph(prn=4, toe=1000.0)
+    e = replace(_eph(prn=4, toe=12000.0), system="E")
+    assert select_ephemeris([g, e], 4, 1500.0) is g
+    assert (
+        select_ephemeris([g, e], 4, 1500.0, system="E") is e
+    )  # 10500 s old: within Galileo's limit
+    assert select_ephemeris([g], 4, 1500.0, system="E") is None
+    assert sat_id(e) == "E04" and sat_id(g) == "G04"
+
+
+def test_satellite_state_uses_galileo_constants():
+    g = _eph()
+    e = replace(g, system="E")
+    dg = satellite_state(g, g.toe + 3600.0).position
+    de = satellite_state(e, g.toe + 3600.0).position
+    # the mean motions differ by (MU_GAL / MU_GPS)**0.5 - 1 = -7.3e-8: metres after an hour
+    assert 0.5 < np.linalg.norm(dg - de) < 5.0
