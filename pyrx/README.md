@@ -419,13 +419,17 @@ not use the carrier phase.
 GPS L1 C/A carries the 50 bps LNAV message. Once the phase lock has settled, bit
 sync finds the data-bit edge among the 20 one-millisecond epochs of a bit by
 counting prompt sign changes at each epoch phase; frame sync then looks for the
-TLM preamble repeating one subframe (300 bits, 6 s) later with both words of each
-candidate passing parity, a valid subframe ID and consecutive TOW counts, trying
-both data polarities. From there every 300-bit block whose ten words all pass
-parity is a subframe; a parity failure drops that block only. Subframes 1, 2 and 3
-decode to the clock and ephemeris parameters, subframe 4 page 18 to the
-ionosphere parameters, all scaled per IS-GPS-200 with semi-circles converted to
-radians. Each subframe is time-tagged with the tracking epoch of its first bit and
+TLM preamble repeating one subframe (300 bits, 6 s) later with the TLM and HOW
+words of both candidates passing parity, a valid subframe ID in the first and
+consecutive TOW counts, trying both data polarities. From there every 300-bit
+block whose ten words all pass parity and whose TOW count is the one its position
+in the sequence requires is a subframe; a block failing either is dropped on its
+own, except that a bit error in the last two bits of a block also spoils the
+parity of the next block's first word and drops that block too. The HOW alert
+flag is not decoded; an alerted satellite's data is used, as RTKLIB and Pocket SDR
+do. Subframes 1, 2 and 3 decode to the clock and ephemeris parameters, subframe 4
+page 18 to the ionosphere parameters, all scaled per IS-GPS-200 with semi-circles
+converted to radians. Each subframe is time-tagged with the tracking epoch of its first bit and
 the GPS seconds of week of that bit (the HOW's TOW count refers to the start of
 the following subframe). Almanac pages and the UTC parameters are not decoded.
 
