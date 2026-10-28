@@ -10,6 +10,7 @@ through georinex and keep the GPS L1 C/A observables and GPS ephemerides.
 
 import gzip
 import warnings
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import isnan, nan
 from pathlib import Path
@@ -18,6 +19,7 @@ import numpy as np
 
 from pyrx.lnav import Ephemeris, Ionosphere
 from pyrx.observables import WEEK_S, Epoch, Observation, full_week
+from pyrx.signals import Observations
 
 GPS_EPOCH = datetime(1980, 1, 6)
 OBS_TYPES = ("C1C", "L1C", "D1C", "S1C")
@@ -129,13 +131,98 @@ def write_rinex_obs(path, epochs: list[Epoch], marker: str = "PYRX", program: st
     Path(path).write_text("".join(out))
 
 
-def _load(path, **kwargs):
+def _load(path, use="G", **kwargs):
     import georinex
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)  # xarray, raised inside georinex
         warnings.simplefilter("ignore", RuntimeWarning)  # numpy, on a file with one epoch
-        return georinex.load(path, use="G", **kwargs)
+        return georinex.load(path, use=use, **kwargs)
+
+
+def _open_text(path):
+    return gzip.open(path, "rt") if str(path).endswith(".gz") else open(path)
+
+
+@dataclass(frozen=True)
+class RinexHeader:
+    marker: str
+    position: np.ndarray  # APPROX POSITION XYZ (m), zeros when absent
+    delta_enu: np.ndarray  # ANTENNA: DELTA H/E/N as (E, N, U) (m), zeros when absent
+    antenna: str
+    receiver: str
+
+
+def read_rinex_header(path) -> RinexHeader:
+    """Marker, approximate position, antenna offset and equipment of an observation file."""
+    marker = antenna = receiver = ""
+    position, delta = np.zeros(3), np.zeros(3)
+    with _open_text(path) as f:
+        for line in f:
+            label = line[60:].strip()
+            if label == "END OF HEADER":
+                break
+            if label == "MARKER NAME":
+                marker = line[:60].strip()
+            elif label == "APPROX POSITION XYZ":
+                position = np.array([float(v) for v in line[:42].split()])
+            elif label == "ANTENNA: DELTA H/E/N":
+                h, e, n = (float(v) for v in line[:42].split())
+                delta = np.array([e, n, h])
+            elif label == "ANT # / TYPE":
+                antenna = line[20:40].rstrip()
+            elif label == "REC # / TYPE / VERS":
+                receiver = line[20:40].rstrip()
+    return RinexHeader(marker, position, delta, antenna, receiver)
+
+
+def read_rinex_observations(
+    path, signals: tuple[str, ...] = ("G1C",), tlim: tuple[datetime, datetime] | None = None
+) -> list[Observations]:
+    """Every satellite by every requested signal, one `Observations` per epoch.
+
+    A satellite is kept at an epoch when it has a pseudorange or carrier phase on
+    any requested signal; epochs without satellites are dropped.
+    """
+    meas = sorted({k + s[1:] for s in signals for k in "CLDS"})
+    ds = _load(path, use={s[0] for s in signals}, meas=meas, tlim=tlim, useindicators=True)
+    order = np.argsort(ds.sv.values)
+    sats = tuple(str(s) for s in ds.sv.values[order])
+    systems = np.array([s[0] for s in sats])
+    n_t, n_sv = len(ds.time), len(sats)
+
+    def column(name, system, fill):
+        if name not in ds:
+            return np.full((n_t, n_sv), fill)
+        a = ds[name].values[:, order].astype(float)
+        a[:, systems != system] = nan
+        return a
+
+    arrays = {}
+    for kind in "CLDS":
+        arrays[kind] = np.stack([column(kind + s[1:], s[0], nan) for s in signals], axis=2)
+    lli = np.stack([column("L" + s[1:] + "lli", s[0], nan) for s in signals], axis=2)
+    lli = np.nan_to_num(lli, nan=0.0).astype(int)
+    epochs = []
+    for i, t in enumerate(ds.time.values):
+        present = np.isfinite(arrays["C"][i]).any(axis=1) | np.isfinite(arrays["L"][i]).any(axis=1)
+        if not present.any():
+            continue
+        week, tow = _week_tow(t)
+        epochs.append(
+            Observations(
+                week,
+                tow,
+                tuple(s for s, p in zip(sats, present) if p),
+                tuple(signals),
+                arrays["C"][i][present],
+                arrays["L"][i][present],
+                arrays["D"][i][present],
+                arrays["S"][i][present],
+                lli[i][present],
+            )
+        )
+    return epochs
 
 
 def _week_tow(t: np.datetime64) -> tuple[int, float]:
@@ -171,8 +258,7 @@ def read_rinex_obs(path, tlim: tuple[datetime, datetime] | None = None) -> list[
 
 def _read_iono(path) -> Ionosphere | None:
     coeffs = {}
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rt") as f:
+    with _open_text(path) as f:
         for line in f:
             if "END OF HEADER" in line:
                 break

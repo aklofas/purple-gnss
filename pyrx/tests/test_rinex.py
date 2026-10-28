@@ -2,6 +2,7 @@ from datetime import datetime
 from math import isnan
 
 import pytest
+from conftest import capture_file
 from test_lnav import SF1, SF2, SF3
 
 from pyrx.lnav import Ionosphere, assemble_ephemeris, decode_subframe, encode_subframe
@@ -9,6 +10,7 @@ from pyrx.observables import Epoch, Observation
 from pyrx.rinex import (
     URA_BOUNDS,
     gps_datetime,
+    read_rinex_header,
     read_rinex_nav,
     read_rinex_obs,
     ura_index,
@@ -162,3 +164,8 @@ def test_read_rinex_nav_without_ionosphere(tmp_path):
     write_rinex_nav(tmp_path / "n.nav", [eph], {4: sfs[0].tow_s})
     ephs, iono = read_rinex_nav(tmp_path / "n.nav")
     assert iono is None and len(ephs) == 1
+
+
+def test_read_rinex_header_of_a_hatanaka_file(captures):
+    h = read_rinex_header(capture_file(captures, "igs/TLSG00FRA_R_20213600000_01D_30S_MO.crx.gz"))
+    assert h.marker == "TLSG" and h.delta_enu[2] == 0.441
