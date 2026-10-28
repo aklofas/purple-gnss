@@ -19,8 +19,8 @@ import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.correlator import correlate
 from pyrx.samples import SampleFile
+from pyrx.signals import L1_FREQ
 
-L1_FREQ = 1575.42e6
 B_PLL = 5.0  # Hz
 B_FLL = (5.0, 2.0)  # Hz, first and second half of pull-in
 B_DLL = 0.25  # Hz

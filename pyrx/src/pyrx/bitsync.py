@@ -18,11 +18,11 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from pyrx.gpstime import WEEK_S
 from pyrx.lnav import (
     PREAMBLE,
     SUBFRAME_BITS,
     SUBFRAME_S,
-    WEEK_S,
     WORD_BITS,
     Subframe,
     decode_how,

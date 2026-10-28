@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 from conftest import capture_file
 
+from pyrx.gpstime import GPS_EPOCH
 from pyrx.orbits import MAX_TOE_AGE, satellite_clock, satellite_state, select_ephemeris, wrap_week
-from pyrx.rinex import GPS_EPOCH, read_rinex_nav
+from pyrx.rinex import read_rinex_nav
 
 NAV = "igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz"
 SP3 = "igs/igs21900.sp3"

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from pyrx.bitsync import BitStream, bit_sync, frame_sync
-from pyrx.lnav import IONO_PAGE_SV_ID, Ephemeris, Ionosphere, Subframe, assemble_ephemeris
+from pyrx.ephemeris import Ephemeris, Ionosphere
+from pyrx.lnav import IONO_PAGE_SV_ID, Subframe, assemble_ephemeris
 from pyrx.tracking import T_FLL_PULLIN, TrackResult
 
 T_PLL_SETTLE = 0.5  # s after FLL pull-in before the prompt signs are trusted as data bits

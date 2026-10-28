@@ -25,30 +25,23 @@ the first subframe, and from the end of the last subframe before a polarity
 change to the start of the first subframe after it.
 """
 
-from dataclasses import dataclass
 from math import ceil, floor
 
 import numpy as np
 
 from pyrx.bitsync import EPOCHS_PER_BIT
 from pyrx.codes import CA_PERIOD
+from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
+from pyrx.observations import Epoch, Observation
 from pyrx.tracking import TrackResult
 
-C_LIGHT = 299792458.0  # m/s
-WEEK_S = 604800
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
 T_LOCK = 2.0  # s a channel must have run before its carrier phase counts as locked
 SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
-GPS_WEEK_ROLLOVER = 2048  # first week of the current 1024-week era (2019-04-07)
-
-
-def full_week(wn10: int) -> int:
-    """Full GPS week from the broadcast 10-bit week number (valid until 2038-11-20)."""
-    return wn10 + GPS_WEEK_ROLLOVER
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -72,41 +65,12 @@ def transmit_times(track: TrackResult, lnav: LnavResult) -> np.ndarray:
     return t0[0] + np.arange(len(track.t)) * CA_PERIOD
 
 
-@dataclass(frozen=True)
-class Observation:
-    prn: int
-    pseudorange: float  # m
-    carrier_phase: float  # cycles
-    doppler: float  # Hz
-    cn0: float  # dB-Hz
-    lli: int = 0  # RINEX loss-of-lock indicator of the carrier phase
-
-
 def _polarities(lnav: LnavResult) -> tuple[np.ndarray, np.ndarray]:
     """First-bit epoch of every decoded subframe and whether it came with the data
     polarity opposite to the one frame sync settled on."""
     starts = np.array([sf.epoch for sf in lnav.subframes], dtype=int)
     flipped = np.array([not np.array_equal(sf.bits[:8], PREAMBLE) for sf in lnav.subframes])
     return starts, flipped
-
-
-@dataclass(frozen=True)
-class Epoch:
-    """Observations of all channels at one receiver epoch.
-
-    `tow` is seconds from the start of `week`. Within one `make_observables` run it
-    starts in [0, 604800), increases monotonically and may reach or exceed 604800
-    when a recording crosses the week boundary; `week` does not change within a
-    run. The RINEX reader
-    returns `tow` in [0, 604800) with the week of the time stamp. Consumers form a
-    continuous time as `week * WEEK_S + tow` when they need one and reduce every
-    difference against an ephemeris time of week (`toe`, `toc`) into
-    [-302400, 302400) with `orbits.wrap_week`.
-    """
-
-    week: int | None
-    tow: float  # GPS seconds of week of the receiver epoch
-    obs: list[Observation]  # ascending PRN
 
 
 def _usable(tracks, lnavs) -> list[tuple[TrackResult, LnavResult, np.ndarray, np.ndarray]]:

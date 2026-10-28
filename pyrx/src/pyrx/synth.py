@@ -3,8 +3,7 @@
 import numpy as np
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca, sample_code
-
-L1_FREQ = 1575.42e6
+from pyrx.signals import L1_FREQ
 
 
 def synth_l1ca(

@@ -5,9 +5,9 @@ import pytest
 from scipy.stats import chi2
 from support import IONO, TOW, USUD, constellation, truth_epoch
 
-from pyrx.lnav import Ionosphere
+from pyrx.ephemeris import Ionosphere
 from pyrx.models import azimuth_elevation
-from pyrx.observables import Epoch, Observation
+from pyrx.observations import Epoch, Observation
 from pyrx.orbits import satellite_state
 from pyrx.pvt import IONO_DEFAULT, _variance, chi2_threshold, solve, solve_epoch
 

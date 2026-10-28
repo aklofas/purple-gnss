@@ -3,7 +3,8 @@ from math import pi, radians, sin
 import numpy as np
 import pytest
 
-from pyrx.lnav import Ionosphere
+from pyrx.ephemeris import Ionosphere
+from pyrx.gpstime import C_LIGHT
 from pyrx.models import (
     Station,
     azimuth_elevation,
@@ -16,7 +17,6 @@ from pyrx.models import (
     station_arp,
     zenith_hydrostatic,
 )
-from pyrx.observables import C_LIGHT
 from pyrx.orbits import OMEGA_E
 
 USUD = np.array([-3855263.0361, 3427432.5571, 3741020.2929])  # ITRF, from the IGS site log

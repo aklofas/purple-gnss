@@ -15,8 +15,8 @@ from math import atan2, cos, isfinite, sin, sqrt
 
 import numpy as np
 
-from pyrx.lnav import Ephemeris
-from pyrx.observables import WEEK_S
+from pyrx.ephemeris import Ephemeris
+from pyrx.gpstime import WEEK_S
 
 MU_GPS = 3.986005e14  # m^3/s^2, WGS 84 value of the ICD
 MU_GAL = 3.986004418e14  # m^3/s^2, GTRF value of the Galileo OS SIS ICD

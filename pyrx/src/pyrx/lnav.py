@@ -12,11 +12,13 @@ from math import pi
 
 import numpy as np
 
+from pyrx.ephemeris import Ephemeris
+from pyrx.gpstime import WEEK_S
+
 PREAMBLE = np.array([1, 0, 0, 0, 1, 0, 1, 1], dtype=np.uint8)
 WORD_BITS = 30
 SUBFRAME_BITS = 300
 SUBFRAME_S = 6
-WEEK_S = 604800
 IONO_PAGE_SV_ID = 56  # subframe 4 page 18 carries the ionosphere parameters
 
 # Table 20-XIV: for each of D25..D30, the previous word's bit it starts from
@@ -250,59 +252,6 @@ def encode_subframe(
         out[WORD_BITS * w : WORD_BITS * (w + 1)] = word
         d29, d30 = int(word[28]), int(word[29])
     return out
-
-
-@dataclass(frozen=True)
-class Ephemeris:
-    """Clock and orbit parameters of one satellite from subframes 1, 2 and 3.
-
-    Units: seconds, metres, radians and their rates; `toc` and `toe` are seconds
-    of week and `wn` the 10-bit week number. A Galileo record read from RINEX
-    uses the same fields (`iode` and `iodc` hold IODnav; `ura` is the GPS URA
-    index whose interval holds the SISA in metres, not the SISA index).
-    """
-
-    prn: int
-    wn: int
-    code_l2: int
-    ura: int
-    health: int
-    iodc: int
-    l2p: int
-    tgd: float
-    toc: float
-    af2: float
-    af1: float
-    af0: float
-    iode: int
-    crs: float
-    delta_n: float
-    m0: float
-    cuc: float
-    e: float
-    cus: float
-    sqrt_a: float
-    toe: float
-    fit: int
-    aodo: float  # s, age of data offset (broadcast in units of 900 s)
-    cic: float
-    omega0: float
-    cis: float
-    i0: float
-    crc: float
-    omega: float
-    omega_dot: float
-    idot: float
-    system: str = "G"  # "G" GPS, "E" Galileo (same Kepler set; `tgd` is then BGD E5a/E1)
-    tgd2: float = 0.0  # s, Galileo BGD E5b/E1
-
-
-@dataclass(frozen=True)
-class Ionosphere:
-    """Klobuchar model coefficients from subframe 4 page 18."""
-
-    alpha: tuple[float, float, float, float]
-    beta: tuple[float, float, float, float]
 
 
 def assemble_ephemeris(subframes: list[Subframe]) -> Ephemeris | None:

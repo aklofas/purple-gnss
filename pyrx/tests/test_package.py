@@ -36,7 +36,6 @@ def test_ruff_is_clean():
     assert run.returncode == 0, run.stdout
 
 
-@pytest.mark.xfail(strict=True, reason="positioning still imports the signal chain")
 @pytest.mark.parametrize("module", ["pyrx.orbits", "pyrx.pvt", "pyrx.rtk"])
 def test_positioning_does_not_load_the_signal_chain(module):
     code = f"import sys, {module}; print(*sorted(m for m in sys.modules if m.startswith('pyrx.')))"

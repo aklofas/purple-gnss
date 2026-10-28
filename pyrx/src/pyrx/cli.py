@@ -13,13 +13,13 @@ import numpy as np
 import pymap3d as pm
 
 from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
+from pyrx.gpstime import gps_datetime
 from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav
 from pyrx.observables import make_observables
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.pvt import ELEVATION_MASK, solve
 from pyrx.rinex import (
-    gps_datetime,
     read_rinex_header,
     read_rinex_nav,
     read_rinex_obs,

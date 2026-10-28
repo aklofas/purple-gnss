@@ -1,13 +1,14 @@
 import numpy as np
 import pytest
 
+from pyrx.observations import Observations, to_epoch
 from pyrx.rinex import (
     read_rinex_header,
     read_rinex_obs,
     read_rinex_observations,
     write_rinex_observations,
 )
-from pyrx.signals import Observations, signal_frequency, to_epoch, wavelength
+from pyrx.signals import signal_frequency, wavelength
 
 HEADER = """\
      3.04           OBSERVATION DATA    M                   RINEX VERSION / TYPE

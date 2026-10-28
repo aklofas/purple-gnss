@@ -19,16 +19,11 @@ from pathlib import Path
 
 import numpy as np
 
-from pyrx.lnav import Ephemeris, Ionosphere
-from pyrx.observables import WEEK_S, Epoch, Observation, full_week
-from pyrx.signals import Observations
+from pyrx.ephemeris import Ephemeris, Ionosphere, ura_index, ura_metres
+from pyrx.gpstime import GPS_EPOCH, WEEK_S, full_week, gps_datetime, week_tow
+from pyrx.observations import Epoch, Observation, Observations
 
-GPS_EPOCH = datetime(1980, 1, 6)
 OBS_TYPES = ("C1C", "L1C", "D1C", "S1C")
-# upper bounds of the URA index intervals (IS-GPS-200 20.3.3.3.1.3); index 15 is "no accuracy"
-URA_BOUNDS = (
-    2.4, 3.4, 4.85, 6.85, 9.65, 13.65, 24.0, 48.0, 96.0, 192.0, 384.0, 768.0, 1536.0, 3072.0, 6144.0,
-)  # fmt: skip
 # georinex navigation variable -> Ephemeris field
 _NAV_NAMES = {
     "SVclockBias": "af0",
@@ -61,28 +56,6 @@ _GAL_NAMES = {k: v for k, v in _NAV_NAMES.items() if v in (
     "af0", "af1", "af2", "crs", "delta_n", "m0", "cuc", "e", "cus", "sqrt_a", "toe",
     "cic", "omega0", "cis", "i0", "crc", "omega", "omega_dot", "idot",
 )}  # fmt: skip
-
-
-def gps_datetime(week: int, tow: float) -> datetime:
-    """Naive datetime in the GPS time scale for a week and seconds of week."""
-    return GPS_EPOCH + timedelta(weeks=week, seconds=tow)
-
-
-def ura_metres(index: int) -> float:
-    """SV accuracy in metres from the 4-bit URA index (IS-GPS-200 20.3.3.3.1.3)."""
-    if index <= 6:
-        return 2.0 ** (1 + index / 2)
-    if index < 15:
-        return 2.0 ** (index - 2)
-    return 6144.0
-
-
-def ura_index(metres: float) -> int:
-    """4-bit URA index whose interval holds an SV accuracy in metres; 15 above the table."""
-    for index, bound in enumerate(URA_BOUNDS):
-        if metres <= bound:
-            return index
-    return 15
 
 
 def _line(content: str, label: str) -> str:
@@ -344,12 +317,6 @@ def _cut_short(rec: str) -> bool:
     return n % 16 < 14 and rec[3 + 16 * (n // 16) :].strip() != ""
 
 
-def _week_tow(t: np.datetime64) -> tuple[int, float]:
-    ns = int((t - np.datetime64(GPS_EPOCH)) / np.timedelta64(1, "ns"))
-    week = ns // (WEEK_S * 10**9)
-    return week, (ns - week * WEEK_S * 10**9) / 1e9
-
-
 def read_rinex_obs(path, tlim: tuple[datetime, datetime] | None = None) -> list[Epoch]:
     """GPS L1 C/A observations (C1C L1C D1C S1C) of a RINEX 3 observation file.
 
@@ -374,7 +341,7 @@ def read_rinex_obs(path, tlim: tuple[datetime, datetime] | None = None) -> list[
             if not isnan(c1[i, j])
         ]
         if obs:
-            week, tow = _week_tow(t)
+            week, tow = week_tow(t)
             epochs.append(Epoch(week, tow, obs))
     return epochs
 
@@ -446,7 +413,7 @@ def read_rinex_nav(path) -> tuple[list[Ephemeris], Ionosphere | None]:
         prn = int(name[1:])
         for t in recs.time.values:
             r = recs.sel(time=t)
-            toc = _week_tow(t)[1]
+            toc = week_tow(t)[1]
             eph = _galileo_record(r, prn, toc) if name[0] == "E" else _gps_record(r, prn, toc)
             if eph is not None:
                 ephs.append(eph)

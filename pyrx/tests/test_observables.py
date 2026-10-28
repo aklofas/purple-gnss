@@ -6,18 +6,14 @@ from support import frame
 
 from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
+from pyrx.gpstime import C_LIGHT, full_week
 from pyrx.lnav import PREAMBLE, Subframe
 from pyrx.navdecode import LnavResult, decode_lnav
-from pyrx.observables import (
-    C_LIGHT,
-    full_week,
-    make_observables,
-    receiver_time0,
-    transmit_times,
-)
+from pyrx.observables import make_observables, receiver_time0, transmit_times
 from pyrx.samples import ArraySamples
+from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import L1_FREQ, TrackResult, track_l1ca
+from pyrx.tracking import TrackResult, track_l1ca
 
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 

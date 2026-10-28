@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from support import SF1, SF2, SF3
 
+from pyrx.ephemeris import Ephemeris
 from pyrx.lnav import (
     PREAMBLE,
-    Ephemeris,
     assemble_ephemeris,
     data_bits,
     decode_how,

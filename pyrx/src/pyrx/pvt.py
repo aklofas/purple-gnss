@@ -11,12 +11,12 @@ from math import isfinite, radians, sin, sqrt
 
 import numpy as np
 
-from pyrx.lnav import Ephemeris, Ionosphere
+from pyrx.ephemeris import URA_BOUNDS, Ephemeris, Ionosphere
+from pyrx.gpstime import C_LIGHT
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
-from pyrx.observables import C_LIGHT, Epoch
+from pyrx.observations import Epoch
 from pyrx.orbits import OMEGA_E, satellite_clock, satellite_state, select_ephemeris, usable
-from pyrx.rinex import URA_BOUNDS
-from pyrx.tracking import L1_FREQ
+from pyrx.signals import wavelength
 
 ELEVATION_MASK = 15.0  # deg
 MAX_ITER = 10
@@ -35,7 +35,7 @@ _CHI2 = (
     126, 127, 128, 129, 131, 132, 133, 134, 135, 137,
     138, 139, 140, 142, 143, 144, 145, 147, 148, 149,
 )  # fmt: skip
-LAMBDA_L1 = C_LIGHT / L1_FREQ  # m
+LAMBDA_L1 = wavelength("G1C")  # m
 _ON_EARTH = 6e6  # m, estimates nearer the centre get no mask, weights or atmosphere
 _ERR_CODE = 0.003 * 100.0  # m, RTKLIB err[0] * err[1]: the a priori code error
 _ERR_CBIAS = 0.3  # m, code bias error

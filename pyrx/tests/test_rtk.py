@@ -14,12 +14,9 @@ from support import (
     synthetic_pair,
 )
 
-from pyrx.models import (
-    Station,
-    marker_from_arp,
-)
+from pyrx.models import Station, marker_from_arp
+from pyrx.observations import Observations
 from pyrx.rtk import Rtk, RtkOptions, pair_epochs, solve_rtk
-from pyrx.signals import Observations
 
 
 def _pair(rng, ephs, tow, signals=SIGNALS, rover=ROVER, lli=None, drop=(), amb_r=None):

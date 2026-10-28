@@ -14,8 +14,8 @@ from math import asin, atan2, cos, exp, pi, sin, sqrt
 import numpy as np
 import pymap3d as pm
 
-from pyrx.lnav import Ionosphere
-from pyrx.observables import C_LIGHT
+from pyrx.ephemeris import Ionosphere
+from pyrx.gpstime import C_LIGHT
 from pyrx.orbits import OMEGA_E
 
 # Niell 1996 hydrostatic mapping coefficients at latitudes 15, 30, 45, 60, 75 deg:
