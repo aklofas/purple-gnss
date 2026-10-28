@@ -39,7 +39,7 @@ SF2 = {
     "sqrt_a": 5153.668436,
     "toe": 28800,
     "fit": 0,
-    "aodo": 0,
+    "aodo": 2700.0,  # age of data offset is broadcast in units of 900 s
 }
 SF3 = {
     "cic": 1.2e-07,
@@ -75,6 +75,7 @@ LSB = {
     "cus": 2**-29, "sqrt_a": 2**-19, "toe": 2**4,
     "cic": 2**-29, "omega0": SC, "cis": 2**-29, "i0": SC, "crc": 2**-5, "omega": SC,
     "omega_dot": 2**-43 * pi, "idot": 2**-43 * pi,
+    "aodo": 900,
     "alpha0": 2**-30, "alpha1": 2**-27, "alpha2": 2**-24, "alpha3": 2**-24,
     "beta0": 2**11, "beta1": 2**14, "beta2": 2**16, "beta3": 2**16,
 }  # fmt: skip

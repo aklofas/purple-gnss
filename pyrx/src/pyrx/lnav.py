@@ -90,7 +90,7 @@ _SF2 = [
     _f("sqrt_a", (227, 8), (241, 24), scale=2**-19),
     _f("toe", (271, 16), scale=2**4),
     _f("fit", (287, 1)),
-    _f("aodo", (288, 5)),
+    _f("aodo", (288, 5), scale=900),
 ]
 _SF3 = [
     _f("cic", (61, 16), signed=True, scale=2**-29),
@@ -283,7 +283,7 @@ class Ephemeris:
     sqrt_a: float
     toe: float
     fit: int
-    aodo: int
+    aodo: float  # s, age of data offset (broadcast in units of 900 s)
     cic: float
     omega0: float
     cis: float
