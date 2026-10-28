@@ -7,7 +7,6 @@ from pyrx.synth import synth_l1ca
 from pyrx.tracking import CN0_LOST, track_channels, track_l1ca
 
 FS = 4e6
-N = round(FS * CA_PERIOD)
 
 
 def _src(

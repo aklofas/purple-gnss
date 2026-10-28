@@ -16,7 +16,6 @@ from math import atan, floor, log10, pi
 
 import numpy as np
 
-from pyrx.acquisition import AcqResult
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.correlator import correlate
 from pyrx.samples import SampleFile
@@ -200,11 +199,6 @@ def track_l1ca(
         locked=lost_at is None,
         lost_at=lost_at,
     )
-
-
-def track_from_acq(source, f_if: float, acq: AcqResult, **kwargs) -> TrackResult:
-    """Track from an acquisition result."""
-    return track_l1ca(source, f_if, acq.prn, acq.code_offset, acq.doppler, acq.cn0, **kwargs)
 
 
 def _track_job(args):
