@@ -152,7 +152,8 @@ def _carrier_state(ln: LnavResult, polarity, k: int, last_k: int) -> tuple[bool,
     before the first). A subframe of the other polarity means the Costas loop
     slipped half a cycle somewhere between the end of the previous subframe and
     the start of that one: the epochs in between may be half a cycle off, and the
-    first observation on the new polarity is a slip.
+    first observation after any such change since the channel's previous
+    observation (at epoch `last_k`, -1 for none) is a slip.
     """
     starts, flipped = polarity
     j = int(np.searchsorted(starts, k, side="right")) - 1
@@ -161,8 +162,11 @@ def _carrier_state(ln: LnavResult, polarity, k: int, last_k: int) -> tuple[bool,
     lli = 0
     if j + 1 < len(starts) and flipped[j + 1] != flipped[j] and k >= starts[j] + SUBFRAME_EPOCHS:
         lli |= LLI_HALF_CYCLE
-    if j >= 1 and flipped[j] != flipped[j - 1] and last_k < starts[j]:
-        lli |= LLI_SLIP
+    if last_k >= 0:
+        j_prev = int(np.searchsorted(starts, last_k, side="right")) - 1
+        before = flipped[j_prev] if j_prev >= 0 else False
+        if np.any(flipped[j_prev + 1 : j + 1] != before):
+            lli |= LLI_SLIP
     return bool(ln.stream.inverted) != bool(flipped[j]), lli
 
 

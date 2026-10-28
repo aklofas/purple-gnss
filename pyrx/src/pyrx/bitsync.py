@@ -77,9 +77,11 @@ def bit_sync(prompt_i: np.ndarray, start_epoch: int) -> BitStream | None:
     clear = (peak >= MIN_EDGES) & (peak >= MIN_EDGE_CONTRAST * others)
     if not clear.any():
         return None
-    total = counts[clear].sum(axis=0)
-    phase = int(total.argmax())
+    phase = int(counts[clear].sum(axis=0).argmax())
     clear &= counts.argmax(axis=1) == phase  # a window synced on another phase did not sync
+    if not clear.any():
+        return None
+    total = counts[clear].sum(axis=0)
     score = total[phase] / total.sum()
     first = int(clear.argmax()) * SYNC_WINDOW
     start = first + (phase - first) % EPOCHS_PER_BIT

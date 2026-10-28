@@ -158,3 +158,15 @@ def test_bit_sync_starts_after_a_weak_prefix():
     j = (stream.epoch - 100 - 7) // 20  # input bit index of every stream bit
     assert j[0] >= 2900 and j[-1] == 3999
     np.testing.assert_array_equal(stream.bits[j >= 3000], bits[j[j >= 3000]])
+
+
+def test_bit_sync_returns_nothing_when_no_window_agrees_on_the_summed_phase():
+    # two windows that each pass the contrast test on different phases, whose summed
+    # counts peak on a third phase neither chose: no sync
+    edges = (
+        [20 * n for n in range(1, 11)] + [20 * n + 1 for n in range(11, 20)]
+        + [20 * n + 2 for n in range(100, 110)] + [20 * n + 1 for n in range(110, 119)]
+    )  # fmt: skip
+    flips = np.zeros(4000)
+    flips[edges] = 1
+    assert bit_sync(np.where(np.cumsum(flips) % 2 == 0, 1.0, -1.0), 0) is None

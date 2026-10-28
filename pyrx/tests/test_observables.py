@@ -192,3 +192,18 @@ def test_steady_polarity_marks_only_the_lock_in():
     epochs = make_observables([track], [lnav], week=2190)
     assert [e.obs[0].lli for e in epochs] == [3] + [0] * (len(epochs) - 1)
     assert all(e.obs[0].carrier_phase == 0.0 for e in epochs)
+
+
+def test_polarity_change_between_sparse_observations_is_a_slip():
+    # with 30 s epochs an observation can sit several subframes after the previous one;
+    # a change at any subframe in between is a slip on the first observation after it
+    track, lnav = _still_channel(
+        [(k, 10.0 + k / 1000 - 2.0, k >= 12000) for k in range(0, 30000, 6000)], n=40000
+    )
+    epochs = make_observables([track], [lnav], interval=30.0, week=2190)
+    assert [e.tow for e in epochs] == [30.0]
+    assert epochs[0].obs[0].lli == 0  # the first observation sits in a subframe of the new polarity
+    epochs = make_observables([track], [lnav], interval=15.0, week=2190)
+    assert [(e.tow, e.obs[0].lli, e.obs[0].carrier_phase) for e in epochs] == [
+        (15.0, 0, -0.0), (30.0, 1, -0.5), (45.0, 0, -0.5)
+    ]  # fmt: skip

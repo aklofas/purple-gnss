@@ -462,7 +462,8 @@ def write_rinex_nav(
     from. The record's epoch (toc) and week field are those of the data set's own
     week: an ephemeris broadcast in the last hours of a week has its toe and toc in
     the next one (the subframe's week number is the transmission week), and a reader
-    that dates toe by the record's week would otherwise place it a week early.
+    that dates toe by the record's week would otherwise place it a week early. The
+    transmission time is written in the record's week too, negative in that case.
     """
     out = [
         _line(
@@ -478,10 +479,10 @@ def write_rinex_nav(
     for eph in ephemerides:
         ttr = transmit_tow[eph.prn]
         w = full_week(eph.wn)
-        if eph.toe < ttr - WEEK_S / 2:
-            w += 1
+        if eph.toe < ttr - WEEK_S / 2:  # the transmission time is then negative in that week
+            w, ttr = w + 1, ttr - WEEK_S
         elif eph.toe > ttr + WEEK_S / 2:
-            w -= 1
+            w, ttr = w - 1, ttr + WEEK_S
         t = gps_datetime(w, eph.toc)
         out.append(
             f"G{eph.prn:02d} {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "

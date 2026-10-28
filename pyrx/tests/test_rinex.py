@@ -236,7 +236,9 @@ def test_nav_writer_dates_a_next_week_data_set_in_its_own_week(tmp_path):
     assert "G04 2022 01 02 00 00 00" in text  # Sunday of week 2191, not week 2190
     rows = text.split("END OF HEADER\n")[1].splitlines()
     assert float(rows[5].split()[2].replace("D", "E")) == 2191.0
-    assert float(rows[7].split()[0].replace("D", "E")) == sfs[0].tow_s
+    assert (
+        float(rows[7].split()[0].replace("D", "E")) == sfs[0].tow_s - 604800
+    )  # in the record's week
     [rec], _ = read_rinex_nav(tmp_path / "w.nav")
     assert (rec.wn, rec.toe, rec.toc) == (143, 0.0, 0.0)
 
