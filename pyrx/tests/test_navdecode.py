@@ -37,3 +37,13 @@ def test_decode_synthetic_frame(invert):
     # first bit of subframe 1 starts 100 bits after the code offset: epoch index 2000
     assert abs(res.subframes[0].epoch - 2000) <= 1
     assert res.subframes[0].tow_s == 5044 * 6 - 6
+
+
+def test_decode_too_short_returns_nothing():
+    bits = _frame()[:250]  # less than one subframe after pull-in
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), bits])
+    n = int(FS * (len(seq) * 0.020 + 0.1))
+    x = synth_l1ca(4, FS, 0.0, 800.0, 500, n, 45.0, True, bits=seq)
+    r = track_l1ca(ArraySamples(x, FS), 0.0, 4, 500 / FS, 800.0, 45.0)
+    res = decode_lnav(r)
+    assert res.subframes == [] and res.ephemeris is None
