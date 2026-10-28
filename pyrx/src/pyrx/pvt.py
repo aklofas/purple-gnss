@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from math import isfinite, radians, sin, sqrt
 
 import numpy as np
-from scipy.stats import chi2
 
 from pyrx.lnav import Ephemeris, Ionosphere
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
@@ -22,7 +21,20 @@ from pyrx.tracking import L1_FREQ
 ELEVATION_MASK = 15.0  # deg
 MAX_ITER = 10
 MAX_GDOP = 30.0
-CHI2_ALPHA = 0.001  # significance of the residual test
+# residual test thresholds at significance 0.001 by degrees of freedom, RTKLIB's rounded
+# table (rtkcmn.c chisqr) so that both solvers accept the same epochs
+_CHI2 = (
+    10.8, 13.8, 16.3, 18.5, 20.5, 22.5, 24.3, 26.1, 27.9, 29.6,
+    31.3, 32.9, 34.5, 36.1, 37.7, 39.3, 40.8, 42.3, 43.8, 45.3,
+    46.8, 48.3, 49.7, 51.2, 52.6, 54.1, 55.5, 56.9, 58.3, 59.7,
+    61.1, 62.5, 63.9, 65.2, 66.6, 68.0, 69.3, 70.7, 72.1, 73.4,
+    74.7, 76.0, 77.3, 78.6, 80.0, 81.3, 82.6, 84.0, 85.4, 86.7,
+    88.0, 89.3, 90.6, 91.9, 93.3, 94.7, 96.0, 97.4, 98.7, 100,
+    101, 102, 103, 104, 105, 107, 108, 109, 110, 112,
+    113, 114, 115, 116, 118, 119, 120, 122, 123, 125,
+    126, 127, 128, 129, 131, 132, 133, 134, 135, 137,
+    138, 139, 140, 142, 143, 144, 145, 147, 148, 149,
+)  # fmt: skip
 LAMBDA_L1 = C_LIGHT / L1_FREQ  # m
 _ON_EARTH = 6e6  # m, estimates nearer the centre get no mask, weights or atmosphere
 _ERR_CODE = 0.003 * 100.0  # m, RTKLIB err[0] * err[1]: the a priori code error
@@ -52,6 +64,11 @@ class Solution:
     prns: tuple[int, ...]  # satellites in the solution
     residuals: np.ndarray  # m, pseudorange residuals per PRN at the solution
     gdop: float
+
+
+def chi2_threshold(dof: int) -> float:
+    """Residual test threshold (significance 0.001) for `dof` degrees of freedom, 1 to 100."""
+    return _CHI2[dof - 1]
 
 
 def _variance(ura: int, el: float, dion: float) -> float:
@@ -165,7 +182,7 @@ def solve_epoch(
         return None
     x, rows, res, sig, used = fix
     n = len(res)
-    if n > 4 and np.sum((res / sig) ** 2) > chi2.isf(CHI2_ALPHA, n - 4):
+    if n > 4 and np.sum((res / sig) ** 2) > chi2_threshold(n - 4):
         return None
     try:
         gdop = sqrt(np.trace(np.linalg.inv(rows.T @ rows)))

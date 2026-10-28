@@ -2,13 +2,14 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.stats import chi2
 from test_orbits import _eph
 
 from pyrx.lnav import Ionosphere
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
 from pyrx.observables import C_LIGHT, Epoch, Observation
 from pyrx.orbits import OMEGA_E, satellite_state
-from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1, _variance, solve, solve_epoch
+from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1, _variance, chi2_threshold, solve, solve_epoch
 
 USUD = np.array([-3855263.0361, 3427432.5571, 3741020.2929])
 TOW = 28800.0
@@ -156,6 +157,13 @@ def test_degenerate_records_and_geometry_lose_the_satellite_or_the_epoch_not_the
 def test_solve_epoch_needs_four_satellites():
     ephs = constellation()[:3]
     assert solve_epoch(truth_epoch(ephs, USUD, 0.0), ephs) is None
+
+
+def test_chi_square_threshold_is_rtklib_table():
+    # RTKLIB's rounded table (alpha 0.001), not the exact quantiles, so the two solvers
+    # accept and reject the same epochs at the boundaries
+    assert [chi2_threshold(n) for n in (1, 2, 3, 10, 60, 100)] == [10.8, 13.8, 16.3, 29.6, 100, 149]
+    assert chi2_threshold(1) < chi2.isf(0.001, 1) < 10.9
 
 
 def test_solve_epoch_rejects_blunder():
