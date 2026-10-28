@@ -125,3 +125,36 @@ def test_decode_drops_a_parity_clean_subframe_with_the_wrong_tow_count():
     assert [(s.sf_id, s.tow_s) for s in sfs] == [
         (1, tow0 * 6 - 6), (2, (tow0 + 1) * 6 - 6), (1, (tow0 + 3) * 6 - 6), (2, (tow0 + 4) * 6 - 6)
     ]  # fmt: skip
+
+
+def _cn0_scale(cn0_dbhz):
+    """Noise scale of `_prompts` for a C/N0 over 1 ms: unit noise over an amplitude sqrt(2 C/N0 T)."""
+    return 1.0 / np.sqrt(2.0 * 10 ** (cn0_dbhz / 10) * 1e-3)
+
+
+def test_bit_sync_keeps_a_strong_prefix_before_a_weak_suffix():
+    # 20 s at 45 dB-Hz then 120 s at 28 dB-Hz, where the edge contrast no longer stands out:
+    # the sync is decided where it can be, and the bits run on to the end of the data
+    bits = rng.integers(0, 2, 7000).astype(np.uint8)
+    p = np.concatenate(
+        [_prompts(bits[:1000], phase=7, cn0_scale=_cn0_scale(45.0)),
+         _prompts(bits[1000:], phase=0, cn0_scale=_cn0_scale(28.0))]
+    )  # fmt: skip
+    stream = bit_sync(p, start_epoch=0)
+    assert stream is not None and stream.phase == 7 and stream.epoch[0] == 7
+    assert len(stream.bits) >= 6990
+    np.testing.assert_array_equal(stream.bits[:1000], bits[:1000])
+
+
+def test_bit_sync_starts_after_a_weak_prefix():
+    # 60 s at 28 dB-Hz then 20 s at 45 dB-Hz: synced from the strong part, bits exact there
+    bits = rng.integers(0, 2, 4000).astype(np.uint8)
+    p = np.concatenate(
+        [_prompts(bits[:3000], phase=7, cn0_scale=_cn0_scale(28.0)),
+         _prompts(bits[3000:], phase=0, cn0_scale=_cn0_scale(45.0))]
+    )  # fmt: skip
+    stream = bit_sync(p, start_epoch=100)
+    assert stream is not None and stream.phase == 7
+    j = (stream.epoch - 100 - 7) // 20  # input bit index of every stream bit
+    assert j[0] >= 2900 and j[-1] == 3999
+    np.testing.assert_array_equal(stream.bits[j >= 3000], bits[j[j >= 3000]])

@@ -4,7 +4,11 @@ Bit sync finds which of the 20 one-millisecond epochs in a 20 ms data bit
 carries the bit edge, by counting prompt sign changes at each epoch phase:
 noise flips the prompt sign at any phase, data bits only at the edge phase,
 so the edge phase is accepted when its count stands out against the others.
-Frame sync then looks for the TLM preamble repeating one subframe later with
+The counts are judged over 2 s windows, so a channel is synced from the first
+window where the edge stands out and a weak stretch later (a satellite
+setting) does not undo a clear one before it; the bits run on to the end of
+the data, where parity sorts them. Frame sync then looks for the TLM preamble
+repeating one subframe later with
 consistent parity, subframe ID and TOW, and decodes every parity-clean
 subframe from there on. Received polarity is unknown until the preamble is
 matched, so both polarities are tried.
@@ -27,6 +31,7 @@ from pyrx.lnav import (
 
 EPOCHS_PER_BIT = 20
 TOW_COUNTS = WEEK_S // SUBFRAME_S  # the HOW count wraps to 0 at the week boundary
+SYNC_WINDOW = 2000  # epochs over which the edge phase must stand out
 MIN_EDGE_CONTRAST = 3.0  # winning phase count over the mean count of the other phases
 MIN_EDGES = 5
 
@@ -38,8 +43,10 @@ class BitStream:
     bits: 0/1 as received (1 where the 20 ms prompt I sum is negative); the
         polarity is resolved later by frame sync.
     epoch: tracking epoch index of each bit's first millisecond.
-    phase: epoch index modulo 20 of the bit edges.
-    score: fraction of all sign changes that fell on that phase.
+    phase: epoch index modulo 20 of the bit edges, counted from the start of
+        the slice given to `bit_sync` (`epoch[0]` is the first absolute one).
+    score: fraction of the sign changes in the windows that synced that fell
+        on that phase.
     inverted: set by frame sync: True when the received bits had to be
         complemented to match the preamble, None until a frame start is found.
     """
@@ -52,24 +59,33 @@ class BitStream:
 
 
 def bit_sync(prompt_i: np.ndarray, start_epoch: int) -> BitStream | None:
-    """Bits from per-epoch prompt I starting at epoch `start_epoch`; None without a clear edge phase."""
+    """Bits from per-epoch prompt I starting at epoch `start_epoch`.
+
+    The bits start at the first 2 s window in which one edge phase stands out
+    and run to the end of the data; None when no window has one.
+    """
     p = np.asarray(prompt_i, dtype=np.float64)
     if len(p) < 2 * EPOCHS_PER_BIT:
         return None
     s = np.sign(p)
     edges = np.nonzero(s[1:] != s[:-1])[0] + 1  # epoch index where the sign differs from the last
-    counts = np.bincount(edges % EPOCHS_PER_BIT, minlength=EPOCHS_PER_BIT)
-    if counts.sum() == 0:
+    n_win = max(1, len(p) // SYNC_WINDOW)  # the last window takes the remainder
+    counts = np.zeros((n_win, EPOCHS_PER_BIT), dtype=int)
+    np.add.at(counts, (np.minimum(edges // SYNC_WINDOW, n_win - 1), edges % EPOCHS_PER_BIT), 1)
+    peak = counts.max(axis=1)
+    others = (counts.sum(axis=1) - peak) / (EPOCHS_PER_BIT - 1)
+    clear = (peak >= MIN_EDGES) & (peak >= MIN_EDGE_CONTRAST * others)
+    if not clear.any():
         return None
-    phase = int(counts.argmax())
-    peak = int(counts[phase])
-    others = (counts.sum() - peak) / (EPOCHS_PER_BIT - 1)
-    if peak < MIN_EDGES or peak < MIN_EDGE_CONTRAST * others:
-        return None
-    score = peak / counts.sum()
-    n_bits = (len(p) - phase) // EPOCHS_PER_BIT
-    sums = p[phase : phase + n_bits * EPOCHS_PER_BIT].reshape(n_bits, EPOCHS_PER_BIT).sum(axis=1)
-    epoch = start_epoch + phase + EPOCHS_PER_BIT * np.arange(n_bits)
+    total = counts[clear].sum(axis=0)
+    phase = int(total.argmax())
+    clear &= counts.argmax(axis=1) == phase  # a window synced on another phase did not sync
+    score = total[phase] / total.sum()
+    first = int(clear.argmax()) * SYNC_WINDOW
+    start = first + (phase - first) % EPOCHS_PER_BIT
+    n_bits = (len(p) - start) // EPOCHS_PER_BIT
+    sums = p[start : start + n_bits * EPOCHS_PER_BIT].reshape(n_bits, EPOCHS_PER_BIT).sum(axis=1)
+    epoch = start_epoch + start + EPOCHS_PER_BIT * np.arange(n_bits)
     return BitStream((sums < 0).astype(np.uint8), epoch, phase, float(score))
 
 

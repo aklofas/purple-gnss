@@ -173,7 +173,9 @@ def test_polarity_change_sets_the_half_cycle_and_slip_indicators(inverted):
     # transition happened after the first ended (8 s) and before the second began, so the
     # phases in between may be half a cycle off; the first observation on the new polarity
     # is a slip; before the first subframe the polarity rests on frame sync alone
-    track, lnav = _still_channel([(2000, 10.0, False), (14000, 22.0, True), (20000, 28.0, True)], inverted)
+    track, lnav = _still_channel(
+        [(2000, 10.0, False), (14000, 22.0, True), (20000, 28.0, True)], inverted
+    )
     epochs = make_observables([track], [lnav], week=2190)
     half = 0.5 if inverted else 0.0
     by_tow = {e.tow: (e.obs[0].lli, e.obs[0].carrier_phase) for e in epochs}
