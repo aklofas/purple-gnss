@@ -3,10 +3,10 @@
 An offline GNSS receiver in Python. It reads recorded IF samples and will grow stage
 by stage into a full receiver: acquisition, tracking, navigation-message decode,
 observables, a standalone position fix, and finally an RTK fix. Acquisition,
-tracking and navigation-message decode exist so far. Each stage is checked against
-an external reference before the next one is started: Pocket SDR for acquisition
-and tracking, broadcast ephemeris files for the navigation decode, RTKLIB for
-positioning.
+tracking, navigation-message decode and observables written as RINEX exist so
+far. Each stage is checked against an external reference before the next one is
+started: Pocket SDR for acquisition, tracking and observables, broadcast ephemeris
+files for the navigation decode, RTKLIB for positioning.
 
 ## Why Python
 
@@ -29,10 +29,12 @@ pip install -e '.[dev]'
 pytest
 ```
 
-The reference tests compare acquisition and tracking with Pocket SDR's results on
-its sample recordings, and the navigation decode with the day's broadcast
-ephemeris. They need the environment variable `PYRX_CAPTURES` pointing at a
-directory holding these files, and skip when it is unset:
+The reference tests compare acquisition, tracking and observables with Pocket
+SDR's results on its sample recordings, the navigation decode with the day's
+broadcast ephemeris, and the position RTKLIB computes from our RINEX with the one
+it computes from Pocket SDR's. They need the environment variable `PYRX_CAPTURES`
+pointing at a directory holding these files, and skip when it is unset (the fix
+test also skips when `rnx2rtkp` is not on the path):
 
 | File | Source | SHA-256 |
 |---|---|---|
@@ -42,6 +44,10 @@ directory holding these files, and skip when it is unset:
 | `L1_20220114_004440_8MHz_I.bin` | Pocket SDR sample set, L1+L2 recording of 2022-01-14, GPS L1, 8 MHz real, 2 MHz IF, 30 s | `388c550e2694067566c24fddae61abd1b316eb4bbd0820e0e8fff1818f164de7` |
 | `brdc/BRDC00WRD_R_20213600000_01D_GN.rnx` | BKG (`igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/`), worldwide GPS broadcast ephemeris, RINEX 3.05, 2021-12-26 | `92fe0754c16b3408691facabad44390ebfa2031ad641334ebe6f8660f8e554c2` |
 | `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | BKG (`.../BRDC/2022/014/`), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | Pocket SDR C tracker (`pocket_trk`) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS` | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
+| `pocketsdr-trk/L1_20220114_004440_8MHz_I.ctrk.log` | the same for the 2022-01-14 recording (`$CH` only: no subframe 1 in the window, so Pocket SDR forms no observations) | `3308cc4bc7273ba09ac1a14879b9bce7dca9f696119c0718f48b1a2cb4c09e92` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from its RTCM3 output with `convbin` | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | RTKLIB `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
 | `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | BKG (`.../BRDC/2022/014/`), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
@@ -58,6 +64,16 @@ pocket_trk.py -sig L1CA -prn 10,12,15,23,24,32  -f 8  -fi 2.0 -q -log L1_2022011
 
 The PRN lists are the satellites `pyrx-acq` reports at or above 38 dB-Hz in the
 first 10 ms of each file.
+
+The Pocket SDR C tracker files were produced with (from the `pocketsdr-trk/` directory,
+`-fo` being the LO frequency, L1 minus the IF, in MHz):
+
+```sh
+pocket_trk L1_20211226_082401_24MHz_I.bin -fmt INT8 -f 24 -fo 1569.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20211226_082401_24MHz_I.ctrk.log -rtcm L1_20211226_082401_24MHz_I.ctrk.rtcm3
+pocket_trk L1_20220114_004440_8MHz_I.bin  -fmt INT8 -f 8  -fo 1573.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20220114_004440_8MHz_I.ctrk.log
+convbin -r rtcm3 -v 3.05 -tr 2021/12/26 08:00:00 -o L1_20211226_082401_24MHz_I.psdr.obs -n L1_20211226_082401_24MHz_I.psdr.nav L1_20211226_082401_24MHz_I.ctrk.rtcm3
+rnx2rtkp -p 0 -t -o L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos L1_20211226_082401_24MHz_I.psdr.obs ../brdc/BRDC00WRD_R_20213600000_01D_GN.rnx
+```
 
 ## Sample format
 
@@ -105,6 +121,51 @@ ephemeris issue of data and `toe` when subframes 1, 2 and 3 with the same issue
 were seen. `--json` writes `{"ephemeris": {"<prn>": {field: value, ...}},
 "ionosphere": {"alpha": [...], "beta": [...]} | null}` with the complete
 ephemerides only.
+
+## RINEX output from the command line
+
+```sh
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] --obs out.obs [--nav out.nav]
+```
+
+Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
+whole multiple of `--interval` seconds of GPS time, and writes them as a RINEX 3.05
+observation file with `C1C L1C D1C S1C` for every channel that has a decoded
+subframe. With `--nav`, the decoded ephemerides (and the ionosphere parameters when
+seen) are written as a RINEX navigation file. The GPS week comes from subframe 1;
+when the recording holds none, give it with `--week`. One line per PRN reports how
+many epochs the channel contributed to and its first pseudorange and Doppler, then
+the number of epochs and their span.
+
+## Checking the fix
+
+```sh
+rnx2rtkp -p 0 -t -o fix.pos out.obs brdc.rnx
+```
+
+RTKLIB's single-point solution from our observation file and the day's broadcast
+ephemeris gives a position per epoch; the reference test compares it with the same
+solution from Pocket SDR's observations of the 2021-12-26 recording (five
+satellites once both have all of them: horizontal within 5 m, vertical within
+10 m, pseudorange residual RMS within a factor of two).
+
+## Observables
+
+Every tracking epoch integrates one code period, so once a subframe has tagged one
+epoch with its GPS time, the code start of epoch k was transmitted at
+`tow + (k - epoch) * 1 ms` for every epoch of the channel. The receiver clock is
+set once per recording: sample 0 is given the GPS time of the latest transmit time
+seen at sample 0 plus 68 ms of nominal travel time, which puts pseudoranges near
+their true values and leaves the remaining bias to the position solution.
+Observation epochs are the receiver times at which that clock reads a multiple of
+the interval; a channel is sampled there by interpolating between the two code
+starts that bracket the epoch, from its first bit-synced epoch on. Pseudorange is
+the light time between receiver and transmit time; carrier phase is the negated
+accumulated Doppler phase (it grows with range) plus half a cycle when the Costas
+loop locked on inverted data, with every channel's carrier NCO referenced to the
+receiver's IF phase at sample 0 so the phases of different channels share one
+origin; Doppler is positive for an approaching satellite. No loss-of-lock
+indicators are written.
 
 ## Navigation message decode
 

@@ -2,13 +2,16 @@
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
 
 from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
 from pyrx.navdecode import decode_lnav
+from pyrx.observables import make_observables
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
+from pyrx.rinex import gps_datetime, write_rinex_nav, write_rinex_obs
 from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
 
@@ -148,6 +151,68 @@ def nav_main(argv: list[str] | None = None) -> int:
         out = Path(args.json)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(data, indent=1))
+    return 0
+
+
+def rinex_main(argv: list[str] | None = None) -> int:
+    """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation files."""
+    p = argparse.ArgumentParser(prog="pyrx-rinex", description=rinex_main.__doc__)
+    p.add_argument("file")
+    p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
+    p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
+    p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
+    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+    p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
+    p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
+    p.add_argument("--week", type=int, default=None, help="GPS week (needed without subframe 1)")
+    p.add_argument("--marker", default="PYRX", help="RINEX marker name")
+    p.add_argument("--obs", required=True, help="RINEX observation file to write")
+    p.add_argument("--nav", default=None, help="RINEX navigation file to write")
+    args = p.parse_args(argv)
+
+    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
+    seeds = []
+    for prn in parse_prns(args.prn):
+        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
+        if acq.detected:
+            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    t0 = time.perf_counter()
+    duration = args.duration if args.duration > 0 else None
+    tracks = track_channels(
+        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
+    )
+    lnavs = [decode_lnav(r) for r in tracks]
+    epochs = make_observables(tracks, lnavs, args.interval, args.week)
+    elapsed = time.perf_counter() - t0
+    for r, ln in zip(tracks, lnavs):
+        mine = [o for e in epochs for o in e.obs if o.prn == r.prn]
+        if not mine:
+            print(f"PRN {r.prn:2d}  no time tag")
+            continue
+        print(
+            f"PRN {r.prn:2d}  epochs {len(mine)}  P {mine[0].pseudorange / 1e3:.1f} km  "
+            f"D {mine[0].doppler:.1f} Hz"
+        )
+    if not epochs or epochs[0].week is None:
+        what = "no observations" if not epochs else "week unknown (no subframe 1); give --week"
+        print(f"{what}, nothing written", file=sys.stderr)
+        return 2
+    week = epochs[0].week
+    write_rinex_obs(args.obs, epochs, args.marker)
+    print(
+        f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "
+        f"to {gps_datetime(week, epochs[-1].tow)}"
+    )
+    if args.nav is not None:
+        ephs = [ln.ephemeris for ln in lnavs if ln.ephemeris is not None]
+        if ephs:
+            tow1 = {ln.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}
+            iono = next((ln.ionosphere for ln in lnavs if ln.ionosphere is not None), None)
+            write_rinex_nav(args.nav, ephs, tow1, iono, week)
+        else:
+            print("no ephemeris decoded, navigation file not written")
+    print(f"TIME = {elapsed:.3f} s")
     return 0
 
 
