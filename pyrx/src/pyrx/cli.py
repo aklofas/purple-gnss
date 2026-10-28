@@ -1,10 +1,13 @@
 """Command-line entry points."""
 
 import argparse
+import json
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
+from pyrx.navdecode import decode_lnav
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
@@ -100,6 +103,51 @@ def trk_main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         for r in results:
             plot_tracking(r, out / f"trk_prn{r.prn:02d}.png")
+    return 0
+
+
+def nav_main(argv: list[str] | None = None) -> int:
+    """Acquire, track and decode the navigation message of GPS L1 C/A PRNs in a recording."""
+    p = argparse.ArgumentParser(prog="pyrx-nav", description=nav_main.__doc__)
+    p.add_argument("file")
+    p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
+    p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
+    p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
+    p.add_argument("--prn", default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+    p.add_argument("--duration", type=float, default=0.0, help="length to decode (s), 0 = all")
+    p.add_argument("--json", default=None, help="write decoded ephemerides and ionosphere here")
+    args = p.parse_args(argv)
+
+    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
+    seeds = []
+    for prn in parse_prns(args.prn):
+        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
+        if acq.detected:
+            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    t0 = time.perf_counter()
+    duration = args.duration if args.duration > 0 else None
+    tracks = track_channels(
+        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
+    )
+    results = [decode_lnav(r) for r in tracks]
+    elapsed = time.perf_counter() - t0
+    for res in results:
+        bits = "sync" if res.stream is not None else "none"
+        sfs = ",".join(f"{sf.sf_id}@{sf.tow_s}" for sf in res.subframes) or "none"
+        e = res.ephemeris
+        eph = f"IODE {e.iode} toe {e.toe:.0f}" if e is not None else "incomplete"
+        print(f"PRN {res.prn:2d}  bits {bits}  subframes {sfs}  ephemeris {eph}")
+    print(f"TIME = {elapsed:.3f} s")
+    if args.json is not None:
+        iono = next((r.ionosphere for r in results if r.ionosphere is not None), None)
+        data = {
+            "ephemeris": {str(r.prn): asdict(r.ephemeris) for r in results if r.ephemeris},
+            "ionosphere": None if iono is None else {"alpha": iono.alpha, "beta": iono.beta},
+        }
+        out = Path(args.json)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(data, indent=1))
     return 0
 
 

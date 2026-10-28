@@ -1,6 +1,9 @@
-import numpy as np
+import json
 
-from pyrx.cli import acq_main, parse_prns, trk_main
+import numpy as np
+from test_navdecode import _frame
+
+from pyrx.cli import acq_main, nav_main, parse_prns, trk_main
 from pyrx.synth import synth_l1ca
 
 
@@ -62,3 +65,22 @@ def test_trk_main_tracks_and_logs(tmp_path, capsys):
     assert lines[0] == "time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles"
     assert 24 <= len(lines) - 1 <= 26  # 2.5 s at 0.1 s
     assert (tmp_path / "trk_prn07.png").exists()
+
+
+def test_nav_main_prints_and_writes_json(tmp_path, capsys):
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), _frame()])
+    n = int(fs * (len(seq) * 0.020 + 0.1))
+    x = synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq)
+    raw = np.empty(2 * len(x), dtype=np.int8)
+    raw[0::2] = x.real.clip(-127, 127)
+    raw[1::2] = (-x.imag).clip(-127, 127)
+    f = tmp_path / "s.bin"
+    raw.tofile(f)
+    out_json = tmp_path / "nav.json"
+    rc = nav_main([str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--json", str(out_json)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PRN  4  bits sync  subframes 1@30258,2@30264,3@30270  ephemeris IODE 149" in out
+    data = json.loads(out_json.read_text())
+    assert data["ephemeris"]["4"]["iode"] == 149 and data["ionosphere"] is None
