@@ -14,9 +14,19 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from pyrx.lnav import PREAMBLE, SUBFRAME_BITS, WORD_BITS, Subframe, decode_how, decode_subframe
+from pyrx.lnav import (
+    PREAMBLE,
+    SUBFRAME_BITS,
+    SUBFRAME_S,
+    WEEK_S,
+    WORD_BITS,
+    Subframe,
+    decode_how,
+    decode_subframe,
+)
 
 EPOCHS_PER_BIT = 20
+TOW_COUNTS = WEEK_S // SUBFRAME_S  # the HOW count wraps to 0 at the week boundary
 MIN_EDGE_CONTRAST = 3.0  # winning phase count over the mean count of the other phases
 MIN_EDGES = 5
 
@@ -89,7 +99,7 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
             how_next = decode_how(b[q : q + 30], b[q + 30 : q + 60], int(b[q - 2]), int(b[q - 1]))
             if how is None or how_next is None:
                 continue
-            if not 1 <= how[1] <= 5 or how_next[0] != how[0] + 1:
+            if not 1 <= how[1] <= 5 or how_next[0] != (how[0] + 1) % TOW_COUNTS:
                 continue
             stream.inverted = bool(invert)
             return _decode_from(b, p, d29, d30, stream.epoch, prn)

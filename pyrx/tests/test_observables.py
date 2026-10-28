@@ -46,6 +46,45 @@ def test_transmit_times_reject_inconsistent_subframes():
         transmit_times(track, dataclasses.replace(lnav, subframes=[]))
 
 
+def test_transmit_times_continue_across_the_week_rollover():
+    # subframes tagged 604794 then 0 belong to one continuous channel: the mapping from
+    # epoch to transmit time keeps the first subframe's week
+    track, lnav = _channel(4, 500, 800.0, tow0=100800 - 1)
+    assert [sf.tow_s for sf in lnav.subframes] == [604788, 604794, 0]
+    tt = transmit_times(track, lnav)
+    sf = lnav.subframes[-1]
+    assert tt[sf.epoch] == pytest.approx(604800.0, abs=1e-9)
+    assert tt[0] == pytest.approx(604788.0 - lnav.subframes[0].epoch * CA_PERIOD, abs=1e-9)
+
+
+def test_channels_either_side_of_the_week_rollover_share_one_clock():
+    # channel 4 decodes subframes on both sides of the week boundary, channel 7 only the
+    # one after it; the receiver epochs run past 604800 in the week of the first epoch
+    # and both channels give the same pseudorange geometry as inside a week
+    fs = 2.5e6
+    a = _channel(4, 500, 800.0, fs=fs, tow0=100800 - 1)
+    b = _channel(7, 1700, -1200.0, fs=fs, tow0=100800 - 1)
+    b = (b[0], dataclasses.replace(b[1], subframes=b[1].subframes[2:]))
+    assert [sf.tow_s for sf in b[1].subframes] == [0]
+    epochs = make_observables([a[0], b[0]], [a[1], b[1]])
+    assert epochs and all(e.week == 2190 for e in epochs)
+    tows = [e.tow for e in epochs]
+    assert tows == sorted(tows) and tows[0] < 604800.0 < tows[-1]
+    rx0 = receiver_time0([a[0], b[0]], [a[1], b[1]])
+    for e in epochs:
+        assert [o.prn for o in e.obs] == [4, 7]
+        n = (e.tow - rx0) * fs
+        expect = C_LIGHT * (
+            (n - 500) / fs * (1 + 800.0 / L1_FREQ) - (n - 1700) / fs * (1 - 1200.0 / L1_FREQ)
+        )
+        assert e.obs[1].pseudorange - e.obs[0].pseudorange == pytest.approx(expect, abs=3.0)
+    # a recording whose every observation epoch lies past the boundary is dated in the
+    # new week, whichever side sample 0 was on
+    c = _channel(4, 500, 800.0, fs=fs, tow0=100800 + 1)
+    later = make_observables([c[0]], [c[1]])
+    assert later[0].week == 2190 and 0.0 <= later[0].tow < 100.0
+
+
 def test_pseudorange_matches_synthetic_truth():
     fs, c0, fd = 2.5e6, 500, 800.0
     track, lnav = _channel(4, c0, fd, fs=fs)

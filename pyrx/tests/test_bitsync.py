@@ -10,7 +10,7 @@ rng = np.random.default_rng(1)
 def _frame_bits(tow0=5044, n_sf=3, d29=0, d30=0):
     out = []
     for i, f in zip(range(1, n_sf + 1), (SF1, SF2, SF3, SF1, SF2)):
-        sf = encode_subframe(i if i <= 3 else 1, tow0 + i - 1, f, d29, d30)
+        sf = encode_subframe(i if i <= 3 else 1, (tow0 + i - 1) % 100800, f, d29, d30)
         d29, d30 = int(sf[28 + 270]), int(sf[29 + 270])
         out.append(sf)
     return np.concatenate(out)
@@ -99,3 +99,12 @@ def test_frame_sync_reports_polarity():
     assert s.inverted is True
     s = bit_sync(_prompts(rng.integers(0, 2, 1200).astype(np.uint8), phase=0), 0)
     assert frame_sync(s) == [] and s.inverted is None
+
+
+def test_frame_sync_accepts_the_week_rollover_pair():
+    # the TOW count goes 100799 -> 0 once a week; a start verified on that pair must not be
+    # rejected, and the decoded seconds of week wrap with it
+    bits = _frame_bits(tow0=100799)
+    stream = bit_sync(_prompts(bits, phase=0), 0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.tow_s for s in sfs] == [604788, 604794, 0]

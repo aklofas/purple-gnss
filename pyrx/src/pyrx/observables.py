@@ -45,10 +45,15 @@ def code_starts(track: TrackResult) -> np.ndarray:
 
 
 def transmit_times(track: TrackResult, lnav: LnavResult) -> np.ndarray:
-    """GPS seconds of week at which every epoch's code start was transmitted."""
+    """GPS seconds of week at which every epoch's code start was transmitted.
+
+    Counted in the week of the channel's first subframe: subframes decoded after a
+    week rollover continue past 604800 rather than restarting at zero.
+    """
     if not lnav.subframes:
         raise ValueError("no subframe decoded")
     t0 = np.array([sf.tow_s - sf.epoch * CA_PERIOD for sf in lnav.subframes])
+    t0 += WEEK_S * np.round((t0[0] - t0) / WEEK_S)
     if t0.max() - t0.min() > 1e-9:
         raise ValueError("inconsistent subframe time tags")
     return t0[0] + np.arange(len(track.t)) * CA_PERIOD
@@ -68,8 +73,9 @@ class Epoch:
     """Observations of all channels at one receiver epoch.
 
     `tow` is seconds from the start of `week`. Within one `make_observables` run it
-    increases monotonically and may reach or exceed 604800 when a recording crosses
-    the week boundary; `week` does not change within a run. The RINEX reader
+    starts in [0, 604800), increases monotonically and may reach or exceed 604800
+    when a recording crosses the week boundary; `week` does not change within a
+    run. The RINEX reader
     returns `tow` in [0, 604800) with the week of the time stamp. Consumers form a
     continuous time as `week * WEEK_S + tow` when they need one and reduce every
     difference against an ephemeris time of week (`toe`, `toc`) into
@@ -82,7 +88,13 @@ class Epoch:
 
 
 def _usable(tracks, lnavs) -> list[tuple[TrackResult, LnavResult, np.ndarray, np.ndarray]]:
-    """Channels with consistent time tags, each with its code starts and transmit times."""
+    """Channels with consistent time tags, each with its code starts and transmit times.
+
+    Every channel's transmit times are put in one week, the one in which the
+    signals at sample 0 were transmitted, so a recording that crosses the week
+    boundary counts on past 604800 for all channels, whichever side each decoded
+    its first subframe on.
+    """
     out = []
     for tr, ln in zip(tracks, lnavs):
         try:
@@ -90,11 +102,21 @@ def _usable(tracks, lnavs) -> list[tuple[TrackResult, LnavResult, np.ndarray, np
         except ValueError:
             continue
         out.append((tr, ln, code_starts(tr), tt))
+    if out:
+        at0 = [tt[0] - tc[0] for _, _, tc, tt in out]  # transmit time seen at sample 0
+        shifts = WEEK_S * np.round((at0[0] - np.array(at0)) / WEEK_S)
+        shifts -= WEEK_S * floor(min(at0 + shifts) / WEEK_S)
+        out = [(tr, ln, tc, tt + d) for (tr, ln, tc, tt), d in zip(out, shifts)]
     return out
 
 
 def receiver_time0(tracks: list[TrackResult], lnavs: list[LnavResult]) -> float:
-    """GPS seconds of week assigned to sample 0 of the recording."""
+    """GPS seconds of week assigned to sample 0 of the recording.
+
+    In the week in which the signals at sample 0 were transmitted;
+    `make_observables` moves the origin on by a week when every observation epoch
+    falls past the boundary.
+    """
     t_tx0 = [tt[0] - tc[0] for _, _, tc, tt in _usable(tracks, lnavs)]
     if not t_tx0:
         raise ValueError("no channel with a decoded subframe")
@@ -111,25 +133,34 @@ def make_observables(
 
     A channel is used from its first bit-synced epoch on; channels without a
     subframe, or with subframes that disagree on the time tag, are skipped.
-    `week` defaults to the week of any decoded subframe 1 and stays None when
-    there is none.
+    `week` is the week of the first observation epoch; it defaults to the one
+    implied by any decoded subframe 1 and stays None when there is none.
     """
     chans = _usable(tracks, lnavs)
     if not chans:
         return []
-    if week is None:
-        wn = [sf.fields["wn"] for _, ln, _, _ in chans for sf in ln.subframes if sf.sf_id == 1]
-        week = full_week(wn[0]) if wn else None
+    # the week of the run's time origin: a subframe 1 decoded past the rollover carries
+    # the next week's number
+    wn = [
+        full_week(sf.fields["wn"]) - int(tt[sf.epoch] // WEEK_S)
+        for _, ln, _, tt in chans
+        for sf in ln.subframes
+        if sf.sf_id == 1
+    ]
+    origin_week = wn[0] if wn else None
     rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
     per = [(tr, ln, tc, tt, int(ln.stream.epoch[0])) for tr, ln, tc, tt in chans]
     t_begin = min(tc[k0] for _, _, tc, _, k0 in per)
     t_end = max(tc[-1] for _, _, tc, _, _ in per)
     first = ceil((rx0 + t_begin) / interval)
     last = floor((rx0 + t_end) / interval)
+    weeks_on = floor(first * interval / WEEK_S)  # every epoch past the boundary: the next week
+    if week is None and origin_week is not None:
+        week = origin_week + weeks_on
     epochs = []
     for i in range(first, last + 1):
-        tow = i * interval
-        t = tow - rx0
+        t = i * interval - rx0
+        tow = i * interval - weeks_on * WEEK_S
         obs = []
         for tr, ln, tc, tt, k0 in per:
             k = int(np.searchsorted(tc, t, side="right")) - 1

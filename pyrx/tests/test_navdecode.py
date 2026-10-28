@@ -14,7 +14,7 @@ FS = 2.5e6
 def _frame(tow0=5044):
     out, d29, d30 = [], 0, 0
     for i, f in ((1, SF1), (2, SF2), (3, SF3)):
-        sf = encode_subframe(i, tow0 + i - 1, f, d29, d30)
+        sf = encode_subframe(i, (tow0 + i - 1) % 100800, f, d29, d30)
         d29, d30 = int(sf[298]), int(sf[299])
         out.append(sf)
     return np.concatenate(out)
