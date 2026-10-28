@@ -1,7 +1,7 @@
 import numpy as np
 from test_lnav import SF1, SF2, SF3
 
-from pyrx.bitsync import bit_sync, frame_sync
+from pyrx.bitsync import BitStream, bit_sync, frame_sync
 from pyrx.lnav import encode_subframe
 
 rng = np.random.default_rng(1)
@@ -65,3 +65,25 @@ def test_decode_drops_corrupted_subframe():
     bits[300 + 150] ^= 1  # inside subframe 2
     stream = bit_sync(_prompts(bits, phase=0), 0)
     assert [s.sf_id for s in frame_sync(stream)] == [1, 3]
+
+
+def test_frame_sync_handles_preamble_pair_at_stream_end():
+    # a chance preamble pair whose second copy ends inside the last 30 bits must be
+    # rejected, not read past the end of the stream
+    bits = rng.integers(0, 2, 400).astype(np.uint8)
+    bits[80:88] = [1, 0, 0, 0, 1, 0, 1, 1]
+    bits[380:388] = [1, 0, 0, 0, 1, 0, 1, 1]
+    stream = BitStream(bits, np.arange(400) * 20, 0, 1.0)
+    assert frame_sync(stream) == []
+
+
+def test_bit_sync_accepts_weak_signal():
+    # noise sign flips spread over all 20 phases; the edge phase must still win by contrast
+    bits = rng.integers(0, 2, 1400).astype(np.uint8)
+    stream = bit_sync(_prompts(bits, phase=7, cn0_scale=0.6), start_epoch=0)
+    assert stream is not None and stream.phase == 7
+    np.testing.assert_array_equal(stream.bits[:1400], bits)
+
+
+def test_bit_sync_rejects_noise_only():
+    assert bit_sync(rng.standard_normal(2000), 0) is None

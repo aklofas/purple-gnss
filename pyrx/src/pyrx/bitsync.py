@@ -1,7 +1,9 @@
 """Bit and frame synchronisation of a tracked GPS L1 C/A channel.
 
 Bit sync finds which of the 20 one-millisecond epochs in a 20 ms data bit
-carries the bit edge, by counting prompt sign changes at each epoch phase.
+carries the bit edge, by counting prompt sign changes at each epoch phase:
+noise flips the prompt sign at any phase, data bits only at the edge phase,
+so the edge phase is accepted when its count stands out against the others.
 Frame sync then looks for the TLM preamble repeating one subframe later with
 consistent parity, subframe ID and TOW, and decodes every parity-clean
 subframe from there on. Received polarity is unknown until the preamble is
@@ -12,10 +14,10 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from pyrx.lnav import PREAMBLE, SUBFRAME_BITS, Subframe, decode_how, decode_subframe
+from pyrx.lnav import PREAMBLE, SUBFRAME_BITS, WORD_BITS, Subframe, decode_how, decode_subframe
 
 EPOCHS_PER_BIT = 20
-MIN_EDGE_FRACTION = 0.6  # of all sign changes at the winning phase
+MIN_EDGE_CONTRAST = 3.0  # winning phase count over the mean count of the other phases
 MIN_EDGES = 5
 
 
@@ -47,9 +49,11 @@ def bit_sync(prompt_i: np.ndarray, start_epoch: int) -> BitStream | None:
     if counts.sum() == 0:
         return None
     phase = int(counts.argmax())
-    score = counts[phase] / counts.sum()
-    if score < MIN_EDGE_FRACTION or counts[phase] < MIN_EDGES:
+    peak = int(counts[phase])
+    others = (counts.sum() - peak) / (EPOCHS_PER_BIT - 1)
+    if peak < MIN_EDGES or peak < MIN_EDGE_CONTRAST * others:
         return None
+    score = peak / counts.sum()
     n_bits = (len(p) - phase) // EPOCHS_PER_BIT
     sums = p[phase : phase + n_bits * EPOCHS_PER_BIT].reshape(n_bits, EPOCHS_PER_BIT).sum(axis=1)
     epoch = start_epoch + phase + EPOCHS_PER_BIT * np.arange(n_bits)
@@ -70,9 +74,10 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
     failure is dropped on its own.
     """
     n = len(stream.bits)
+    # the candidate's second subframe must hold its TLM and HOW words in full
     for invert in (0, 1):
         b = stream.bits ^ invert
-        for p in range(n - SUBFRAME_BITS - len(PREAMBLE) + 1):
+        for p in range(n - SUBFRAME_BITS - 2 * WORD_BITS + 1):
             if not (_preamble_at(b, p) and _preamble_at(b, p + SUBFRAME_BITS)):
                 continue
             d29, d30 = (int(b[p - 2]), int(b[p - 1])) if p >= 2 else (0, 0)
