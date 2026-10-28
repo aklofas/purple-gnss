@@ -198,6 +198,7 @@ class Rtk:
         """Undifferenced phase and code residuals (m) per satellite and signal, with geometry."""
         lat, _, h = geodetic(xyz)
         zhd = zenith_hydrostatic(lat, h)
+        lam = np.array([wavelength(sig) for sig in obs.signals])
         out = {}
         for sat, entry in sats.items():
             s = entry[which]
@@ -207,7 +208,6 @@ class Rtk:
             rho, e = geometric_range(xyz, s.position)
             corr = rho - C_LIGHT * s.clock + zhd * nmf_dry(lat, h, el, doy)
             row = obs.sats.index(sat)
-            lam = np.array([wavelength(sig) for sig in obs.signals])
             y_phase = lam * obs.carrier_phase[row] - corr
             y_code = obs.pseudorange[row] - corr
             out[sat] = (y_phase, y_code, e, el, obs.lli[row])
@@ -253,11 +253,41 @@ class Rtk:
         # a base epoch reused for several rover epochs reports its slips once
         base_new = _time(base) != self.last_base_time
         self.last_base_time = _time(base)
+        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
 
-        # single differences, slips and ambiguity states (RTKLIB udbias)
+        sd = self._update_biases(signals, cols, common, yr, yb, tt, base_new, first_sigs)
+        dd = self._double_differences(signals, common, sd, yr, age)
+        if dd is None:
+            return None
+        H, v, R, used = dd
+        if not self._update_float(H, v, R, used):
+            return None
+        ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
+        if ns < 4:  # the update stands, the epoch has no solution (RTKLIB SOLQ_NONE)
+            return None
+        status, ratio, position, nb = self._resolve_ambiguities(signals, common)
+        return Fix(
+            rover.week,
+            rover.tow,
+            marker_from_arp(position, self.rover_delta),
+            status,
+            ns,
+            float(ratio),
+            age,
+            nb,
+        )
+
+    def _update_biases(self, signals, cols, common, yr, yb, tt, base_new, first_sigs):
+        """Single differences, slips and ambiguity states (RTKLIB udbias).
+
+        Removes slipped and flags half-cycle states, adds process noise, aligns the
+        existing states of each signal to the current single-differenced clock and
+        creates the missing ones. Returns the single differences (phase m, code m) by
+        (satellite, signal).
+        """
+        opt = self.opt
         sd = {}  # (sat, signal) -> (phase m, code m)
         halves = {}
-        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
         for sat in common:
             yr_p, yr_c, _, _, lli_r = yr[sat]
             yb_p, yb_c, _, _, lli_b = yb[sat]
@@ -310,8 +340,13 @@ class Rtk:
                 if k not in self.biases:
                     self._add(k, v, opt.bias_sigma**2)
                 self.biases[k].half = halves[k]
+        return sd
 
-        # double differences (RTKLIB ddres)
+    def _double_differences(self, signals, common, sd, yr, age):
+        """Double-differenced phase and code against the highest satellite per system
+        (RTKLIB ddres): design matrix, innovations, covariance and the (satellite, signal)
+        states used; None when no difference can be formed."""
+        opt = self.opt
         rows, v, blocks = [], [], []
         used = set()
         n = len(self.x)
@@ -356,11 +391,17 @@ class Rtk:
             m = len(block)
             R[k : k + m, k : k + m] = var_ref + np.diag(block)
             k += m
+        return H, v, R, used
+
+    def _update_float(self, H, v, R, used):
+        """The measurement update and the lock counters (RTKLIB filter); False, with the
+        state untouched, when the innovation covariance is singular."""
+        n = len(self.x)
         S = H @ self.P @ H.T + R
         try:
             K = self.P @ H.T @ np.linalg.inv(S)
         except np.linalg.LinAlgError:
-            return None
+            return False
         self.x = self.x + K @ v
         self.P = (np.eye(n) - K @ H) @ self.P
         for key in used:
@@ -368,12 +409,14 @@ class Rtk:
             b.lock += 1
             b.outc = 0
             b.used = True
-        first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
-        ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
-        if ns < 4:  # the update stands, the epoch has no solution (RTKLIB SOLQ_NONE)
-            return None
+        return True
 
-        # ambiguity resolution (RTKLIB resamb_LAMBDA, continuous mode)
+    def _resolve_ambiguities(self, signals, common):
+        """LAMBDA on the double-differenced ambiguities with the ratio test (RTKLIB
+        resamb_LAMBDA, continuous mode): status, ratio, position and the number of
+        ambiguities searched. The float states are kept whatever the outcome."""
+        opt = self.opt
+        n = len(self.x)
         pairs = []
         for system in sorted({s[0] for s in common}):
             for sig in signals:
@@ -411,16 +454,7 @@ class Rtk:
                     status = "fix"
             except (ValueError, np.linalg.LinAlgError):
                 ratio = 0.0
-        return Fix(
-            rover.week,
-            rover.tow,
-            marker_from_arp(position, self.rover_delta),
-            status,
-            ns,
-            float(ratio),
-            age,
-            nb,
-        )
+        return status, ratio, position, nb
 
     def _variance(self, el, age, code):
         a = b = self.opt.phase_error * (self.opt.code_ratio if code else 1.0)
