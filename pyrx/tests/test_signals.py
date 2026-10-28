@@ -204,3 +204,14 @@ def test_reader_survives_a_negative_epoch_count(tmp_path):
     body = RINEX[len(HEADER) :].replace("0.0000000  0  3", "0.0000000  0 -1", 1)
     (tmp_path / "t.obs").write_text(HEADER + body)
     assert [e.tow for e in read_rinex_observations(tmp_path / "t.obs", ("G1C",))] == [30.0]
+
+
+def test_writer_declares_a_zero_phase_shift_per_phase_code(tmp_path):
+    (tmp_path / "t.obs").write_text(RINEX)
+    signals = ("G1C", "G2W", "E1C", "E5Q")
+    epochs = read_rinex_observations(tmp_path / "t.obs", signals)
+    write_rinex_observations(tmp_path / "w.obs", epochs)
+    lines = (tmp_path / "w.obs").read_text().splitlines()
+    shifts = [line[:5] for line in lines if line[60:].strip() == "SYS / PHASE SHIFT"]
+    assert shifts == ["G L1C", "G L2W", "E L1C", "E L5Q"]
+    assert lines.index("G L1C".ljust(60) + "SYS / PHASE SHIFT") < lines.index(END_OF_HEADER[:-1])

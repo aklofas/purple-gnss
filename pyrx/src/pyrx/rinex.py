@@ -457,8 +457,9 @@ def write_rinex_observations(
     """Write multi-signal observations as a RINEX 3.05 observation file.
 
     One `SYS / # / OBS TYPES` line per system with the C, L, D and S codes of its
-    signals; a `nan` leaves its field blank; a nonzero loss-of-lock indicator is
-    written after the phase.
+    signals and a zero-shift `SYS / PHASE SHIFT` line per phase code (no phase is
+    shifted here); a `nan` leaves its field blank; a nonzero loss-of-lock indicator
+    is written after the phase.
     """
     epochs = [e for e in epochs if e.sats]
     signals = epochs[0].signals if epochs else ()
@@ -488,6 +489,8 @@ def write_rinex_observations(
         sec = t.second + t.microsecond * 1e-6
         stamp = f"{t.year:6d}{t.month:6d}{t.day:6d}{t.hour:6d}{t.minute:6d}{sec:13.7f}     GPS"
         out.append(_line(stamp, "TIME OF FIRST OBS"))
+    for sig in signals:
+        out.append(_line(f"{sig[0]} L{sig[1:]}", "SYS / PHASE SHIFT"))
     out.append(_line("", "END OF HEADER"))
     for e in epochs:
         t = gps_datetime(e.week, e.tow)
