@@ -88,3 +88,18 @@ def test_channel_without_subframes_is_skipped_and_week_defaults():
     epochs = make_observables([track, track], [lnav, silent])
     assert all(len(e.obs) == 1 for e in epochs) and epochs[0].week == 2048 + 142
     assert full_week(142) == 2190
+
+
+def test_channel_with_inconsistent_tags_is_skipped():
+    track, lnav = _channel(4, 500, 800.0)
+    bad = dataclasses.replace(lnav.subframes[1], epoch=lnav.subframes[1].epoch + 20)
+    broken = dataclasses.replace(lnav, subframes=[lnav.subframes[0], bad])
+    epochs = make_observables([track, track], [lnav, broken])
+    assert epochs and all([o.prn for o in e.obs] == [4] for e in epochs)
+    assert receiver_time0([track, track], [lnav, broken]) == receiver_time0([track], [lnav])
+
+
+def test_week_comes_from_subframe_1_without_an_ephemeris():
+    track, lnav = _channel(4, 500, 800.0)
+    partial = dataclasses.replace(lnav, ephemeris=None)
+    assert make_observables([track], [partial])[0].week == 2190

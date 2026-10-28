@@ -70,17 +70,21 @@ class Epoch:
     obs: list[Observation]  # ascending PRN
 
 
-def _usable(lnav: LnavResult) -> bool:
-    return bool(lnav.subframes) and lnav.stream is not None
+def _usable(tracks, lnavs) -> list[tuple[TrackResult, LnavResult, np.ndarray, np.ndarray]]:
+    """Channels with consistent time tags, each with its code starts and transmit times."""
+    out = []
+    for tr, ln in zip(tracks, lnavs):
+        try:
+            tt = transmit_times(tr, ln)
+        except ValueError:
+            continue
+        out.append((tr, ln, code_starts(tr), tt))
+    return out
 
 
 def receiver_time0(tracks: list[TrackResult], lnavs: list[LnavResult]) -> float:
     """GPS seconds of week assigned to sample 0 of the recording."""
-    t_tx0 = [
-        transmit_times(tr, ln)[0] - code_starts(tr)[0]
-        for tr, ln in zip(tracks, lnavs)
-        if _usable(ln)
-    ]
+    t_tx0 = [tt[0] - tc[0] for _, _, tc, tt in _usable(tracks, lnavs)]
     if not t_tx0:
         raise ValueError("no channel with a decoded subframe")
     return round(max(t_tx0) + TRAVEL_TIME_NOMINAL, 3)
@@ -94,18 +98,19 @@ def make_observables(
 ) -> list[Epoch]:
     """Observations of every channel with a decoded subframe at a common epoch grid.
 
-    A channel is used from its first bit-synced epoch on. `week` defaults to the
-    week of any decoded ephemeris and stays None when there is none.
+    A channel is used from its first bit-synced epoch on; channels without a
+    subframe, or with subframes that disagree on the time tag, are skipped.
+    `week` defaults to the week of any decoded subframe 1 and stays None when
+    there is none.
     """
-    chans = [(tr, ln) for tr, ln in zip(tracks, lnavs) if _usable(ln)]
+    chans = _usable(tracks, lnavs)
     if not chans:
         return []
     if week is None:
-        week = next((full_week(ln.ephemeris.wn) for _, ln in chans if ln.ephemeris), None)
+        wn = [sf.fields["wn"] for _, ln, _, _ in chans for sf in ln.subframes if sf.sf_id == 1]
+        week = full_week(wn[0]) if wn else None
     rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
-    per = []
-    for tr, ln in chans:
-        per.append((tr, ln, code_starts(tr), transmit_times(tr, ln), int(ln.stream.epoch[0])))
+    per = [(tr, ln, tc, tt, int(ln.stream.epoch[0])) for tr, ln, tc, tt in chans]
     t_begin = min(tc[k0] for _, _, tc, _, k0 in per)
     t_end = max(tc[-1] for _, _, tc, _, _ in per)
     first = ceil((rx0 + t_begin) / interval)

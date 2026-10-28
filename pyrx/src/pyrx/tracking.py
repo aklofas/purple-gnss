@@ -45,8 +45,10 @@ class TrackResult:
         [0, CA_PERIOD). The exact start is t[k] + wrap(code_offset[k] - t[k]),
         within half a sample of t[k].
     doppler[k]: Hz, after epoch k's loop update (applies from epoch k+1 on).
-    carrier_phase[k]: cycles, accumulated Doppler phase at the end of epoch k
-        (integral of doppler over the actual epoch spacing). Every channel's
+    carrier_phase[k]: cycles, accumulated Doppler phase at the end of epoch k:
+        the integral over the epoch spacing of the Doppler the NCO applied
+        during epoch k, which is doppler[k-1] (doppler[k] takes effect from
+        epoch k+1 on). Every channel's
         carrier NCO starts at the receiver's IF phase at sample 0, f_if * t[0]
         modulo one cycle, so the accumulated phases of different channels share
         one origin and are comparable to a fraction of a cycle.
@@ -171,7 +173,7 @@ def track_l1ca(
         # advance one code period with carrier aiding; the epoch spacing is the
         # Doppler-scaled code period, and the carrier phase integrates over it
         dt = t * (1.0 - fd / L1_FREQ)
-        adr += fd * dt
+        adr += (fc - f_if) * dt  # the Doppler the NCO ran with during this epoch
         t_code_next = t_code + dt
         start_next = round(t_code_next * fs)
         phi += fc * (start_next - start) / fs

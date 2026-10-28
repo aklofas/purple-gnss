@@ -162,3 +162,15 @@ def test_carrier_phase_origin_common_across_start_times():
     pb = np.interp(ta[k], tb, b.carrier_phase[1:])
     d = (a.carrier_phase[1:][k] - pb + 0.25) % 0.5 - 0.25
     assert np.abs(d).max() < 0.03
+
+
+def test_carrier_phase_is_the_nco_doppler_phase():
+    # a seed Doppler 200 Hz off: once locked, the accumulated Doppler phase at a code start
+    # must equal the NCO phase there minus the IF phase, else every channel carries a
+    # fractional bias of (seed error) x 1 ms cycles
+    fs, f_if = 8e6, 2.0001e6
+    src = _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0)
+    r = track_l1ca(src, f_if, 7, 3000 / fs, -1800.0, 45.0)
+    k = np.arange(2000, len(r.t))
+    d = (r.phase[k] - (f_if * r.t[k]) % 1.0 - r.carrier_phase[k - 1] + 0.5) % 1.0 - 0.5
+    assert np.abs(d).max() < 1e-3
