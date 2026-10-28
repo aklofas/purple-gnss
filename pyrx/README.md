@@ -264,38 +264,46 @@ long-run check.
 
 Observations enter as arrays of every satellite by every requested signal, with
 the RINEX loss-of-lock indicators. The base station is its marker plus the antenna
-offset; the rover's single-point fix (the standalone solver on its GPS L1 C/A
-pseudoranges) seeds each epoch.
+offset; the rover's single-point fix seeds each epoch, solved by the standalone
+solver on GPS L1 C/A when it is among the signals, else on the first GPS signal
+listed (no GPS signal is an error).
 
 The state is the rover antenna position and one single-differenced (rover minus
 base) carrier-phase ambiguity in cycles per satellite and signal. In kinematic mode
 the position is reset to the seed with a 30 m sigma every epoch; in static mode it
-is carried. Ambiguities are created from code minus phase with a 30-cycle sigma,
-removed after five epochs without use, on a loss-of-lock flag at either receiver,
-or when the single-differenced geometry-free combination of a satellite's first
-and another signal jumps by more than 5 cm.
+is carried. Ambiguities are created from phase minus code with a 30-cycle sigma,
+removed when a satellite misses more than five epochs that reach the relative
+solution, on a loss-of-lock flag at either receiver, or when the single-differenced
+geometry-free combination of a satellite's first and another signal jumps by more
+than 5 cm.
 
 Residuals use the geometric range with the Earth-rotation term to the antenna
 reference point, the satellite clock with its relativistic term, and the
 hydrostatic Saastamoinen zenith delay mapped with the Niell dry function. Nothing
 else is applied: no ionosphere, no wet troposphere, no group delays, no antenna
-phase-centre model (the reference pairs have identical antennas). This is exactly
-what RTKLIB's single-baseline mode applies, so the two solvers can be compared
-number for number. Double differences are formed per system against the highest
-satellite, carrier phase and code, with RTKLIB's single-difference variance
-`2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) and the
-block covariance of a shared reference; a double difference beyond 30 m is
-dropped. One Kalman update per epoch, linearised at the seed; fewer than four
-satellites on the first signal gives no solution.
+phase-centre model (the reference pairs have identical antennas). This is what
+RTKLIB's single-baseline mode applies with its default options, so the two solvers
+compare number for number on the same files; the deliberate differences (existing
+ambiguities aligned to the current clock per signal rather than per frequency, the
+geometry-free slip test run past a missing band, the tie order of two reference
+candidates at the same elevation) are listed in `rtk.py` and do not change the
+default-configuration comparisons. Double differences are formed per system against
+the highest satellite, carrier phase and code, with RTKLIB's single-difference
+variance `2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) plus a
+receiver-clock-stability term in the age of the base epoch, and the block
+covariance of a shared reference; a double difference beyond 30 m is dropped. One
+Kalman update per epoch, linearised at the seed; the update stands but the epoch
+reports no solution when fewer than four satellites of the first signal were used.
 
 Integer ambiguities are searched with LAMBDA (decorrelation and a depth-first
 search keeping the two best candidates) over the double differences of the
 satellites used this epoch whose ambiguity has survived at least one validated
-epoch, with the lowest-numbered satellite of each system and signal as reference.
+epoch, against the oldest surviving ambiguity of each system and signal (the
+choice of reference is a change of basis and does not change the fixed position).
 A fix is accepted when at least two ambiguities were searched and the ratio of the
-second to the best squared norm is at least 3; the float states are kept
-(continuous mode, no hold). Galileo E1/E5a and GPS L5 run through the same engine
-with a reference satellite per system.
+second to the best squared norm is at least 3, or the best norm is zero; the float
+states are kept (continuous mode, no hold). Galileo E1/E5a and GPS L5 run through
+the same engine with a reference satellite per system.
 
 The reference tests run on the first 6 h (721 epochs) of two IGS station pairs of
 2021-12-26, MATE–MAT1 (Matera, 11 m) and TLSE–TLSG (Toulouse, 1266 m), against the
@@ -336,9 +344,11 @@ Position and receiver clock bias are found by iterated weighted least squares ov
 the pseudoranges, each corrected for the satellite clock and group delay (`TGD`),
 with the Earth-rotation term in the range. The weights, the 15 degree elevation
 mask, the chi-square test on the residuals (0.1 % significance) and the GDOP limit
-of 30 are those of RTKLIB's single-point mode, so the two solvers can be compared
-number for number; an epoch with fewer than four usable satellites or failing a
-check gets no solution and the run continues. Velocity and clock drift then come
+of 30 are those of RTKLIB's single-point mode, so the two solvers compare number
+for number on the files tested; the one known difference is that RTKLIB also
+leaves out a satellite whose URA index is 10 or more (an accuracy worse than
+300 m), which this solver does not. An epoch with fewer than four usable
+satellites or failing a check gets no solution and the run continues. Velocity and clock drift then come
 from an unweighted least-squares fit of the Dopplers of the satellites used, when
 at least four have one.
 
