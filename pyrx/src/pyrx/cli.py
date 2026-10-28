@@ -29,7 +29,7 @@ from pyrx.rinex import (
 )
 from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import read_samples
-from pyrx.tracking import track_channels
+from pyrx.tracking import TrackResult, track_channels
 
 DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
 NO_DETECTION = (
@@ -52,15 +52,43 @@ def parse_prns(s: str) -> list[int]:
     return prns
 
 
-def acq_main(argv: list[str] | None = None) -> int:
-    """Acquire GPS L1 C/A PRNs in a recording and print one line per PRN."""
-    p = argparse.ArgumentParser(prog="pyrx-acq", description=acq_main.__doc__)
+def _add_sample_arguments(p: argparse.ArgumentParser) -> None:
+    """The recording and the PRNs: what every signal-chain command takes first."""
     p.add_argument("file")
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
     p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+
+
+def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
+    """Acquire the requested PRNs in the first 10 ms and track the detected ones.
+
+    Returns the tracks and the instant tracking started, or None after a message on
+    stderr when no PRN was detected.
+    """
+    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
+    seeds = []
+    for prn in args.prn:
+        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
+        if acq.detected:
+            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
+    if not seeds:
+        print(NO_DETECTION, file=sys.stderr)
+        return None
+    duration = args.duration if args.duration > 0 else None
+    t0 = time.perf_counter()
+    tracks = track_channels(
+        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
+    )
+    return tracks, t0
+
+
+def acq_main(argv: list[str] | None = None) -> int:
+    """Acquire GPS L1 C/A PRNs in a recording and print one line per PRN."""
+    p = argparse.ArgumentParser(prog="pyrx-acq", description=acq_main.__doc__)
+    _add_sample_arguments(p)
     p.add_argument(
         "--duration",
         type=float,
@@ -94,31 +122,16 @@ def acq_main(argv: list[str] | None = None) -> int:
 def trk_main(argv: list[str] | None = None) -> int:
     """Acquire and track GPS L1 C/A PRNs in a recording; print one line per PRN."""
     p = argparse.ArgumentParser(prog="pyrx-trk", description=trk_main.__doc__)
-    p.add_argument("file")
-    p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
-    p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
-    p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
-    p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+    _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to track (s), 0 = all")
     p.add_argument("--log", default=None, help="CSV of channel state every 0.1 s")
     p.add_argument("--plot", default=None, help="directory for trk_prnNN.png")
     args = p.parse_args(argv)
 
-    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
-    seeds = []
-    for prn in args.prn:
-        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
-        if acq.detected:
-            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
-    if not seeds:
-        print(NO_DETECTION, file=sys.stderr)
+    tracked = _acquire_and_track(args)
+    if tracked is None:
         return 2
-    t0 = time.perf_counter()
-    duration = args.duration if args.duration > 0 else None
-    results = track_channels(
-        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
-    )
+    results, t0 = tracked
     elapsed = time.perf_counter() - t0
     for r in results:
         state = "LOCK" if r.locked else f"LOST at {r.lost_at:.1f} s"
@@ -137,30 +150,15 @@ def trk_main(argv: list[str] | None = None) -> int:
 def nav_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode the navigation message of GPS L1 C/A PRNs in a recording."""
     p = argparse.ArgumentParser(prog="pyrx-nav", description=nav_main.__doc__)
-    p.add_argument("file")
-    p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
-    p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
-    p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
-    p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+    _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to decode (s), 0 = all")
     p.add_argument("--json", default=None, help="write decoded ephemerides and ionosphere here")
     args = p.parse_args(argv)
 
-    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
-    seeds = []
-    for prn in args.prn:
-        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
-        if acq.detected:
-            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
-    if not seeds:
-        print(NO_DETECTION, file=sys.stderr)
+    tracked = _acquire_and_track(args)
+    if tracked is None:
         return 2
-    t0 = time.perf_counter()
-    duration = args.duration if args.duration > 0 else None
-    tracks = track_channels(
-        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
-    )
+    tracks, t0 = tracked
     results = [decode_lnav(r) for r in tracks]
     elapsed = time.perf_counter() - t0
     for res in results:
@@ -185,12 +183,7 @@ def nav_main(argv: list[str] | None = None) -> int:
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation files."""
     p = argparse.ArgumentParser(prog="pyrx-rinex", description=rinex_main.__doc__)
-    p.add_argument("file")
-    p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
-    p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
-    p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
-    p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+    _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
     p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
     p.add_argument("--week", type=int, default=None, help="GPS week (needed without subframe 1)")
@@ -199,20 +192,10 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p.add_argument("--nav", default=None, help="RINEX navigation file to write")
     args = p.parse_args(argv)
 
-    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
-    seeds = []
-    for prn in args.prn:
-        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
-        if acq.detected:
-            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
-    if not seeds:
-        print(NO_DETECTION, file=sys.stderr)
+    tracked = _acquire_and_track(args)
+    if tracked is None:
         return 2
-    t0 = time.perf_counter()
-    duration = args.duration if args.duration > 0 else None
-    tracks = track_channels(
-        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
-    )
+    tracks, t0 = tracked
     lnavs = [decode_lnav(r) for r in tracks]
     epochs = make_observables(tracks, lnavs, args.interval, args.week)
     elapsed = time.perf_counter() - t0
@@ -247,6 +230,29 @@ def rinex_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _add_positioning_arguments(p: argparse.ArgumentParser) -> None:
+    """Mask, time window and output: what the positioning commands take last."""
+    p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
+    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
+    p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
+
+
+def _time_limits(ts: str | None, te: str | None):
+    if ts is None and te is None:
+        return None
+    start = datetime.fromisoformat(ts) if ts else datetime(1980, 1, 6)
+    end = datetime.fromisoformat(te) if te else datetime(2100, 1, 1)
+    return (start, end)
+
+
+def _write_rows(path, header: str, rows: list[str]) -> None:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join([header, *rows]) + "\n")
+
+
 def _solution_line(sol) -> str:
     lat, lon, h = geodetic(sol.position)
     v = sol.velocity if sol.velocity is not None else (nan, nan, nan)
@@ -263,18 +269,10 @@ def pvt_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pyrx-pvt", description=pvt_main.__doc__)
     p.add_argument("obs", help="RINEX observation file (plain, .gz or Hatanaka)")
     p.add_argument("nav", help="RINEX navigation file")
-    p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
-    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
-    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
-    p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
-    p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
+    _add_positioning_arguments(p)
     args = p.parse_args(argv)
 
-    tlim = None
-    if args.ts is not None or args.te is not None:
-        ts = datetime.fromisoformat(args.ts) if args.ts else datetime(1980, 1, 6)
-        te = datetime.fromisoformat(args.te) if args.te else datetime(2100, 1, 1)
-        tlim = (ts, te)
+    tlim = _time_limits(args.ts, args.te)
     t0 = time.perf_counter()
     try:
         epochs = read_rinex_obs(args.obs, tlim)
@@ -298,21 +296,10 @@ def pvt_main(argv: list[str] | None = None) -> int:
         f"lon {degrees(lon):.7f} height {h:.2f}  clock {clock_ms:.3f} ms"
     )
     if args.out is not None:
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        lines = ["% week tow lat lon height clock_s ns gdop vx vy vz ddtr"]
-        lines += [_solution_line(s) for s in sols]
-        out.write_text("\n".join(lines) + "\n")
+        header = "% week tow lat lon height clock_s ns gdop vx vy vz ddtr"
+        _write_rows(args.out, header, [_solution_line(s) for s in sols])
     print(f"TIME = {elapsed:.3f} s")
     return 0
-
-
-def _time_limits(ts: str | None, te: str | None):
-    if ts is None and te is None:
-        return None
-    start = datetime.fromisoformat(ts) if ts else datetime(1980, 1, 6)
-    end = datetime.fromisoformat(te) if te else datetime(2100, 1, 1)
-    return (start, end)
 
 
 def rtk_main(argv: list[str] | None = None) -> int:
@@ -332,11 +319,7 @@ def rtk_main(argv: list[str] | None = None) -> int:
     )  # fmt: skip
     p.add_argument("--signals", default="G1C,G2W", help="signals to use, e.g. G1C,G2W,E1C,E5Q")
     p.add_argument("--mode", choices=("kinematic", "static"), default="kinematic")
-    p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
-    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
-    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
-    p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
-    p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
+    _add_positioning_arguments(p)
     args = p.parse_args(argv)
 
     signals = tuple(args.signals.split(","))
@@ -382,9 +365,7 @@ def rtk_main(argv: list[str] | None = None) -> int:
         f"mean fixed baseline E {e:.4f} N {n:.4f} U {u:.4f} m  ratio median {ratio:.1f}"
     )
     if args.out is not None:
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(["% week tow x y z Q ns ratio age", *map(line, fixes)]) + "\n")
+        _write_rows(args.out, "% week tow x y z Q ns ratio age", list(map(line, fixes)))
     print(f"TIME = {elapsed:.3f} s")
     return 0
 
