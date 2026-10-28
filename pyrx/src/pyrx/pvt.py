@@ -102,9 +102,10 @@ def _position(epoch, sats, iono, mask, x):
 def _velocity(x, used):
     """Doppler solution over the satellites of the position solution.
 
-    None with fewer than four Dopplers or when the iteration does not converge.
+    None with fewer than four Dopplers or when the iteration does not converge. A
+    Doppler of exactly zero is a missing value (RINEX writes one as 0.000).
     """
-    sats = [(o, s, e) for o, _, s, e in used if isfinite(o.doppler)]
+    sats = [(o, s, e) for o, _, s, e in used if isfinite(o.doppler) and o.doppler != 0.0]
     if len(sats) < 4:
         return None
     xv = np.zeros(4)

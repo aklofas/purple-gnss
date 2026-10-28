@@ -93,6 +93,19 @@ def test_solve_epoch_without_doppler():
     assert sol.velocity is None and sol.clock_drift is None
 
 
+def test_zero_doppler_is_a_missing_observation():
+    # RINEX writes a missing value as 0.000 and some readers keep it: a zero Doppler is
+    # left out of the velocity solution, as RTKLIB leaves it out
+    ephs = constellation()
+    vel, ddtr = np.array([3.0, -4.0, 1.0]), 2e-9
+    ep = truth_epoch(ephs, USUD, 1.5e-4, vel, ddtr)
+    one = Epoch(ep.week, ep.tow, [replace(ep.obs[0], doppler=0.0)] + ep.obs[1:])
+    sol = solve_epoch(one, ephs)
+    np.testing.assert_allclose(sol.velocity, vel, atol=1e-3, rtol=0)
+    none = Epoch(ep.week, ep.tow, [replace(o, doppler=0.0) for o in ep.obs])
+    assert solve_epoch(none, ephs).velocity is None
+
+
 def test_solve_epoch_without_coefficients_uses_rtklib_defaults():
     # a navigation file without GPSA/GPSB gets RTKLIB's default Klobuchar coefficients, so
     # the two solvers still agree on such files; the broadcast set, when present, is used
