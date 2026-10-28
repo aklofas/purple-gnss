@@ -6,6 +6,7 @@ from pyrx.lnav import (
     Ephemeris,
     assemble_ephemeris,
     data_bits,
+    decode_how,
     decode_subframe,
     encode_subframe,
     encode_word,
@@ -129,3 +130,12 @@ def test_assemble_ephemeris_requires_matching_iode():
     stale = dict(SF3, iode=148)
     sfs[2] = decode_subframe(encode_subframe(3, 5047, stale), 0, 0, prn=4)
     assert assemble_ephemeris(sfs) is None
+
+
+def test_decode_how_reads_tow_and_id():
+    bits = encode_subframe(2, 5044, SF2)
+    assert decode_how(bits[:30], bits[30:60], 0, 0) == (5044, 2)
+    assert decode_how(bits[:30], bits[30:60], 1, 0) is None
+    bad = bits.copy()
+    bad[40] ^= 1
+    assert decode_how(bad[:30], bad[30:60], 0, 0) is None

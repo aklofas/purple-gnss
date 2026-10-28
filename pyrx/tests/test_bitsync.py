@@ -1,0 +1,67 @@
+import numpy as np
+from test_lnav import SF1, SF2, SF3
+
+from pyrx.bitsync import bit_sync, frame_sync
+from pyrx.lnav import encode_subframe
+
+rng = np.random.default_rng(1)
+
+
+def _frame_bits(tow0=5044, n_sf=3, d29=0, d30=0):
+    out = []
+    for i, f in zip(range(1, n_sf + 1), (SF1, SF2, SF3, SF1, SF2)):
+        sf = encode_subframe(i if i <= 3 else 1, tow0 + i - 1, f, d29, d30)
+        d29, d30 = int(sf[28 + 270]), int(sf[29 + 270])
+        out.append(sf)
+    return np.concatenate(out)
+
+
+def _prompts(bits, phase, cn0_scale=0.25, lead=0):
+    """Per-ms prompt I: +/-1 per 20 ms with noise, bit edges at epoch phase (mod 20)."""
+    sym = np.repeat(np.where(bits == 1, -1.0, 1.0), 20)  # 1 -> negative I, matching the test
+    p = np.concatenate([np.zeros(phase), sym, np.zeros(lead)])
+    return p + cn0_scale * rng.standard_normal(len(p))
+
+
+def test_bit_sync_finds_phase_and_bits():
+    bits = rng.integers(0, 2, 200).astype(np.uint8)
+    stream = bit_sync(_prompts(bits, phase=7), start_epoch=1500)
+    assert stream is not None and stream.phase == 7
+    assert stream.epoch[0] == 1507
+    np.testing.assert_array_equal(stream.bits[:200], bits)
+
+
+def test_bit_sync_rejects_no_transitions():
+    assert bit_sync(np.ones(2000) + 0.1 * rng.standard_normal(2000), 0) is None
+
+
+def test_frame_sync_finds_subframes_and_tow():
+    bits = _frame_bits()
+    stream = bit_sync(_prompts(bits, phase=3, lead=40), start_epoch=1500)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.sf_id for s in sfs] == [1, 2, 3]
+    assert [s.tow_s for s in sfs] == [5044 * 6 - 6, 5045 * 6 - 6, 5046 * 6 - 6]
+    assert sfs[0].epoch == 1503 and sfs[1].epoch == 1503 + 300 * 20
+
+
+def test_decode_inverted_stream():
+    bits = _frame_bits()
+    stream = bit_sync(-_prompts(bits, phase=0), start_epoch=0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.sf_id for s in sfs] == [1, 2, 3] and sfs[1].fields["iode"] == 149
+
+
+def test_frame_sync_rejects_chance_preamble():
+    # random bits containing the preamble pattern but no valid parity: nothing decoded
+    bits = rng.integers(0, 2, 1200).astype(np.uint8)
+    bits[100:108] = [1, 0, 0, 0, 1, 0, 1, 1]
+    bits[400:408] = [1, 0, 0, 0, 1, 0, 1, 1]
+    stream = bit_sync(_prompts(bits, phase=0), 0)
+    assert frame_sync(stream) == []
+
+
+def test_decode_drops_corrupted_subframe():
+    bits = _frame_bits()
+    bits[300 + 150] ^= 1  # inside subframe 2
+    stream = bit_sync(_prompts(bits, phase=0), 0)
+    assert [s.sf_id for s in frame_sync(stream)] == [1, 3]

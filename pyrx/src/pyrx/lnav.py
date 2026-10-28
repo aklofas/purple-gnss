@@ -205,6 +205,15 @@ def decode_subframe(bits300: np.ndarray, d29: int, d30: int, prn: int = 0) -> Su
     return Subframe(prn, sf_id, tow_s, fields, -1, bits300)
 
 
+def decode_how(word1: np.ndarray, word2: np.ndarray, d29: int, d30: int) -> tuple[int, int] | None:
+    """(TOW count, subframe ID) from a subframe's TLM and HOW; None unless both pass parity."""
+    if not parity_ok(word1, d29, d30) or not parity_ok(word2, int(word1[28]), int(word1[29])):
+        return None
+    d = np.zeros(2 * WORD_BITS, dtype=np.uint8)
+    d[WORD_BITS : WORD_BITS + 24] = data_bits(word2, int(word1[29]))
+    return _get(d, *_TOW_COUNT), _get(d, *_SF_ID)
+
+
 def encode_subframe(
     sf_id: int, tow_count: int, fields: dict, d29: int = 0, d30: int = 0
 ) -> np.ndarray:
