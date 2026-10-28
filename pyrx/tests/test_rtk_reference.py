@@ -85,7 +85,7 @@ def test_rtk_matches_rtklib_and_the_marker(captures, tmp_path, pair, mode, signa
     assert {_key(f) for f in fixed} == set(ref_fixed), (len(fixed), len(ref_fixed))
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     # single-epoch kinematic fixes scatter up to 2.5 cm from the marker on both pairs, in
-    # RTKLIB as well (its worst epochs 20-24 mm); the carried static position stays under 1 cm
+    # RTKLIB as well (its worst epochs 20-24 mm); the carried static position within 1 cm
     limits = (0.005, 0.02) if mode == "static" else (0.01, 0.03)
     assert err.mean() <= limits[0] and np.percentile(err, 95) <= 0.02, (
         err.mean(),
@@ -125,7 +125,8 @@ def test_time_to_first_fix(captures, tmp_path, pair, signals, freq):
     assert None not in ours and None not in theirs, (ours, theirs)
     ours = [(tow - t0) / 30.0 + 1 for tow, t0 in zip(ours, starts)]
     theirs = [(tow - t0) / 30.0 + 1 for tow, t0 in zip(theirs, starts)]
-    assert np.mean(ours) <= 2.0 * np.mean(theirs), (ours, theirs)
+    # the design allows twice RTKLIB's; measured, the two agree within 0.8 epoch in the mean
+    assert np.mean(ours) <= min(2.0 * np.mean(theirs), np.mean(theirs) + 1.0), (ours, theirs)
 
 
 def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
@@ -159,6 +160,6 @@ def test_rtk_l1_l5_e1_e5a_fixes_the_marker(captures):
     rover, base, ephs, hb, hr = _load(captures, "MATE", ("G1C", "G5Q", "E1C", "E5Q"))
     fixes = solve_rtk(rover, base, ephs, Station(np.array(base_xyz), hb.delta_enu), hr.delta_enu)
     fixed = [f for f in fixes if f.status == "fix"]
-    assert len(fixed) / len(rover) >= 0.90
+    assert len(fixed) >= len(rover) - 0.01 * len(rover), len(fixed)  # 721 of 721 measured
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.02
