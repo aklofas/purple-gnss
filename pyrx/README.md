@@ -64,24 +64,24 @@ a few minutes):
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
 
-The tracking tests also need Pocket SDR's own tracking logs for the two 30 s
-recordings, in a `pocketsdr-trk/` subdirectory, produced with Pocket SDR's
-`pocket_trk.py` (its library built with `USE_SOAPY=0 USE_FFTW=1`):
+The Pocket SDR tracking logs in the table were produced with Pocket SDR's
+`pocket_trk.py` (its library built with `USE_SOAPY=0 USE_FFTW=1`), run from the
+`pocketsdr-trk/` directory with the recordings one level up:
 
 ```sh
-pocket_trk.py -sig L1CA -prn 4,16,18,26,27,29,31 -f 24 -fi 6.0 -q -log L1_20211226_082401_24MHz_I.trk.log L1_20211226_082401_24MHz_I.bin
-pocket_trk.py -sig L1CA -prn 10,12,15,23,24,32  -f 8  -fi 2.0 -q -log L1_20220114_004440_8MHz_I.trk.log  L1_20220114_004440_8MHz_I.bin
+pocket_trk.py -sig L1CA -prn 4,16,18,26,27,29,31 -f 24 -fi 6.0 -q -log L1_20211226_082401_24MHz_I.trk.log ../L1_20211226_082401_24MHz_I.bin
+pocket_trk.py -sig L1CA -prn 10,12,15,23,24,32  -f 8  -fi 2.0 -q -log L1_20220114_004440_8MHz_I.trk.log  ../L1_20220114_004440_8MHz_I.bin
 ```
 
 The PRN lists are the satellites `pyrx-acq` reports at or above 38 dB-Hz in the
 first 10 ms of each file.
 
-The Pocket SDR C tracker files were produced with (from the `pocketsdr-trk/` directory,
-`-fo` being the LO frequency, L1 minus the IF, in MHz):
+The Pocket SDR C tracker files were produced from the same directory (`-fo` being
+the LO frequency, L1 minus the IF, in MHz):
 
 ```sh
-pocket_trk L1_20211226_082401_24MHz_I.bin -fmt INT8 -f 24 -fo 1569.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20211226_082401_24MHz_I.ctrk.log -rtcm L1_20211226_082401_24MHz_I.ctrk.rtcm3
-pocket_trk L1_20220114_004440_8MHz_I.bin  -fmt INT8 -f 8  -fo 1573.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20220114_004440_8MHz_I.ctrk.log
+pocket_trk ../L1_20211226_082401_24MHz_I.bin -fmt INT8 -f 24 -fo 1569.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20211226_082401_24MHz_I.ctrk.log -rtcm L1_20211226_082401_24MHz_I.ctrk.rtcm3
+pocket_trk ../L1_20220114_004440_8MHz_I.bin  -fmt INT8 -f 8  -fo 1573.42 -sig L1CA -prn 1-32 -ti 0 -log L1_20220114_004440_8MHz_I.ctrk.log
 convbin -r rtcm3 -v 3.05 -tr 2021/12/26 08:00:00 -o L1_20211226_082401_24MHz_I.psdr.obs -n L1_20211226_082401_24MHz_I.psdr.nav L1_20211226_082401_24MHz_I.ctrk.rtcm3
 rnx2rtkp -p 0 -t -o L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos L1_20211226_082401_24MHz_I.psdr.obs ../brdc/BRDC00WRD_R_20213600000_01D_GN.rnx
 ```
