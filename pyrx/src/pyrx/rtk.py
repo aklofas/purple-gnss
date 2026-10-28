@@ -27,7 +27,7 @@ from pyrx.models import (
     zenith_hydrostatic,
 )
 from pyrx.observables import C_LIGHT, WEEK_S
-from pyrx.orbits import satellite_clock, satellite_state, select_ephemeris
+from pyrx.orbits import satellite_clock, satellite_state, select_ephemeris, usable
 from pyrx.pvt import solve_epoch
 from pyrx.rinex import gps_datetime
 from pyrx.signals import Observations, to_epoch, wavelength
@@ -160,7 +160,7 @@ class Rtk:
             if sat not in base.sats:
                 continue
             eph = select_ephemeris(self.ephs, int(sat[1:]), rover.tow, sat[0])
-            if eph is None or eph.health != 0:
+            if eph is None or not usable(eph):
                 continue
             states = []
             for obs, row in ((rover, i), (base, base.sats.index(sat))):

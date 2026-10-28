@@ -15,7 +15,7 @@ from scipy.stats import chi2
 from pyrx.lnav import Ephemeris, Ionosphere
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
 from pyrx.observables import C_LIGHT, Epoch
-from pyrx.orbits import OMEGA_E, satellite_clock, satellite_state, select_ephemeris
+from pyrx.orbits import OMEGA_E, satellite_clock, satellite_state, select_ephemeris, usable
 from pyrx.rinex import URA_BOUNDS
 from pyrx.tracking import L1_FREQ
 
@@ -95,7 +95,10 @@ def _position(epoch, sats, iono, mask, x):
         if np.linalg.norm(dx) < _CONVERGED_POS:
             return x, np.array(rows), np.array(res), np.array(sig), used
         w = 1.0 / np.array(sig)
-        dx = np.linalg.lstsq(np.array(rows) * w[:, None], np.array(res) * w, rcond=None)[0]
+        try:
+            dx = np.linalg.lstsq(np.array(rows) * w[:, None], np.array(res) * w, rcond=None)[0]
+        except np.linalg.LinAlgError:  # degenerate geometry
+            return None
         x = x + dx
     return None
 
@@ -138,8 +141,9 @@ def solve_epoch(
     """Least-squares fix of one epoch, or None when it has none that passes validation.
 
     `x0` seeds the position (ECEF m); from None the iteration starts at the Earth's
-    centre. Satellites without an ephemeris within 2 h, unhealthy ones and those
-    below `mask_deg` are left out. `iono` None (a navigation file without
+    centre. Satellites without an ephemeris within 2 h, with an unhealthy or
+    unusable record (a blank or zero orbit field) and those below `mask_deg` are
+    left out; degenerate geometry gives no solution. `iono` None (a navigation file without
     GPSA/GPSB) means RTKLIB's default Klobuchar coefficients, as `rnx2rtkp` does.
     """
     if iono is None:
@@ -149,7 +153,7 @@ def solve_epoch(
         if not isfinite(o.pseudorange):
             continue
         eph = select_ephemeris(ephs, o.prn, epoch.tow)
-        if eph is None or eph.health != 0:
+        if eph is None or not usable(eph):
             continue
         t = epoch.tow - o.pseudorange / C_LIGHT
         sats.append((o, eph, satellite_state(eph, t - satellite_clock(eph, t))))
@@ -163,7 +167,10 @@ def solve_epoch(
     n = len(res)
     if n > 4 and np.sum((res / sig) ** 2) > chi2.isf(CHI2_ALPHA, n - 4):
         return None
-    gdop = sqrt(np.trace(np.linalg.inv(rows.T @ rows)))
+    try:
+        gdop = sqrt(np.trace(np.linalg.inv(rows.T @ rows)))
+    except np.linalg.LinAlgError:
+        return None
     if gdop > MAX_GDOP:
         return None
     vel = _velocity(x, used)

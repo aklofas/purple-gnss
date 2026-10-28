@@ -139,6 +139,20 @@ def test_solve_epoch_excludes_unhealthy_stale_and_unknown():
     np.testing.assert_allclose(sol.position, USUD, atol=1e-3, rtol=0)
 
 
+def test_degenerate_records_and_geometry_lose_the_satellite_or_the_epoch_not_the_run():
+    ephs = constellation()
+    ep = truth_epoch(ephs, USUD, 0.0)
+    ephs[0] = replace(ephs[0], sqrt_a=0.0)  # a blank orbit field in a navigation file
+    ephs[1] = replace(ephs[1], e=float("nan"))
+    sol = solve_epoch(ep, ephs)
+    assert sol.prns == (3, 4, 5, 6)
+    np.testing.assert_allclose(sol.position, USUD, atol=1e-3, rtol=0)
+    # five copies of one observation: a singular normal matrix, no solution, no exception
+    same = Epoch(ep.week, ep.tow, [ep.obs[0]] * 5)
+    assert solve_epoch(same, constellation()) is None
+    assert [s.tow for s in solve([same, ep], constellation())] == [TOW]
+
+
 def test_solve_epoch_needs_four_satellites():
     ephs = constellation()[:3]
     assert solve_epoch(truth_epoch(ephs, USUD, 0.0), ephs) is None

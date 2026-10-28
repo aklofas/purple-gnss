@@ -11,7 +11,7 @@ into [-302400, 302400) with `wrap_week`; callers never wrap their own time.
 """
 
 from dataclasses import dataclass
-from math import atan2, cos, sin, sqrt
+from math import atan2, cos, isfinite, sin, sqrt
 
 import numpy as np
 
@@ -43,6 +43,12 @@ def wrap_week(dt: float) -> float:
 def sat_id(eph: Ephemeris) -> str:
     """RINEX satellite id of a record, e.g. `G04`."""
     return f"{eph.system}{eph.prn:02d}"
+
+
+def usable(eph: Ephemeris) -> bool:
+    """A healthy record whose orbit can be evaluated (finite fields, a positive semi-major axis)."""
+    fields = [v for v in vars(eph).values() if isinstance(v, (int, float))]
+    return eph.health == 0 and eph.sqrt_a > 0.0 and all(isfinite(v) for v in fields)
 
 
 def select_ephemeris(
