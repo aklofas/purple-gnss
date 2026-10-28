@@ -6,13 +6,13 @@
 
 ## Where we are today
 
-This project is early. The hardware is in design. What exists today is the
-reference receiver:
+This project is early and pre-release. The hardware is in design. What exists
+today is the reference receiver, and its interfaces will change:
 
-| Part | Status | Start here |
-|---|---|---|
+| Part                                   | Status                                                                                                                                | Start here                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A samples to RINEX, and RINEX to a standalone or RTK fix; each stage checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
-| **Hardware** (RF front-end, FPGA correlators, MCU board) | In design | |
+| **Hardware**                           | In design                                                                                                                             |                                    |
 
 ## See it in 30 seconds
 
@@ -23,7 +23,7 @@ pyrx-rinex L1_20211226_082401_24MHz_I.bin --fs 24e6 --f-if 6e6 --obs out.obs --n
 pyrx-pvt out.obs out.nav
 ```
 
-The first command acquires and tracks every GPS satellite in the recording,
+The first command acquires and tracks GPS satellites in a recording,
 decodes their navigation messages and writes the observations and ephemerides
 as RINEX files. The second solves a position from them. Add a base station's
 RINEX file and `pyrx-rtk` gives the RTK fix.
@@ -32,17 +32,11 @@ RINEX file and `pyrx-rtk` gives the RTK fix.
 
 → **[`docs/index.md`](docs/index.md)** routes readers by what they want to do. Or jump straight in:
 
-| If you are… | Start here |
-|---|---|
-| New to GNSS and want to understand every step from satellite to fix | [`docs/fundamentals/`](docs/fundamentals/01-what-gnss-is.md), a ten-page series written for technical readers without a radio background |
-| Running the receiver on a recording | [`pyrx/README.md`](pyrx/README.md), every command and the recordings it was checked on |
-| Looking up a term | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md) |
-
-## Status
-
-Pre-release. The Python receiver is complete for GPS L1 C/A from samples and
-for GPS and Galileo from RINEX. Nothing is released as a package and the
-interfaces will change.
+| If you are…                                                         | Start here                                                                                                                      |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| New to GNSS and want to understand every step from satellite to fix | [`docs/fundamentals/`](docs/fundamentals/01-what-gnss-is.md), a series written for technical readers without a radio background |
+| Running the receiver on a recording                                 | [`pyrx/README.md`](pyrx/README.md), processing commands and recordings                                                          |
+| Looking up a term                                                   | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md)                                                                |
 
 ## License
 
