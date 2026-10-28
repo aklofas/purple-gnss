@@ -1,6 +1,7 @@
 import argparse
 import json
 import re
+import sys
 
 import numpy as np
 import pytest
@@ -205,6 +206,8 @@ def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
 
 @pytest.mark.parametrize("main", [acq_main, trk_main, nav_main, rinex_main, pvt_main, rtk_main])
 def test_help_golden(main, capsys, monkeypatch):
+    if sys.version_info[:2] != (3, 12):
+        pytest.skip("the help goldens pin the argparse layout of Python 3.12")
     monkeypatch.setenv("COLUMNS", "80")
     with pytest.raises(SystemExit) as e:
         main(["--help"])
