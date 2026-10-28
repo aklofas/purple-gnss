@@ -80,8 +80,9 @@ def test_rtk_matches_rtklib_and_the_marker(captures, tmp_path, pair, mode, signa
     )  # fmt: skip
     fixed = [f for f in fixes if f.status == "fix"]
     ref_fixed = {k: v for k, v in ref.items() if v["q"] == 1}
-    assert len(rover) == 721 and len(fixes) >= 700
-    assert len(fixed) / len(rover) >= len(ref_fixed) / len(rover) - 0.10
+    assert len(rover) == 721 and len(fixes) == len(rover)
+    # the same epochs fix in both engines
+    assert {_key(f) for f in fixed} == set(ref_fixed), (len(fixed), len(ref_fixed))
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     # single-epoch kinematic fixes scatter up to 2.5 cm from the marker on both pairs, in
     # RTKLIB as well (its worst epochs 20-24 mm); the carried static position stays under 1 cm
@@ -91,9 +92,7 @@ def test_rtk_matches_rtklib_and_the_marker(captures, tmp_path, pair, mode, signa
         np.percentile(err, 95),
     )
     assert err.max() <= limits[1], err.max()
-    common = [(f, ref_fixed[_key(f)]) for f in fixed if _key(f) in ref_fixed]
-    assert len(common) >= 0.9 * len(ref_fixed)
-    d = np.array([np.linalg.norm(f.position - r["xyz"]) for f, r in common])
+    d = np.array([np.linalg.norm(f.position - ref_fixed[_key(f)]["xyz"]) for f in fixed])
     # same models, same integers: 2.2 mm at the 95th percentile and 2.6 mm worst measured
     assert np.percentile(d, 95) <= 0.005 and d.max() <= 0.01, (np.percentile(d, 95), d.max())
 
@@ -143,11 +142,11 @@ def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
     fixed = [f for f in fixes if f.status == "fix"]
     ref_fixed = {k: v for k, v in ref.items() if v["q"] == 1}
     assert np.mean([f.ns for f in fixed]) >= 10  # GPS and Galileo both in the solution
-    assert len(fixed) / len(rover) >= len(ref_fixed) / len(rover) - 0.10
+    assert len(fixed) >= len(ref_fixed) - 0.01 * len(rover), (len(fixed), len(ref_fixed))
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.02
     common = [(f, ref_fixed[_key(f)]) for f in fixed if _key(f) in ref_fixed]
-    assert len(common) >= 0.9 * len(ref_fixed)
+    assert len(common) >= len(ref_fixed) - 0.01 * len(rover)
     # against RTKLIB's fixed positions: 4.6 mm at the 95th percentile and 7.8 mm worst
     # measured (its Galileo models and reference choice differ from ours in detail)
     d = np.array([np.linalg.norm(f.position - r["xyz"]) for f, r in common])
