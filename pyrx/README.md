@@ -297,15 +297,23 @@ second to the best squared norm is at least 3; the float states are kept
 (continuous mode, no hold). Galileo E1/E5a and GPS L5 run through the same engine
 with a reference satellite per system.
 
-The reference tests run on 6 h of two IGS station pairs of 2021-12-26, MATE–MAT1
-(Matera, 11 m) and TLSE–TLSG (Toulouse, 1266 m), against the EUREF combined
-weekly SINEX coordinates of the markers and against RTKLIB with the configuration
-above: fixed epochs within 1 cm mean and 2 cm at the 95th percentile of the
-published position, fix rate within 10 points of RTKLIB's, agreement with RTKLIB's
-fixed positions within 1 cm at the 95th percentile, and time to first fix over
-restarts every 30 min within twice RTKLIB's mean. GPS L5 with Galileo E1/E5b/E5a is
-checked on the Matera pair against RTKLIB's three-frequency run, and the
-hardware's own set, GPS L1/L5 with Galileo E1/E5a, against the published position.
+The reference tests run on the first 6 h (721 epochs) of two IGS station pairs of
+2021-12-26, MATE–MAT1 (Matera, 11 m) and TLSE–TLSG (Toulouse, 1266 m), against the
+EUREF combined weekly SINEX coordinates of the markers and against RTKLIB with the
+configuration above. The six GPS cases (each pair kinematic on L1+L2, kinematic on
+L1 and static on L1+L2) assert that the set of fixed epochs equals RTKLIB's; that
+the fixed positions are within 1 cm of the marker in the mean (static 5 mm), 2 cm
+at the 95th percentile and 3 cm at worst (static 2 cm); and that they agree with
+RTKLIB's fixed positions within 5 mm at the 95th percentile and 1 cm at worst.
+Time to first fix after restarts every 30 min must stay within twice RTKLIB's mean
+and within one epoch of it, with every restart fixing on both sides. GPS L1/L2/L5
+with Galileo E1/E5b/E5a on the Matera pair must fix within 1 % of RTKLIB's count
+with at least ten satellites on average, within 1 cm mean and 2 cm worst of the
+marker and within 1 cm at the 95th percentile and 2 cm worst of RTKLIB's fixed
+positions. The hardware's own set, GPS L1/L5 with Galileo E1/E5a, which RTKLIB
+cannot run, must fix at least 99 % of the epochs within the same marker bounds.
+Measured, the fixed positions agree with RTKLIB's within 2.6 mm in the GPS cases
+and 7.8 mm in the multi-GNSS case, and the hardware set fixes 721 of 721.
 
 ## Standalone positioning
 
@@ -335,11 +343,17 @@ from an unweighted least-squares fit of the Dopplers of the satellites used, whe
 at least four have one.
 
 The reference tests check the broadcast satellite positions and clocks against the
-IGS final orbit (within 6 m and 20 ns over a day), our fix against RTKLIB's with the
-same models on our two recordings and on a day of the IGS station USUD, 29 km from
-the recording site (within 1 m at every common epoch, velocity within 0.1 m/s),
-and the day's mean position at USUD against the station's published coordinates
-(within 5 m).
+IGS final orbit over a day (within 6 m and 20 ns at every 15 min epoch of every
+satellite, at least 1300 of them), and our fix against RTKLIB's with the same
+models: on our two recordings within 1 m at every epoch with the same satellites
+used (velocity within 0.1 m/s on the 2021-12-26 recording, the only one with
+Doppler); on a day of the IGS station USUD, 29 km from the recording site, within
+1 m at every common epoch with the same satellites, where at most two epochs may
+differ in satellite count (a satellite at the mask) and are then allowed 5 m, and
+with 2 mm in the mean and 1 mm at the 99th percentile over the day (measured 0.9 mm
+and 0.08 mm: the two solvers apply the same models number for number); the same
+bounds over an hour with a navigation file without ionosphere coefficients; and
+the day's mean position at USUD within 5 m of the station's published coordinates.
 
 ## Observables
 
@@ -394,12 +408,14 @@ radians. Each subframe is time-tagged with the tracking epoch of its first bit a
 the GPS seconds of week of that bit (the HOW's TOW count refers to the start of
 the following subframe). Almanac pages and the UTC parameters are not decoded.
 
-The reference test decodes the two 30 s recordings and requires every field of
-every subframe 1, 2 and 3 to equal the broadcast record with the same issue of
-data to within half a transmitted LSB (some records in the files are written to
-only seven significant digits), every channel to agree on the file start time to
-within 30 ms, and the 2021-12-26 recording to yield a complete ephemeris on every
-channel. The 2022-01-14 recording starts inside subframe 1, so its window holds
+The reference test decodes the two 30 s recordings and requires the clock and
+orbit fields of every subframe 1, 2 and 3 (and the week number; not the URA, the
+L2 code flags, the fit interval or AODO, which the files do not carry exactly) to
+equal the broadcast record with the same issue of data to within half a
+transmitted LSB (some records in the files are written to only seven significant
+digits), every subframe's time tag to match its position in the file within
+0.1 s, every channel to agree on the file start time to within 30 ms, and the
+2021-12-26 recording to yield a complete ephemeris on every channel. The 2022-01-14 recording starts inside subframe 1, so its window holds
 subframes 2 to 5 and no complete ephemeris. Neither window contains subframe 4
 page 18, so the ionosphere parameters are checked only by the synthetic
 round-trip tests.
