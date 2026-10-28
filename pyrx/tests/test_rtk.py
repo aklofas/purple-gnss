@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 from test_pvt import TOW, USUD, constellation
 
 from pyrx.models import (
@@ -302,3 +303,25 @@ def test_rtk_resets_on_a_half_cycle_transition():
     for f in fixes:
         if f.status == "fix":
             np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+
+
+def test_rtk_seeds_from_l1_ca_and_needs_a_gps_signal(monkeypatch):
+    # the single-point seed is an L1 solver (L1 group delay, L1 ionosphere): it takes L1 C/A
+    # whatever the signal order, and a signal list without GPS is an error, not a crash
+    import pyrx.rtk as rtk_module
+
+    seen = []
+    original = rtk_module.to_epoch
+
+    def spy(obs, signal="G1C"):
+        seen.append(signal)
+        return original(obs, signal)
+
+    monkeypatch.setattr(rtk_module, "to_epoch", spy)
+    rng = np.random.default_rng(23)
+    ephs = constellation()
+    fix = _rtk(ephs).step(*_pair(rng, ephs, TOW, signals=("G5Q", "G1C")))
+    assert fix is not None and seen == ["G1C"]
+    galileo = _galileo(ephs)
+    with pytest.raises(ValueError, match="GPS"):
+        _rtk(galileo).step(*_pair(rng, galileo, TOW, signals=("E1C", "E5Q")))

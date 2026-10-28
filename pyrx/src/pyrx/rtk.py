@@ -78,6 +78,18 @@ def _time(obs: Observations) -> float:
     return obs.week * WEEK_S + obs.tow
 
 
+def _seed_signal(signals: tuple[str, ...]) -> str:
+    """The GPS signal the single-point seed solves on: L1 C/A when present.
+
+    The seed is an L1 solver (L1 group delay and ionosphere), so another GPS
+    signal only stands in when L1 C/A is absent.
+    """
+    gps = [s for s in signals if s[0] == "G"]
+    if not gps:
+        raise ValueError("no GPS signal to seed the position from")
+    return "G1C" if "G1C" in gps else gps[0]
+
+
 def pair_epochs(
     rover: list[Observations], base: list[Observations], max_age: float
 ) -> list[tuple[Observations, Observations | None]]:
@@ -203,7 +215,7 @@ class Rtk:
         if base is None:
             return None
         seed = solve_epoch(
-            to_epoch(rover, next(s for s in rover.signals if s[0] == "G")),
+            to_epoch(rover, _seed_signal(rover.signals)),
             self.ephs,
             self.iono,
             opt.mask_deg,
