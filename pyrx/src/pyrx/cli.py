@@ -33,7 +33,8 @@ from pyrx.tracking import track_channels
 
 DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
 NO_DETECTION = (
-    f"no PRN detected in the first {DEFAULT_WINDOW * 1e3:.0f} ms: check --fs, --f-if and --iq"
+    f"no PRN detected in the {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window: "
+    "check --fs, --f-if and --iq"
 )
 
 

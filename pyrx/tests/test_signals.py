@@ -200,6 +200,19 @@ def test_reader_drops_a_final_record_cut_inside_a_field(tmp_path):
     assert a.tow == 0.0
 
 
+def test_reader_drops_a_final_epoch_short_of_records(tmp_path):
+    body = RINEX[len(HEADER) :].replace("0.0000000  0  1", "0.0000000  0  2", 1)
+    (tmp_path / "t.obs").write_text(HEADER + body + "\n")  # a blank line is not a record
+    [a] = read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    assert a.tow == 0.0
+
+
+def test_reader_ignores_a_scale_factor_of_a_system_it_does_not_read(tmp_path):
+    glonass = "R   10  1 L1C".ljust(60) + "SYS / SCALE FACTOR\n"
+    (tmp_path / "t.obs").write_text(RINEX.replace(END_OF_HEADER, glonass + END_OF_HEADER, 1))
+    assert len(read_rinex_observations(tmp_path / "t.obs", ("G1C",))) == 2
+
+
 def test_reader_survives_a_negative_epoch_count(tmp_path):
     body = RINEX[len(HEADER) :].replace("0.0000000  0  3", "0.0000000  0 -1", 1)
     (tmp_path / "t.obs").write_text(HEADER + body)

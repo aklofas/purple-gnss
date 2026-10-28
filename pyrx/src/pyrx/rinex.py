@@ -211,7 +211,9 @@ def _check_observation_header(lines: list[str], signals: tuple[str, ...]) -> Non
             tsys = line[48:51].strip()
             if tsys and tsys not in ("GPS", "GAL"):
                 raise ValueError(f"time system {tsys} not supported (GPS or GAL)")
-        elif label == "SYS / SCALE FACTOR" and line[2:6].strip() not in ("", "1"):
+        elif (
+            label == "SYS / SCALE FACTOR" and line[0] in "GE" and line[2:6].strip() not in ("", "1")
+        ):
             raise ValueError("a scale factor other than 1 (SYS / SCALE FACTOR) is not supported")
     if version is None or version < 3:
         raise ValueError("a RINEX 3 observation file is required")
@@ -283,7 +285,7 @@ def read_rinex_observations(
             if any(r[60:].strip() == "SYS / # / OBS TYPES" for r in records):
                 raise ValueError(f"line {i + 1}: observation types change inside the file")
             continue
-        if len(records) < count or (records and _cut_short(records[-1])):
+        if sum(r[:1].isalpha() for r in records) < count or (records and _cut_short(records[-1])):
             if i < len(lines) - 1:
                 raise ValueError(f"line {i + 1}: truncated observation record")
             break  # the file ends inside this epoch
