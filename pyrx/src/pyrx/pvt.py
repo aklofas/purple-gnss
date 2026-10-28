@@ -160,10 +160,11 @@ def solve_epoch(
     `x0` seeds the position (ECEF m); from None the iteration starts at the Earth's
     centre. Satellites without an ephemeris within 2 h, with an unhealthy or
     unusable record (a blank or zero orbit field) and those below `mask_deg` are
-    left out; degenerate geometry gives no solution. `iono` None (a navigation file without
-    GPSA/GPSB) means RTKLIB's default Klobuchar coefficients, as `rnx2rtkp` does.
+    left out; degenerate geometry gives no solution. `iono` None or all zeros (a
+    navigation file without GPSA/GPSB) means RTKLIB's default Klobuchar
+    coefficients, as `rnx2rtkp` does.
     """
-    if iono is None:
+    if iono is None or not any(iono.alpha + iono.beta):
         iono = IONO_DEFAULT
     sats = []
     for o in epoch.obs:

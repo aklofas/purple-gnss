@@ -113,6 +113,8 @@ def test_solve_epoch_without_coefficients_uses_rtklib_defaults():
     ephs = constellation()
     ep = truth_epoch(ephs, USUD, 0.0, iono=IONO_DEFAULT)
     np.testing.assert_allclose(solve_epoch(ep, ephs, None).position, USUD, atol=1e-3, rtol=0)
+    zeros = Ionosphere((0.0,) * 4, (0.0,) * 4)  # a file carrying all-zero lines, as RTKLIB reads it
+    assert np.array_equal(solve_epoch(ep, ephs, zeros).position, solve_epoch(ep, ephs).position)
     strong = Ionosphere(tuple(3 * a for a in IONO.alpha), IONO.beta)
     ep = truth_epoch(ephs, USUD, 0.0, iono=strong)
     off = solve_epoch(ep, ephs, None).position  # the defaults leave metres, mostly up

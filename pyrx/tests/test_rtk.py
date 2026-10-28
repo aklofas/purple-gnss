@@ -371,6 +371,17 @@ def test_ambiguities_survive_a_base_gap_longer_than_the_outage_limit():
     np.testing.assert_allclose(fixes[60.0].position, ROVER, atol=0.01, rtol=0)
 
 
+def test_a_base_epoch_sharing_no_satellite_is_not_an_outage():
+    rng = np.random.default_rng(29)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    rtk.step(*_pair(rng, ephs, TOW, signals=("G1C",)))
+    rover, base = _pair(rng, ephs, TOW + 30.0, signals=("G1C",))
+    nothing = replace(base, pseudorange=np.full_like(base.pseudorange, np.nan))
+    assert rtk.step(rover, nothing) is None
+    assert all(b.outc == 0 for b in rtk.biases.values())
+
+
 def test_an_epoch_with_fewer_than_four_satellites_still_updates_the_filter():
     # RTKLIB commits the float update and the lock counts, then reports no solution
     rng = np.random.default_rng(26)

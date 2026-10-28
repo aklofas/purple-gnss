@@ -230,9 +230,6 @@ class Rtk:
         )
         if seed is None:
             return None
-        # outages count only on epochs that reach the relative solution (RTKLIB returns
-        # before udbias without a base, beyond the age limit or without a seed)
-        self._age()
         if opt.mode == "kinematic" or not self.P[:3, :3].any():
             self.x[:3] = seed.position
             self.P[:3, :] = 0.0
@@ -244,6 +241,12 @@ class Rtk:
         yb = self._residuals(base, self.base_arp, sats, 2, doy, mask)
         yr = self._residuals(rover, self.x[:3], sats, 1, doy, mask)
         common = sorted(set(yr) & set(yb))
+        if not common:
+            return None
+        # outages count only on epochs that reach the relative solution (RTKLIB returns
+        # before udbias without a base, beyond the age limit, without a seed or without
+        # a common satellite)
+        self._age()
         signals = rover.signals
         cols = [base.signals.index(s) if s in base.signals else None for s in signals]
         age = t - _time(base)
