@@ -34,7 +34,8 @@ SDR's results on its sample recordings, the navigation decode with the day's
 broadcast ephemeris, and the position RTKLIB computes from our RINEX with the one
 it computes from Pocket SDR's. They need the environment variable `PYRX_CAPTURES`
 pointing at a directory holding these files, and skip when it is unset (the fix
-and positioning tests also skip when `rnx2rtkp` is not on the path):
+positioning and RTK tests also skip when `rnx2rtkp` is not on the path; the RTK tests take
+a few minutes):
 
 | File | Source | SHA-256 |
 |---|---|---|
@@ -50,6 +51,12 @@ and positioning tests also skip when `rnx2rtkp` is not on the path):
 | `igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz` | the station's GPS navigation file of that day from the same directory; the one with the `GPSA`/`GPSB` ionosphere lines, so it is the navigation input for the station and for the 2021-12-26 recording | `911fe136cd28a51ba5e0f81c5494af8c32b3cdf26bac7b68f6d34821a1105649` |
 | `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, from BKG (`.../IGS/products/orbits/2190/igs21900.sp3.Z`, decompressed) | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
 | `igs/usud00jpn_20260422.log` | IGS site log of USUD (`files.igs.org/pub/station/log/`): the marker's ITRF coordinates | `80c41b22ee394448803a869da5757eae68ba3bb65aca2d5edd09470236892e41` |
+| `igs/MATE00ITA_R_20213600000_01D_30S_MO.crx.gz` | BKG (`.../IGS/obs/2021/360/`), IGS station MATE (Matera, Italy), base of the 11 m pair, 2021-12-26, 30 s, RINEX 3.04, Hatanaka-compressed | `aa785104fa1352ca1f7fbb296f516982ae0fc904d3240a8fededc846efe7ab19` |
+| `igs/MAT100ITA_R_20213600000_01D_30S_MO.crx.gz` | MAT1, rover of the Matera pair, same receiver and antenna types as MATE, 11.0 m away | `c776780c6437a7f26ad16043adc486cfcbdefcf38a45529198ed79c9b45ccacb` |
+| `igs/TLSE00FRA_R_20213600000_01D_30S_MO.crx.gz` | TLSE (Toulouse, France), base of the 1266 m pair, same day and format | `4c9a77cbd605c7283b374e3e70e409f0e9f5a2959e7d45331a63f7f639445178` |
+| `igs/TLSG00FRA_R_20213600000_01D_30S_MO.crx.gz` | TLSG, rover of the Toulouse pair, same antenna type as TLSE (different receivers), 1266 m away | `a41a6ffa9dc37db85a583926c3990f789a914fe88ce41d2bf3fcebf403780bf6` |
+| `igs/BRDC00WRD_R_20213600000_01D_MN.rnx.gz` | BKG (`.../IGS/BRDC/2021/360/`), worldwide mixed broadcast ephemeris (GPS and Galileo), RINEX 3.05, 2021-12-26 | `d69a64d9cdda9b2defa6a74405c600baf99c69ae640cc612943bfdd878d806ee` |
+| `igs/EUR0E03SNX_20213600000_07D_07D_SOL.SNX.gz` | BKG (`.../EUREF/products/2190/`), EUREF combined weekly SINEX of GPS week 2190: the marker coordinates of the four stations, the truth of the RTK tests | `07f0a8577aec588869fd8db02ebfd56592e480be4b6088da3b8ad98da2335f18` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from its RTCM3 output with `convbin` | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | RTKLIB `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
 | `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | BKG (`.../BRDC/2022/014/`), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
