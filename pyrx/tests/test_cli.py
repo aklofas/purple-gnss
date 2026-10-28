@@ -3,8 +3,10 @@ import re
 
 import numpy as np
 from test_navdecode import _frame
+from test_pvt import USUD, constellation, truth_epoch
 
-from pyrx.cli import acq_main, nav_main, parse_prns, rinex_main, trk_main
+from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, trk_main
+from pyrx.rinex import write_rinex_nav, write_rinex_obs
 from pyrx.synth import synth_l1ca
 
 
@@ -102,3 +104,18 @@ def test_rinex_main_writes_obs_and_nav(tmp_path, capsys):
     assert obs.read_text().count("> 2021 12 26 08 24 ") == n_epochs
     assert nav.read_text().count("\nG04 ") == 1
     assert rinex_main([str(f), "--fs", "2.5e6", "--iq", "--prn", "9", "--obs", str(obs)]) == 2
+
+
+def test_pvt_main_solves_a_synthetic_file(tmp_path, capsys):
+    ephs = constellation()
+    epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(3)]
+    obs, nav, out = tmp_path / "s.obs", tmp_path / "s.nav", tmp_path / "s.pos"
+    write_rinex_obs(obs, epochs)
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs}, week=2190)
+    assert pvt_main([str(obs), str(nav), "-o", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert "EPOCHS 3 of 3  mean lat 36.1331" in text and "clock 1.000 ms" in text
+    lines = out.read_text().splitlines()
+    assert lines[0].startswith("% week tow lat lon height clock_s ns gdop vx vy vz ddtr")
+    assert len(lines) == 4 and lines[1].split()[:2] == ["2190", "28800.000"]
+    assert pvt_main([str(obs), str(nav), "--ts", "2021-12-26 09:00:00"]) == 2

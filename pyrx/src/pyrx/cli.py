@@ -5,13 +5,25 @@ import json
 import sys
 import time
 from dataclasses import asdict
+from datetime import datetime
+from math import degrees, nan
 from pathlib import Path
 
+import numpy as np
+
 from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
+from pyrx.models import geodetic
 from pyrx.navdecode import decode_lnav
 from pyrx.observables import make_observables
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
-from pyrx.rinex import gps_datetime, write_rinex_nav, write_rinex_obs
+from pyrx.pvt import ELEVATION_MASK, solve
+from pyrx.rinex import (
+    gps_datetime,
+    read_rinex_nav,
+    read_rinex_obs,
+    write_rinex_nav,
+    write_rinex_obs,
+)
 from pyrx.samples import read_samples
 from pyrx.tracking import track_channels
 
@@ -212,6 +224,62 @@ def rinex_main(argv: list[str] | None = None) -> int:
             write_rinex_nav(args.nav, ephs, tow1, iono, week)
         else:
             print("no ephemeris decoded, navigation file not written")
+    print(f"TIME = {elapsed:.3f} s")
+    return 0
+
+
+def _solution_line(sol) -> str:
+    lat, lon, h = geodetic(sol.position)
+    v = sol.velocity if sol.velocity is not None else (nan, nan, nan)
+    ddtr = sol.clock_drift if sol.clock_drift is not None else nan
+    return (
+        f"{sol.week} {sol.tow:.3f} {degrees(lat):.9f} {degrees(lon):.9f} {h:.4f} "
+        f"{sol.clock_bias:.12f} {len(sol.prns)} {sol.gdop:.2f} "
+        f"{v[0]:.4f} {v[1]:.4f} {v[2]:.4f} {ddtr:.12f}"
+    )
+
+
+def pvt_main(argv: list[str] | None = None) -> int:
+    """Standalone position, clock and velocity per epoch from RINEX observation and navigation files."""
+    p = argparse.ArgumentParser(prog="pyrx-pvt", description=pvt_main.__doc__)
+    p.add_argument("obs", help="RINEX observation file (plain, .gz or Hatanaka)")
+    p.add_argument("nav", help="RINEX navigation file")
+    p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
+    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
+    p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
+    args = p.parse_args(argv)
+
+    tlim = None
+    if args.ts is not None or args.te is not None:
+        ts = datetime.fromisoformat(args.ts) if args.ts else datetime(1980, 1, 6)
+        te = datetime.fromisoformat(args.te) if args.te else datetime(2100, 1, 1)
+        tlim = (ts, te)
+    t0 = time.perf_counter()
+    epochs = read_rinex_obs(args.obs, tlim)
+    ephs, iono = read_rinex_nav(args.nav)
+    sols = solve(epochs, ephs, iono, args.mask)
+    elapsed = time.perf_counter() - t0
+    if args.verbose:
+        for sol in sols:
+            print(_solution_line(sol))
+    if not sols:
+        print(f"no epoch solved of {len(epochs)} read", file=sys.stderr)
+        return 2
+    llh = np.array([geodetic(s.position) for s in sols])
+    lat, lon, h = llh.mean(axis=0)
+    clock_ms = 1e3 * float(np.mean([s.clock_bias for s in sols]))
+    print(
+        f"EPOCHS {len(sols)} of {len(epochs)}  mean lat {degrees(lat):.7f} "
+        f"lon {degrees(lon):.7f} height {h:.2f}  clock {clock_ms:.3f} ms"
+    )
+    if args.out is not None:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["% week tow lat lon height clock_s ns gdop vx vy vz ddtr"]
+        lines += [_solution_line(s) for s in sols]
+        out.write_text("\n".join(lines) + "\n")
     print(f"TIME = {elapsed:.3f} s")
     return 0
 

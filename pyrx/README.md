@@ -137,17 +137,85 @@ when the recording holds none, give it with `--week`. One line per PRN reports h
 many epochs the channel contributed to and its first pseudorange and Doppler, then
 the number of epochs and their span.
 
+## Positioning from the command line
+
+```sh
+pyrx-pvt OBS NAV [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te "YYYY-MM-DD HH:MM:SS"] [-o fix.txt] [-v]
+```
+
+Solves every epoch of a RINEX observation file with the ephemerides of a RINEX
+navigation file. The inputs can be our own files or public RINEX 3 files, plain,
+gzip or Hatanaka compressed; only GPS L1 C/A is used. `--ts` and `--te` bound the
+epochs in GPS time, `--mask` is the elevation mask in degrees. The command prints
+the number of epochs solved and read, the mean latitude, longitude, height and
+receiver clock bias, and the run time; with `-v` one line per solved epoch; with
+`-o` those lines go to a file whose header line (starting with `%`) names the
+columns: `week tow lat lon height clock_s ns gdop vx vy vz ddtr` (degrees, metres,
+seconds, satellites used, geometric dilution of precision, ECEF velocity in m/s and
+clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
+
 ## Checking the fix
 
 ```sh
-rnx2rtkp -p 0 -t -o fix.pos out.obs brdc.rnx
+rnx2rtkp -k single.conf -y 2 -o fix.pos out.obs brdc.rnx
 ```
 
 RTKLIB's single-point solution from our observation file and the day's broadcast
 ephemeris gives a position per epoch; the reference test compares it with the same
 solution from Pocket SDR's observations of the 2021-12-26 recording (five
 satellites once both have all of them: horizontal within 5 m, vertical within
-10 m, pseudorange residual RMS within a factor of two).
+10 m, pseudorange residual RMS within a factor of two). Without a configuration
+file (`rnx2rtkp -p 0`) RTKLIB applies no ionospheric or tropospheric model, which
+is how that comparison is made. The positioning tests compare `pyrx-pvt` with
+RTKLIB running the same models, from a configuration file with
+
+```
+pos1-posmode=single
+pos1-elmask=15
+pos1-navsys=1
+pos1-ionoopt=brdc
+pos1-tropopt=saas
+pos1-sateph=brdc
+out-solformat=xyz
+out-outhead=on
+out-timesys=gpst
+out-timeform=tow
+out-outstat=residual
+```
+
+(`-y 2` writes the `.stat` file with the residuals and the velocity).
+
+## Standalone positioning
+
+Satellite position, velocity and clock come from the broadcast ephemeris
+(IS-GPS-200 Table 20-IV with the relativistic clock term; velocity and clock drift
+by central differences over 1 ms). For each satellite the record whose `toe` is
+nearest the epoch is used, within 2 h; a satellite with no such record or with a
+health flag set is left out. Times of week are reduced into half a week either way
+before any difference with an ephemeris time, so a file crossing the week boundary
+is handled.
+
+The ionosphere is corrected with the Klobuchar model from the navigation file's
+`GPSA`/`GPSB` coefficients; a file without them gets no ionospheric correction (not
+default coefficients). The troposphere is corrected with Saastamoinen using the
+standard atmosphere at the receiver height and 70 % humidity.
+
+Position and receiver clock bias are found by iterated weighted least squares over
+the pseudoranges, each corrected for the satellite clock and group delay (`TGD`),
+with the Earth-rotation term in the range. The weights, the 15 degree elevation
+mask, the chi-square test on the residuals (0.1 % significance) and the GDOP limit
+of 30 are those of RTKLIB's single-point mode, so the two solvers can be compared
+number for number; an epoch with fewer than four usable satellites or failing a
+check gets no solution and the run continues. Velocity and clock drift then come
+from an unweighted least-squares fit of the Dopplers of the satellites used, when
+at least four have one.
+
+The reference tests check the broadcast satellite positions and clocks against the
+IGS final orbit (within 6 m and 20 ns over a day), our fix against RTKLIB's with the
+same models on our two recordings and on a day of the IGS station USUD, 29 km from
+the recording site (within 1 m at every common epoch, velocity within 0.1 m/s),
+and the day's mean position at USUD against the station's published coordinates
+(within 5 m).
 
 ## Observables
 
@@ -166,6 +234,20 @@ loop locked on inverted data, with every channel's carrier NCO referenced to the
 receiver's IF phase at sample 0 so the phases of different channels share one
 origin; Doppler is positive for an approaching satellite. No loss-of-lock
 indicators are written.
+
+Time: an epoch's `tow` is seconds from the start of its `week`. Within one run it
+increases monotonically and may reach or exceed 604800 when a recording crosses
+the week boundary; the week field does not change within a run. The RINEX reader
+returns `tow` in [0, 604800) with the week of the time stamp. Consumers form a
+continuous time as `week * 604800 + tow` when they need one, and reduce every
+difference against an ephemeris time of week into half a week either way.
+
+Carrier phase: a channel's phase, and so its RINEX `L1C`, is continuous with one
+unknown integer ambiguity from the channel's first bit-synced epoch to the end of
+the run or to loss of lock; a lost channel is not re-acquired within a run, so no
+ambiguity change happens inside a file. The half-cycle polarity is resolved once by
+frame sync and applies throughout. No loss-of-lock or signal-strength flags are
+written. The standalone solution does not use the carrier phase.
 
 ## Navigation message decode
 
