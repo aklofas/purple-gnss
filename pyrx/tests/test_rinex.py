@@ -286,3 +286,10 @@ def test_obs_writer_carries_the_loss_of_lock_indicator(tmp_path):
     assert "G16  20653742.563   108536284.235        -698.280          46.900" in text
     [back] = read_rinex_observations(tmp_path / "l.obs", ("G1C",))
     assert back.sats == ("G04", "G16") and back.lli[:, 0].tolist() == [3, 0]
+
+
+def test_read_rinex_nav_drops_a_record_with_a_blank_field(tmp_path):
+    health = " 0.000000000000e+00-4.190951585770e-09 9.120000000000e+02"
+    (tmp_path / "b.nav").write_text(GAL_NAV.replace(health, " " * 19 + health[19:]))
+    ephs, _ = read_rinex_nav(tmp_path / "b.nav")
+    assert [e.system for e in ephs] == ["E"]

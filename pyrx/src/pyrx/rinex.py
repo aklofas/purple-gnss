@@ -182,10 +182,48 @@ def read_rinex_header(path) -> RinexHeader:
     return RinexHeader(marker, position, delta, antenna, receiver)
 
 
+def _header_lines(path) -> list[str]:
+    """The header of an observation file (plain, gzip or Hatanaka: its header is plain text)."""
+    lines = []
+    with _open_text(path) as f:
+        for line in f:
+            lines.append(line.rstrip("\n"))
+            if line[60:].strip() == "END OF HEADER":
+                break
+    return lines
+
+
+def _check_observation_header(lines: list[str], signals: tuple[str, ...]) -> None:
+    """Reject what the observation readers do not implement.
+
+    They read RINEX 3 (and 4) observation files whose times are GPS or Galileo
+    system time (GST is steered to GPST), store observations unscaled, and return
+    GPS and Galileo signals only.
+    """
+    version = None
+    for line in lines:
+        label = line[60:].strip()
+        if label == "RINEX VERSION / TYPE":
+            version = float(line[:9])
+            if line[20] != "O":
+                raise ValueError("not a RINEX observation file")
+        elif label == "TIME OF FIRST OBS":
+            tsys = line[48:51].strip()
+            if tsys and tsys not in ("GPS", "GAL"):
+                raise ValueError(f"time system {tsys} not supported (GPS or GAL)")
+        elif label == "SYS / SCALE FACTOR" and line[2:6].strip() not in ("", "1"):
+            raise ValueError("a scale factor other than 1 (SYS / SCALE FACTOR) is not supported")
+    if version is None or version < 3:
+        raise ValueError("a RINEX 3 observation file is required")
+    for sig in signals:
+        if sig[0] not in "GE":
+            raise ValueError(f"signal {sig}: only GPS (G) and Galileo (E) signals are read")
+
+
 def _parse_epoch_line(line: str) -> tuple[datetime | None, int, int]:
     """Time (None for an event record, whose time may be blank), epoch flag and record count."""
     flag = int(line[31])
-    count = int(line[32:35])
+    count = int(line[32:35].strip() or 0)
     if flag > 1:
         return None, flag, count
     f = line[1:31].split()
@@ -203,7 +241,11 @@ def read_rinex_observations(
     Parses the RINEX 3 text itself (after Hatanaka or gzip decompression) so the
     loss-of-lock indicators come through. A blank or 0.0 field is a missing value.
     A satellite is kept at an epoch when it has a pseudorange or carrier phase on
-    any requested signal; epochs without satellites are dropped.
+    any requested signal; epochs without satellites are dropped. Epochs come out
+    in time order; a repeated epoch or satellite keeps its first record and an
+    epoch the file ends inside is dropped, as RTKLIB does. Files outside the
+    implemented profile raise ValueError (see `_check_observation_header`); so
+    does a change of the observation types inside the file.
     """
     import hatanaka
 
@@ -221,30 +263,38 @@ def read_rinex_observations(
             types[system] += line[7:60].split()
         elif label == "END OF HEADER":
             break
+    _check_observation_header(lines[: i + 1], signals)
     # column of each requested signal's C, L, D, S code within its system's record
     columns = []
     for sig in signals:
         codes = types.get(sig[0], [])
         columns.append([codes.index(k + sig[1:]) if k + sig[1:] in codes else None for k in "CLDS"])
     n_sig = len(signals)
-    epochs = []
+    by_time: dict[datetime, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
     while i + 1 < len(lines):
         i += 1
         line = lines[i]
         if not line.startswith(">"):
             continue
         t, flag, count = _parse_epoch_line(line)
-        if flag > 1:  # event records
-            i += count
+        records = lines[i + 1 : i + 1 + max(count, 0)]
+        i += len(records)
+        if flag > 1:  # event records: header lines or comments follow
+            if any(r[60:].strip() == "SYS / # / OBS TYPES" for r in records):
+                raise ValueError(f"line {i + 1}: observation types change inside the file")
             continue
-        records = lines[i + 1 : i + 1 + count]
-        i += count
+        if len(records) < count or (records and _cut_short(records[-1])):
+            if i < len(lines) - 1:
+                raise ValueError(f"line {i + 1}: truncated observation record")
+            break  # the file ends inside this epoch
         if tlim is not None and not (tlim[0] <= t <= tlim[1]):
             continue
-        sats, values = [], []
+        epoch = by_time.setdefault(t, {})
         for rec in records:
-            sat = rec[:3]
-            if sat[0] not in types:
+            if rec[:1] not in types or not rec[1:3].strip().isdigit():
+                continue
+            sat = f"{rec[0]}{int(rec[1:3]):02d}"
+            if sat in epoch:
                 continue
             row = np.full((4, n_sig), nan)
             lli = np.zeros(n_sig, dtype=int)
@@ -261,28 +311,35 @@ def read_rinex_observations(
                             ind = rec[3 + 16 * col + 14 : 3 + 16 * col + 15].strip()
                             lli[j] = int(ind) if ind else 0
             if np.isfinite(row[0]).any() or np.isfinite(row[1]).any():
-                sats.append(sat)
-                values.append((row, lli))
+                epoch[sat] = (row, lli)
+    epochs = []
+    for t in sorted(by_time):
+        sats = sorted(by_time[t])
         if not sats:
             continue
-        order = np.argsort(sats)
-        rows = np.array([values[k][0] for k in order])  # (n_sat, 4, n_sig)
+        rows = np.array([by_time[t][s][0] for s in sats])  # (n_sat, 4, n_sig)
         ns = (t - GPS_EPOCH).total_seconds()
         week = int(ns // WEEK_S)
         epochs.append(
             Observations(
                 week,
                 round(ns - week * WEEK_S, 6),
-                tuple(sats[k] for k in order),
+                tuple(sats),
                 tuple(signals),
                 rows[:, 0],
                 rows[:, 1],
                 rows[:, 2],
                 rows[:, 3],
-                np.array([values[k][1] for k in order], dtype=int),
+                np.array([by_time[t][s][1] for s in sats], dtype=int),
             )
         )
     return epochs
+
+
+def _cut_short(rec: str) -> bool:
+    """The record line ends inside an observation field: the file was truncated there."""
+    n = len(rec) - 3
+    return n % 16 < 14 and rec[3 + 16 * (n // 16) :].strip() != ""
 
 
 def _week_tow(t: np.datetime64) -> tuple[int, float]:
@@ -296,8 +353,10 @@ def read_rinex_obs(path, tlim: tuple[datetime, datetime] | None = None) -> list[
 
     A blank or 0.0 field is a missing value. A satellite without a pseudorange at
     an epoch is skipped and an epoch without satellites dropped; a missing carrier
-    phase, Doppler or C/N0 is `nan`. `tlim` bounds the epochs in GPS time.
+    phase, Doppler or C/N0 is `nan`. `tlim` bounds the epochs in GPS time. Files
+    outside the implemented profile raise ValueError (see `_check_observation_header`).
     """
+    _check_observation_header(_header_lines(path), ())
     ds = _load(path, meas=list(OBS_TYPES), tlim=tlim)
     svs = [int(sv[1:]) for sv in ds.sv.values]
     order = np.argsort(svs)
@@ -404,6 +463,8 @@ def write_rinex_observations(
     epochs = [e for e in epochs if e.sats]
     signals = epochs[0].signals if epochs else ()
     systems = sorted({s[0] for s in signals})
+    if not set(systems) <= {"G", "E"}:
+        raise ValueError(f"systems {systems}: only GPS (G) and Galileo (E) are written")
     sat_sys = "M: MIXED" if len(systems) != 1 else {"G": "G: GPS", "E": "E: Galileo"}[systems[0]]
     out = [
         _line(

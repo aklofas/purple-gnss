@@ -1,8 +1,13 @@
 import numpy as np
 import pytest
 
-from pyrx.rinex import read_rinex_header, read_rinex_observations, write_rinex_observations
-from pyrx.signals import signal_frequency, to_epoch, wavelength
+from pyrx.rinex import (
+    read_rinex_header,
+    read_rinex_obs,
+    read_rinex_observations,
+    write_rinex_observations,
+)
+from pyrx.signals import Observations, signal_frequency, to_epoch, wavelength
 
 HEADER = """\
      3.04           OBSERVATION DATA    M                   RINEX VERSION / TYPE
@@ -117,3 +122,85 @@ def test_read_rinex_observations_skips_event_records(tmp_path):
     (tmp_path / "e.obs").write_text(HEADER + event + RINEX[len(HEADER) :])
     epochs = read_rinex_observations(tmp_path / "e.obs", ("G1C",))
     assert [e.tow for e in epochs] == [0.0, 30.0] and epochs[0].sats == ("G04", "G16")
+
+
+END_OF_HEADER = "".ljust(60) + "END OF HEADER\n"
+SCALE_FACTOR = "G   10  1 L1C".ljust(60) + "SYS / SCALE FACTOR\n"
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        (("     3.04", "     2.11"), "RINEX 3"),
+        (("OBSERVATION DATA", "N: GNSS NAV DATA"), "observation"),
+        (("0.0000000     GPS", "0.0000000     GLO"), "time system"),
+        ((END_OF_HEADER, SCALE_FACTOR + END_OF_HEADER), "scale factor"),
+    ],
+)
+def test_readers_reject_profiles_they_do_not_implement(tmp_path, change, message):
+    (tmp_path / "t.obs").write_text(RINEX.replace(*change, 1))
+    with pytest.raises(ValueError, match=message):
+        read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    with pytest.raises(ValueError, match=message):
+        read_rinex_obs(tmp_path / "t.obs")
+
+
+def test_reader_and_writer_reject_a_system_they_do_not_handle(tmp_path):
+    (tmp_path / "t.obs").write_text(RINEX)
+    with pytest.raises(ValueError, match="R1C"):
+        read_rinex_observations(tmp_path / "t.obs", ("G1C", "R1C"))
+    a = np.array([[22235454.255]])
+    glonass = Observations(2190, 0.0, ("R04",), ("R1C",), a, a, a, a, np.zeros((1, 1), dtype=int))
+    with pytest.raises(ValueError, match="R"):
+        write_rinex_observations(tmp_path / "w.obs", [glonass])
+
+
+def test_reader_rejects_an_in_file_change_of_observation_types(tmp_path):
+    event = (
+        ">                              4  1\n"
+        + "G    8 L1C C1C D1C S1C C2W L2W D2W S2W".ljust(60)
+        + "SYS / # / OBS TYPES\n"
+    )
+    (tmp_path / "e.obs").write_text(HEADER + event + RINEX[len(HEADER) :])
+    with pytest.raises(ValueError, match="observation types"):
+        read_rinex_observations(tmp_path / "e.obs", ("G1C",))
+
+
+def test_reader_accepts_galileo_time_and_rinex_4(tmp_path):
+    text = RINEX.replace("     3.04", "     4.02", 1).replace("     GPS", "     GAL", 1)
+    (tmp_path / "t.obs").write_text(text)
+    assert [e.tow for e in read_rinex_observations(tmp_path / "t.obs", ("G1C",))] == [0.0, 30.0]
+
+
+def test_reader_sorts_merges_and_normalises_epochs(tmp_path):
+    # epochs out of order; the first repeated with one satellite repeated (its first record
+    # wins) and one added; a satellite written as 'G 4'; a final epoch missing a record
+    body = (
+        "> 2021 12 26 00 00 30.0000000  0  1\n"
+        + _rec("G04", 22235373.83, -116848357.26, 420.9, 43.2)
+        + "> 2021 12 26 00 00  0.0000000  0  2\n"
+        + _rec("G 4", 22235454.255, -116848778.204, 421.142, 43.3)
+        + _rec("G16", 20653742.563, 108536284.235, -698.28, 46.9)
+        + "> 2021 12 26 00 00  0.0000000  0  2\n"
+        + _rec("G04", 1.0, 2.0, 3.0, 4.0)
+        + _rec("G25", 23000000.0, 120000000.0, 100.0, 40.0)
+        + "> 2021 12 26 00 01  0.0000000  0  2\n"
+        + _rec("G04", 22235293.4, -116847936.3, 420.7, 43.1)
+    )
+    (tmp_path / "t.obs").write_text(HEADER + body)
+    a, b = read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    assert (a.tow, a.sats) == (0.0, ("G04", "G16", "G25")) and (b.tow, b.sats) == (30.0, ("G04",))
+    assert a.pseudorange[0, 0] == 22235454.255 and a.pseudorange[2, 0] == 23000000.0
+
+
+def test_reader_drops_a_final_record_cut_inside_a_field(tmp_path):
+    body = RINEX[len(HEADER) :]
+    (tmp_path / "t.obs").write_text(HEADER + body[: body.rindex("G04") + 12])
+    [a] = read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    assert a.tow == 0.0
+
+
+def test_reader_survives_a_negative_epoch_count(tmp_path):
+    body = RINEX[len(HEADER) :].replace("0.0000000  0  3", "0.0000000  0 -1", 1)
+    (tmp_path / "t.obs").write_text(HEADER + body)
+    assert [e.tow for e in read_rinex_observations(tmp_path / "t.obs", ("G1C",))] == [30.0]
