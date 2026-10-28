@@ -3,69 +3,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from scipy.stats import chi2
-from test_orbits import _eph
+from support import IONO, TOW, USUD, constellation, truth_epoch
 
 from pyrx.lnav import Ionosphere
-from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
-from pyrx.observables import C_LIGHT, Epoch, Observation
-from pyrx.orbits import OMEGA_E, satellite_state
-from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1, _variance, chi2_threshold, solve, solve_epoch
-
-USUD = np.array([-3855263.0361, 3427432.5571, 3741020.2929])
-TOW = 28800.0
-IONO = Ionosphere(
-    (1.1176e-08, -7.4506e-09, -5.9605e-08, 1.1921e-07),
-    (1.1469e05, -1.6384e05, -1.9661e05, 9.1750e05),
-)
-
-
-def constellation():
-    # six satellites on the test orbit, spread so that all are above 15 deg at USUD at toe
-    out = []
-    # offsets found by search: elevations 76, 24, 28, 27, 70 and 46 deg, GDOP 3.5
-    offsets = [
-        (-2.31, 0.12),
-        (1.83, -3.11),
-        (2.54, 2.97),
-        (-1.37, -1.37),
-        (2.26, 1.88),
-        (-1.48, -0.89),
-    ]
-    for k, (dm, do) in enumerate(offsets):
-        out.append(_eph(prn=k + 1, m0=-1.2345678 + dm, omega0=2.1 + do, toe=TOW, toc=TOW))
-    return out
-
-
-def truth_epoch(
-    ephs, xyz, dtr, vel=None, ddtr=None, week=2190, tow=TOW, iono=IONO_DEFAULT, tropo=True
-):
-    """Pseudoranges (and Dopplers) of the package's own models; the ionosphere is the one
-    the solver assumes when it gets none, so a test may solve without passing it."""
-    lat, lon, h = geodetic(xyz)
-    obs = []
-    for eph in ephs:
-        t_tx = tow - dtr - 0.07  # about 70 ms of light time; refined below
-        for _ in range(4):
-            s = satellite_state(eph, t_tx)
-            t_tx = tow - dtr - geometric_range(xyz, s.position)[0] / C_LIGHT
-        s = satellite_state(eph, t_tx)
-        rho, e = geometric_range(xyz, s.position)
-        az, el = azimuth_elevation(xyz, s.position)
-        corr = (klobuchar(iono, lat, lon, az, el, tow) if iono else 0.0) + (
-            saastamoinen(lat, h, el) if tropo else 0.0
-        )
-        p = rho + C_LIGHT * (dtr - s.clock) + corr + C_LIGHT * eph.tgd
-        d = float("nan")
-        if vel is not None:
-            rate = e @ (s.velocity - vel) + OMEGA_E / C_LIGHT * (
-                s.velocity[1] * xyz[0]
-                + s.position[1] * vel[0]
-                - s.velocity[0] * xyz[1]
-                - s.position[0] * vel[1]
-            )
-            d = -(rate + C_LIGHT * (ddtr - s.clock_drift)) / LAMBDA_L1
-        obs.append(Observation(eph.prn, p, 0.0, d, 45.0))  # carrier phase unused here
-    return Epoch(week, tow, obs)
+from pyrx.models import azimuth_elevation
+from pyrx.observables import Epoch, Observation
+from pyrx.orbits import satellite_state
+from pyrx.pvt import IONO_DEFAULT, _variance, chi2_threshold, solve, solve_epoch
 
 
 def test_constellation_is_visible_from_usud():

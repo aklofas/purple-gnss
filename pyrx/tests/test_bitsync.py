@@ -1,5 +1,5 @@
 import numpy as np
-from test_lnav import SF1, SF2, SF3
+from support import SF1, SF2, SF3
 
 from pyrx.bitsync import BitStream, bit_sync, frame_sync
 from pyrx.lnav import encode_subframe

@@ -2,6 +2,7 @@ from math import pi
 
 import numpy as np
 import pytest
+from support import SF1, SF2, SF3
 
 from pyrx.lnav import (
     PREAMBLE,
@@ -15,43 +16,6 @@ from pyrx.lnav import (
     parity_ok,
 )
 
-SF1 = {
-    "wn": 142,
-    "code_l2": 1,
-    "ura": 0,
-    "health": 0,
-    "iodc": 917,
-    "l2p": 0,
-    "tgd": -4.19095158577e-09,
-    "toc": 28800,
-    "af2": 2 * 2**-55,
-    "af1": -1.02318153949e-12,
-    "af0": -1.97644811124e-04,
-}
-SF2 = {
-    "iode": 149,
-    "crs": -37.5625,
-    "delta_n": 4.6734e-09,
-    "m0": -1.2345678,
-    "cuc": -2.0e-06,
-    "e": 0.001602733,
-    "cus": 5.8e-06,
-    "sqrt_a": 5153.668436,
-    "toe": 28800,
-    "fit": 0,
-    "aodo": 2700.0,  # age of data offset is broadcast in units of 900 s
-}
-SF3 = {
-    "cic": 1.2e-07,
-    "omega0": 2.1,
-    "cis": -9.3e-08,
-    "i0": 0.96,
-    "crc": 250.0,
-    "omega": -0.5,
-    "omega_dot": -8.1e-09,
-    "iode": 149,
-    "idot": 1.5e-10,
-}
 # exact multiples of the LSBs (12*2^-30, -1*2^-27, -1*2^-24, 2*2^-24; 56*2^11, -10*2^14,
 # -3*2^16, 14*2^16), which is what the broadcast values of 2022-01-14 round to in RINEX
 IONO = {

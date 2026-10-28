@@ -4,21 +4,23 @@ import re
 
 import numpy as np
 import pytest
-from test_navdecode import _frame
-from test_pvt import TOW, USUD, constellation, truth_epoch
-from test_rtk import AMB_B, AMB_R, ROVER, SIGNALS, synthetic_pair
+from support import (
+    AMB_B,
+    AMB_R,
+    ROVER,
+    SIGNALS,
+    TOW,
+    USUD,
+    constellation,
+    frame,
+    synthetic_pair,
+    truth_epoch,
+    write_iq_int8,
+)
 
 from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, rtk_main, trk_main
 from pyrx.rinex import write_rinex_nav, write_rinex_obs, write_rinex_observations
 from pyrx.synth import synth_l1ca
-
-
-def _write_iq_int8(x, path):
-    """Write complex samples as Pocket SDR interleaved int8 I/Q (Q negated)."""
-    raw = np.empty(2 * len(x), dtype=np.int8)
-    raw[0::2] = x.real.clip(-127, 127)
-    raw[1::2] = (-x.imag).clip(-127, 127)
-    raw.tofile(path)
 
 
 def test_parse_prns():
@@ -31,7 +33,7 @@ def test_parse_prns():
 
 def test_prn_argument_errors_are_usage_errors(tmp_path, capsys):
     f = tmp_path / "s.bin"
-    _write_iq_int8(np.zeros(1000, dtype=complex), f)
+    write_iq_int8(np.zeros(1000, dtype=complex), f)
     with pytest.raises(SystemExit) as e:
         acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "1-33"])
     assert e.value.code == 2 and "--prn" in capsys.readouterr().err
@@ -41,7 +43,7 @@ def test_acq_main_prints_table_and_plots(tmp_path, capsys):
     fs = 4e6
     x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.01), 45.0, True)
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     rc = acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "7,9", "--plot", str(tmp_path)])
     out = capsys.readouterr().out
     assert rc == 0
@@ -60,7 +62,7 @@ def test_acq_main_defaults_to_first_10ms(tmp_path, capsys):
     rest = synth_l1ca(7, fs, 0.0, 0.0, 3000, 2 * n10, 45.0, True, seed=1)
     x = np.concatenate([first, rest])
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     assert acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "7"]) == 0
     assert "COFF=  0.25000 ms" in capsys.readouterr().out
 
@@ -69,7 +71,7 @@ def test_trk_main_tracks_and_logs(tmp_path, capsys):
     fs = 4e6
     x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 2.5), 45.0, True, data_bits=True)
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     log = tmp_path / "logs" / "trk.csv"  # directory does not exist yet
     rc = trk_main(
         [str(f), "--fs", "4e6", "--iq", "--prn", "7,9", "--log", str(log), "--plot", str(tmp_path)]
@@ -86,11 +88,11 @@ def test_trk_main_tracks_and_logs(tmp_path, capsys):
 
 def test_nav_main_prints_and_writes_json(tmp_path, capsys):
     fs = 2.5e6
-    seq = np.concatenate([np.zeros(100, dtype=np.uint8), _frame()])
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
     n = int(fs * (len(seq) * 0.020 + 0.1))
     x = synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq)
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     out_json = tmp_path / "nav.json"
     rc = nav_main([str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--json", str(out_json)])
     out = capsys.readouterr().out
@@ -102,11 +104,11 @@ def test_nav_main_prints_and_writes_json(tmp_path, capsys):
 
 def test_rinex_main_writes_obs_and_nav(tmp_path, capsys):
     fs = 2.5e6
-    seq = np.concatenate([np.zeros(100, dtype=np.uint8), _frame()])
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
     n = int(fs * (len(seq) * 0.020 + 0.1))
     x = synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq)
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     obs, nav = tmp_path / "o.obs", tmp_path / "o.nav"
     rc = rinex_main(
         [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--nav", str(nav)]
@@ -162,7 +164,7 @@ def test_mains_report_no_detection_with_exit_2(tmp_path, capsys):
     fs = 4e6
     x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.02), 45.0, True)
     f = tmp_path / "s.bin"
-    _write_iq_int8(x, f)
+    write_iq_int8(x, f)
     common = [str(f), "--fs", "4e6", "--iq", "--prn", "9"]  # PRN 9 is not in the file
     assert trk_main(common) == 2
     assert nav_main(common) == 2

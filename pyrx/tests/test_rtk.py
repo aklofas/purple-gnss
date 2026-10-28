@@ -2,105 +2,24 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from test_pvt import TOW, USUD, constellation
+from support import (
+    AMB_B,
+    AMB_R,
+    ROVER,
+    SIGNALS,
+    TOW,
+    USUD,
+    as_galileo,
+    constellation,
+    synthetic_pair,
+)
 
 from pyrx.models import (
     Station,
-    azimuth_elevation,
-    geodetic,
-    geometric_range,
     marker_from_arp,
-    nmf_dry,
-    zenith_hydrostatic,
 )
-from pyrx.observables import C_LIGHT
-from pyrx.orbits import sat_id, satellite_state
-from pyrx.rinex import gps_datetime
 from pyrx.rtk import Rtk, RtkOptions, pair_epochs, solve_rtk
-from pyrx.signals import Observations, wavelength
-
-ROVER = USUD + np.array([5.0, -3.0, 2.0])
-SIGNALS = ("G1C", "G2W")
-ALL_SIGNALS = ("G1C", "G2W", "G5Q", "E1C", "E5Q")
-
-
-def _galileo(ephs):
-    return [replace(e, prn=e.prn + 10, system="E") for e in ephs]
-
-
-def _ambiguities(rng, ephs, signals):
-    return {
-        (sat_id(e), s): int(rng.integers(-1000, 1000))
-        for e in ephs
-        for s in signals
-        if s[0] == e.system
-    }
-
-
-_RNG = np.random.default_rng(0)
-AMB_R = _ambiguities(_RNG, constellation() + _galileo(constellation()), ALL_SIGNALS)
-AMB_B = _ambiguities(_RNG, constellation() + _galileo(constellation()), ALL_SIGNALS)
-
-
-def _observations(ephs, xyz, dtr, tow, signals, amb, rng, phase_noise, code_noise, week):
-    lat, _, h = geodetic(xyz)
-    doy = gps_datetime(week, tow).timetuple().tm_yday
-    ephs = sorted(ephs, key=sat_id)
-    n, m = len(ephs), len(signals)
-    P, L = np.full((n, m), np.nan), np.full((n, m), np.nan)
-    for i, eph in enumerate(ephs):
-        t_tx = tow - dtr - 0.07
-        for _ in range(4):
-            s = satellite_state(eph, t_tx)
-            t_tx = tow - dtr - geometric_range(xyz, s.position)[0] / C_LIGHT
-        s = satellite_state(eph, t_tx)
-        rho, _ = geometric_range(xyz, s.position)
-        _, el = azimuth_elevation(xyz, s.position)
-        model = (
-            rho + C_LIGHT * (dtr - s.clock) + zenith_hydrostatic(lat, h) * nmf_dry(lat, h, el, doy)
-        )
-        for j, sig in enumerate(signals):
-            if sig[0] != eph.system:
-                continue
-            lam = wavelength(sig)
-            L[i, j] = model / lam + amb[(sat_id(eph), sig)] + rng.normal(0.0, phase_noise) / lam
-            P[i, j] = model + rng.normal(0.0, code_noise)
-    return Observations(
-        week,
-        tow,
-        tuple(sat_id(e) for e in ephs),
-        tuple(signals),
-        P,
-        L,
-        np.full((n, m), np.nan),
-        np.where(np.isfinite(P), 45.0, np.nan),
-        np.zeros((n, m), dtype=int),
-    )
-
-
-def synthetic_pair(
-    ephs,
-    base_xyz,
-    rover_xyz,
-    tow,
-    signals,
-    amb_rover,
-    amb_base,
-    rng,
-    phase_noise=0.001,
-    code_noise=0.3,
-    week=2190,
-):
-    """Observations of a rover and a base at their antenna reference points from the package's models.
-
-    The default phase noise is a little above the jitter of a 15 Hz PLL at 45 dB-Hz
-    (0.7 mm); with it a fixed single-epoch position lands within 1 cm of the truth, while a
-    wrong integer moves it by centimetres to a wavelength.
-    """
-    args = (tow, signals, rng, phase_noise, code_noise, week)
-    rover = _observations(ephs, rover_xyz, 1e-4, args[0], args[1], amb_rover, *args[2:])
-    base = _observations(ephs, base_xyz, 2e-4, args[0], args[1], amb_base, *args[2:])
-    return rover, base
+from pyrx.signals import Observations
 
 
 def _pair(rng, ephs, tow, signals=SIGNALS, rover=ROVER, lli=None, drop=(), amb_r=None):
@@ -237,7 +156,7 @@ def test_rtk_requires_four_satellites():
 
 def test_rtk_with_galileo_uses_a_reference_per_system():
     rng = np.random.default_rng(18)
-    ephs = constellation() + _galileo(constellation())
+    ephs = constellation() + as_galileo(constellation())
     rtk = _rtk(ephs)
     signals = ("G1C", "G5Q", "E1C", "E5Q")
     for k in range(3):
@@ -322,7 +241,7 @@ def test_rtk_seeds_from_l1_ca_and_needs_a_gps_signal(monkeypatch):
     ephs = constellation()
     fix = _rtk(ephs).step(*_pair(rng, ephs, TOW, signals=("G5Q", "G1C")))
     assert fix is not None and seen == ["G1C"]
-    galileo = _galileo(ephs)
+    galileo = as_galileo(ephs)
     with pytest.raises(ValueError, match="GPS"):
         _rtk(galileo).step(*_pair(rng, galileo, TOW, signals=("E1C", "E5Q")))
 

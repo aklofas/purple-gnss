@@ -3,7 +3,7 @@ from math import isnan
 
 import pytest
 from conftest import capture_file
-from test_lnav import SF1, SF2, SF3
+from support import SF1, SF2, SF3
 
 from pyrx.lnav import Ionosphere, assemble_ephemeris, decode_subframe, encode_subframe
 from pyrx.observables import Epoch, Observation

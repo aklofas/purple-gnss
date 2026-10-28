@@ -2,7 +2,7 @@ import dataclasses
 
 import numpy as np
 import pytest
-from test_navdecode import _frame
+from support import frame
 
 from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
@@ -23,7 +23,7 @@ T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits 
 
 
 def _channel(prn, code_offset, doppler, fs=2.5e6, tow0=5044, seconds=20.1):
-    seq = np.concatenate([np.zeros(100, dtype=np.uint8), _frame(tow0)])
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame(tow0)])
     x = synth_l1ca(prn, fs, 0.0, doppler, code_offset, int(fs * seconds), 45.0, True, bits=seq)
     track = track_l1ca(ArraySamples(x, fs), 0.0, prn, code_offset / fs, doppler, 45.0)
     return track, decode_lnav(track)
