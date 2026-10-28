@@ -170,3 +170,15 @@ def test_mains_report_no_detection_with_exit_2(tmp_path, capsys):
     err = capsys.readouterr().err
     assert err.count("no PRN detected") == 3 and "--f-if" in err
     assert not (tmp_path / "o.obs").exists()
+
+
+def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
+    ephs = constellation()
+    obs, nav = tmp_path / "s.obs", tmp_path / "s.nav"
+    write_rinex_obs(obs, [truth_epoch(ephs, USUD, 1e-3, tow=28800.0)])
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
+    obs.write_text(obs.read_text().replace("     3.05", "     2.11", 1))
+    assert pvt_main([str(obs), str(nav)]) == 2
+    assert rtk_main([str(obs), str(obs), str(nav), "--base-xyz", *map(str, USUD)]) == 2
+    err = capsys.readouterr().err
+    assert err.count("RINEX 3") == 2 and "Traceback" not in err

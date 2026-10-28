@@ -276,8 +276,12 @@ def pvt_main(argv: list[str] | None = None) -> int:
         te = datetime.fromisoformat(args.te) if args.te else datetime(2100, 1, 1)
         tlim = (ts, te)
     t0 = time.perf_counter()
-    epochs = read_rinex_obs(args.obs, tlim)
-    ephs, iono = read_rinex_nav(args.nav)
+    try:
+        epochs = read_rinex_obs(args.obs, tlim)
+        ephs, iono = read_rinex_nav(args.nav)
+    except ValueError as e:  # a file outside the profile the readers accept
+        print(e, file=sys.stderr)
+        return 2
     sols = solve(epochs, ephs, iono, args.mask)
     elapsed = time.perf_counter() - t0
     if args.verbose:
@@ -340,9 +344,13 @@ def rtk_main(argv: list[str] | None = None) -> int:
     t0 = time.perf_counter()
     rover_delta = args.rover_delta or read_rinex_header(args.rover).delta_enu
     base_delta = args.base_delta or read_rinex_header(args.base).delta_enu
-    rover = read_rinex_observations(args.rover, signals, tlim)
-    base = read_rinex_observations(args.base, signals, tlim)
-    ephs, iono = read_rinex_nav(args.nav)
+    try:
+        rover = read_rinex_observations(args.rover, signals, tlim)
+        base = read_rinex_observations(args.base, signals, tlim)
+        ephs, iono = read_rinex_nav(args.nav)
+    except ValueError as e:  # a file outside the profile the readers accept
+        print(e, file=sys.stderr)
+        return 2
     station = Station(np.array(args.base_xyz), np.asarray(base_delta, dtype=float))
     fixes = solve_rtk(
         rover, base, ephs, station, np.asarray(rover_delta, dtype=float),
