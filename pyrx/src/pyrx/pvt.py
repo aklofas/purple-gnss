@@ -29,6 +29,7 @@ _ERR_CODE = 0.003 * 100.0  # m, RTKLIB err[0] * err[1]: the a priori code error
 _ERR_CBIAS = 0.3  # m, code bias error
 _ERR_BRDCI = 0.5  # fraction of the broadcast ionospheric delay
 _ERR_SAAS = 0.3  # m, Saastamoinen error at the zenith
+_MIN_EL_WEIGHT = radians(5.0)  # elevation floor of the weights, as RTKLIB's varerr
 _CONVERGED_POS = 1e-4  # m
 _CONVERGED_VEL = 1e-6  # m/s
 
@@ -49,7 +50,7 @@ class Solution:
 
 
 def _variance(ura: int, el: float, dion: float) -> float:
-    s = sin(el)
+    s = sin(max(el, _MIN_EL_WEIGHT))
     return (
         _ERR_CODE**2 * (1.0 + 1.0 / s)
         + URA_BOUNDS[min(ura, 14)] ** 2
@@ -94,8 +95,11 @@ def _position(epoch, sats, iono, mask, x):
     return None
 
 
-def _velocity(epoch, x, used):
-    """Doppler solution over the satellites of the position solution; None below four."""
+def _velocity(x, used):
+    """Doppler solution over the satellites of the position solution.
+
+    None with fewer than four Dopplers or when the iteration does not converge.
+    """
     sats = [(o, s, e) for o, _, s, e in used if isfinite(o.doppler)]
     if len(sats) < 4:
         return None
@@ -154,7 +158,7 @@ def solve_epoch(
     gdop = sqrt(np.trace(np.linalg.inv(rows.T @ rows)))
     if gdop > MAX_GDOP:
         return None
-    vel = _velocity(epoch, x, used)
+    vel = _velocity(x, used)
     return Solution(
         week=epoch.week,
         tow=epoch.tow,

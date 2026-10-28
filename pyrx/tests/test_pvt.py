@@ -8,7 +8,7 @@ from pyrx.lnav import Ionosphere
 from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
 from pyrx.observables import C_LIGHT, Epoch, Observation
 from pyrx.orbits import OMEGA_E, satellite_state
-from pyrx.pvt import LAMBDA_L1, solve, solve_epoch
+from pyrx.pvt import LAMBDA_L1, _variance, solve, solve_epoch
 
 USUD = np.array([-3855263.0361, 3427432.5571, 3741020.2929])
 TOW = 28800.0
@@ -147,3 +147,11 @@ def test_solve_skips_unsolvable_epochs():
     few = Epoch(good.week, good.tow + 1.0, good.obs[:3])
     sols = solve([good, few, good], ephs)
     assert [s.tow for s in sols] == [TOW, TOW]
+
+
+def test_variance_clamps_the_elevation_at_five_degrees():
+    # with a negative mask a satellite at the horizon must not give a zero or negative variance
+    clamped = _variance(0, np.radians(5.0), 0.0)
+    assert np.isfinite(clamped) and clamped > 0
+    assert _variance(0, 0.0, 0.0) == clamped and _variance(0, -0.001, 0.0) == clamped
+    assert _variance(0, np.radians(15.0), 0.0) < clamped
