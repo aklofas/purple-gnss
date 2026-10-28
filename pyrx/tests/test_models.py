@@ -1,10 +1,21 @@
-from math import pi
+from math import pi, radians, sin
 
 import numpy as np
 import pytest
 
 from pyrx.lnav import Ionosphere
-from pyrx.models import azimuth_elevation, geodetic, geometric_range, klobuchar, saastamoinen
+from pyrx.models import (
+    Station,
+    azimuth_elevation,
+    geodetic,
+    geometric_range,
+    klobuchar,
+    marker_from_arp,
+    nmf_dry,
+    saastamoinen,
+    station_arp,
+    zenith_hydrostatic,
+)
 from pyrx.observables import C_LIGHT
 from pyrx.orbits import OMEGA_E
 
@@ -62,3 +73,27 @@ def test_saastamoinen_zenith_and_mapping():
     assert saastamoinen(pi / 4, 0.0, pi / 6) == pytest.approx(2 * zenith, rel=1e-12)
     assert saastamoinen(pi / 4, 1500.0, pi / 2) < dry
     assert saastamoinen(pi / 4, 20000.0, pi / 2) == 0.0 and saastamoinen(pi / 4, 0.0, 0.0) == 0.0
+
+
+def test_station_arp_and_back():
+    st = Station(USUD, np.array([0.0, 0.0, 1.053]))
+    arp = station_arp(st)
+    assert np.linalg.norm(arp - USUD) == pytest.approx(1.053, abs=1e-6)
+    assert np.linalg.norm(arp) > np.linalg.norm(USUD)  # up
+    np.testing.assert_allclose(marker_from_arp(arp, st.delta_enu), USUD, atol=1e-6)
+
+
+def test_zenith_hydrostatic_matches_saastamoinen_dry():
+    dry = saastamoinen(pi / 4, 0.0, pi / 2, humidity=0.0)
+    assert zenith_hydrostatic(pi / 4, 0.0) == pytest.approx(dry, rel=1e-12)
+    assert zenith_hydrostatic(pi / 4, 1500.0) < zenith_hydrostatic(pi / 4, 0.0)
+
+
+def test_nmf_dry_at_zenith_and_low_elevation():
+    assert nmf_dry(pi / 4, 0.0, pi / 2, 360) == pytest.approx(1.0, abs=1e-9)
+    m15 = nmf_dry(pi / 4, 0.0, radians(15.0), 360)
+    assert 3.80 < m15 < 3.87 and m15 < 1 / sin(radians(15.0))  # Niell at 15 deg is below 1/sin el
+    assert nmf_dry(pi / 4, 1500.0, radians(15.0), 360) > m15  # the height term is positive
+    south = nmf_dry(-pi / 4, 0.0, radians(15.0), 360)
+    assert south == pytest.approx(nmf_dry(pi / 4, 0.0, radians(15.0), 360 - 183), abs=2e-3)
+    assert nmf_dry(pi / 4, 0.0, 0.0, 360) == 0.0
