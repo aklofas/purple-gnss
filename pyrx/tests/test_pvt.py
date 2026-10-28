@@ -173,9 +173,14 @@ def test_solve_skips_unsolvable_epochs():
     assert [s.tow for s in sols] == [TOW, TOW]
 
 
-def test_variance_clamps_the_elevation_at_five_degrees():
-    # with a negative mask a satellite at the horizon must not give a zero or negative variance
-    clamped = _variance(0, np.radians(5.0), 0.0)
-    assert np.isfinite(clamped) and clamped > 0
-    assert _variance(0, 0.0, 0.0) == clamped and _variance(0, -0.001, 0.0) == clamped
-    assert _variance(0, np.radians(15.0), 0.0) < clamped
+def test_variance_floors_only_the_weight_term_at_five_degrees():
+    # RTKLIB floors the elevation of its a priori error at 5 degrees but takes the
+    # troposphere term at the raw elevation; below the mask both stay finite and positive
+    def expected(el):
+        s = np.sin(max(el, np.radians(5.0)))
+        return 0.3**2 * (1 + 1 / s) + 2.4**2 + 0.3**2 + (0.3 / (np.sin(el) + 0.1)) ** 2
+
+    for el in (np.radians(2.0), 0.0, -0.001, np.radians(15.0)):
+        assert _variance(0, el, 0.0) == pytest.approx(expected(el), rel=1e-12)
+    assert _variance(0, np.radians(2.0), 0.0) > _variance(0, np.radians(5.0), 0.0)
+    assert _variance(0, np.radians(15.0), 0.0) < _variance(0, np.radians(5.0), 0.0)

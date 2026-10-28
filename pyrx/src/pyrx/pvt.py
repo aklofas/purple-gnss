@@ -55,13 +55,14 @@ class Solution:
 
 
 def _variance(ura: int, el: float, dion: float) -> float:
+    # the a priori error's elevation is floored (RTKLIB varerr); the troposphere term's is not
     s = sin(max(el, _MIN_EL_WEIGHT))
     return (
         _ERR_CODE**2 * (1.0 + 1.0 / s)
         + URA_BOUNDS[min(ura, 14)] ** 2
         + _ERR_CBIAS**2
         + (_ERR_BRDCI * dion) ** 2
-        + (_ERR_SAAS / (s + 0.1)) ** 2
+        + (_ERR_SAAS / (sin(el) + 0.1)) ** 2
     )
 
 
