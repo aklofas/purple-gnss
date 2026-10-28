@@ -114,6 +114,13 @@ Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so t
 two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
 image per detected PRN.
 
+The search sums whole code periods of a fixed number of samples, so the sample
+rate must hold a whole number of samples per millisecond (every rate used so far
+does) or be high enough that the fraction does not matter; at 16.3676 MHz, a
+common front-end rate, the default 10 ms search spreads the peak by a quarter
+chip and a non-integer rate near 2.5 MHz measured 0.8 chip and 3.7 dB of loss.
+Non-integer rates are not supported.
+
 ## Tracking from the command line
 
 ```sh
@@ -341,7 +348,9 @@ by central differences over 1 ms). For each satellite the record whose `toe` is
 nearest the epoch is used, within 2 h; a satellite with no such record or with a
 health flag set is left out. Times of week are reduced into half a week either way
 before any difference with an ephemeris time, so a file crossing the week boundary
-is handled.
+is handled. Galileo navigation records are read with their calendar epochs taken as
+GPS time, as RTKLIB does; the GST to GPST offset is tens of nanoseconds, far below
+the orbit's time resolution.
 
 The ionosphere is corrected with the Klobuchar model from the navigation file's
 `GPSA`/`GPSB` coefficients; a file without them (the worldwide GPS-only broadcast
@@ -387,7 +396,9 @@ remaining bias to the position solution.
 Observation epochs are the receiver times at which that clock reads a multiple of
 the interval; a channel is sampled there by interpolating between the two code
 starts that bracket the epoch, from its first bit-synced epoch on. Pseudorange is
-the light time between receiver and transmit time; carrier phase is the negated
+the light time between receiver and transmit time, both held as seconds of week in
+double precision, so it sits on a lattice of 17 to 35 mm (the resolution of a
+double near 600 000 s), well under the code noise; carrier phase is the negated
 accumulated Doppler phase (it grows with range) less half a cycle while the Costas
 loop is locked on inverted data, with every channel's carrier NCO referenced to the
 receiver's IF phase at sample 0 so the phases of different channels share one
@@ -432,6 +443,9 @@ page 18 to the ionosphere parameters, all scaled per IS-GPS-200 with semi-circle
 converted to radians. Each subframe is time-tagged with the tracking epoch of its first bit and
 the GPS seconds of week of that bit (the HOW's TOW count refers to the start of
 the following subframe). Almanac pages and the UTC parameters are not decoded.
+The ephemeris is assembled from a channel's latest subframes 1, 2 and 3 when their
+issue of data agree, which assumes a recording of minutes: over hours an issue
+number can be reused for a new data set, and no age bound guards against that.
 
 The reference test decodes the two 30 s recordings and requires the clock and
 orbit fields of every subframe 1, 2 and 3 (and the week number; not the URA, the
