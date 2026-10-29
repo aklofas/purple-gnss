@@ -52,7 +52,7 @@ Mixing with two local oscillator copies 90 degrees apart gives two outputs, call
 
 ## Sampling
 
-The analogue-to-digital converter takes a sample of the IF signal a few million times a second. The sample rate has to be at least twice the signal bandwidth, so around 4 million samples per second for the 2 MHz main lobe of GPS L1 C/A, and 20 million or more for L5 and Galileo E5a, whose codes are ten times faster.
+The analogue-to-digital converter samples the filtered IF signal millions of times a second. With real samples, the rate has to be more than twice the highest frequency left after the filter: the 2 MHz main lobe of GPS L1 C/A centred at a 4 MHz IF reaches 5 MHz, so it needs more than 10 million samples per second. With I/Q sampling at zero IF the same band runs from -1 to +1 MHz, and a little over 2 million complex samples per second, each an I and a Q value, is enough. L5 and Galileo E5a, whose codes are ten times faster, have main lobes about 20 MHz wide and need a little over 20 million complex samples per second, or a correspondingly higher real rate. A carefully chosen pairing of IF and sample rate (band-pass sampling) can go lower, and real filters need some margin on top.
 
 The surprising part is the resolution. One or two bits per sample is enough, and some receivers use one. The signal is 20 dB below the noise, so each sample is almost entirely noise and the signal is only a slight bias in the sign. A 1-bit converter loses about 2 dB of sensitivity relative to a perfect one, and 2 bits lose about half a decibel. Front-end chips use automatic gain control to keep the noise amplitude at the right level for the few quantiser thresholds they have, which is why a GNSS front-end does not have a gain setting in the usual sense.
 
