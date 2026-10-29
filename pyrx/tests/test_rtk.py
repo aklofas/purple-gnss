@@ -453,3 +453,20 @@ def test_float_epoch_has_no_integers():
     assert fix.status == "float"
     assert len(fix.ambiguities) == fix.nb >= 2
     assert all(a.integer is None for a in fix.ambiguities)
+
+
+def test_one_eligible_pair_is_reported_as_a_float_ambiguity():
+    # half-cycle flags keep four of the six satellites out of the search, not out of the
+    # float update: one pair is left, too few for LAMBDA
+    rng = np.random.default_rng(1)
+    ephs = constellation()
+    halves = {(sat, "G1C"): 2 for sat in ("G03", "G04", "G05", "G06")}
+    fix = _rtk(ephs).step(*_pair(rng, ephs, TOW, signals=("G1C",), lli=halves))
+    assert fix is not None and fix.status == "float" and fix.ns == 6
+    assert fix.nb == len(fix.ambiguities) == 1
+    (a,) = fix.ambiguities
+    assert (a.ref, a.sat, a.signal, a.integer) == ("G01", "G02", "G1C", None)
+    truth = (AMB_R[("G01", "G1C")] - AMB_B[("G01", "G1C")]) - (
+        AMB_R[("G02", "G1C")] - AMB_B[("G02", "G1C")]
+    )
+    assert a.std > 0 and abs(a.value - truth) < 3 * a.std
