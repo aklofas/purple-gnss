@@ -1,10 +1,12 @@
+from math import atan, pi
+
 import numpy as np
 import pytest
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import CN0_LOST, track_channels, track_l1ca
+from pyrx.tracking import B_FLL, CN0_LOST, T_FLL_PULLIN, track_channels, track_l1ca
 
 FS = 4e6
 
@@ -187,3 +189,26 @@ def test_discriminators_are_recorded_and_settle():
     updates = np.isfinite(track.code_error)
     assert abs(updates.sum() - n // 10) <= 1
     assert np.nanmean(np.abs(track.code_error[late])) < 0.1 / CA_CHIP_RATE  # a tenth of a chip
+
+
+def test_pull_in_doppler_follows_the_fll_update_exactly():
+    # rebuilt from the recorded prompts in the loop's own order of operations, so that
+    # recording the discriminator cannot reassociate the update even by one ulp; a Doppler
+    # near zero keeps an ulp of the update from being absorbed into the Doppler
+    fs, seed = 2.5e6, 4.0
+    x = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 1.2), 45.0, True)
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, seed, 45.0)
+    fd = seed
+    assert track.doppler[0] == fd
+    for k in range(1, len(track.t)):
+        epoch = k + 1
+        if epoch * CA_PERIOD > T_FLL_PULLIN:
+            break
+        p, q = complex(track.corr[k, 0]), complex(track.corr[k - 1, 0])
+        dot = p.real * q.real + p.imag * q.imag
+        cross = p.real * q.imag - p.imag * q.real
+        if dot != 0.0:
+            b = B_FLL[0] if epoch * CA_PERIOD < T_FLL_PULLIN / 2 else B_FLL[1]
+            fd -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
+        assert track.doppler[k] == fd, k
+    assert k > 990  # the whole pull-in was checked
