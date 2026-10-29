@@ -20,7 +20,7 @@
 
 **Ambiguity resolution.** Finding the integer values of the carrier-phase ambiguities, which turns a float RTK solution into a fixed one. [What a GNSS is](01-what-gnss-is.md), [RTK](09-rtk.md).
 
-**Autocorrelation.** The correlation of a code with shifted copies of itself: the full 1023 at zero shift for a C/A code, and small at every other shift. [The signal](02-the-signal.md).
+**Autocorrelation.** The correlation of a code with shifted copies of itself: for a C/A code summed over one period, the full 1023 at zero shift and small at every other whole-chip shift. Between whole-chip shifts near alignment it falls off linearly, the triangular peak tracking uses. [The signal](02-the-signal.md).
 
 **Band-pass filter.** A filter that passes one band and rejects the rest; after the LNA it keeps the GNSS band and rejects strong signals such as mobile phones. [From antenna to samples](03-antenna-to-samples.md).
 
@@ -50,9 +50,11 @@
 
 **Chip.** One element of the spreading code. A C/A chip is 293 m long at the speed of light. [The signal](02-the-signal.md).
 
-**Chi-square test.** A check of a fit's residuals: the sum of the squared residuals, each divided by its expected error, is compared with a threshold from the chi-square distribution for the number of measurements beyond the unknowns. A sum too large means a measurement is bad. [A standalone fix](08-standalone-fix.md).
+**Chi-square test.** A check of a fit's residuals: the sum of the squared residuals, each first divided by its expected standard deviation, is compared with a threshold from the chi-square distribution for the number of measurements beyond the unknowns. A sum too large means a measurement is bad. [A standalone fix](08-standalone-fix.md).
 
 **Choke ring.** A ground plane of concentric rings around a survey antenna that suppresses multipath, especially signals arriving from below the horizon. [From antenna to samples](03-antenna-to-samples.md).
+
+**Circular correlation.** Correlation against every shift of a repeating code, where a shift wraps around from the end of the period to its start; FFTs compute it for all shifts at once. [Finding a satellite](04-acquisition.md).
 
 **Circular polarization.** The polarization GNSS satellites transmit, right-hand (RHCP); a reflection off the ground at steep angles largely reverses it to left-hand (LHCP), which the antenna rejects. [From antenna to samples](03-antenna-to-samples.md).
 
@@ -63,6 +65,8 @@
 **Coherent integration.** Summing correlator products with their signs and phases intact, so that the signal adds up in amplitude while noise adds up only in power; limited by data-bit flips, the frequency error and the oscillator. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md), [Staying locked](05-tracking.md).
 
 **Cold, warm and hot start.** A receiver start with no prior knowledge, which searches the whole acquisition grid; one with a rough position, the time and an almanac, which searches only where satellites are predicted; and one that also kept recent ephemerides and so skips the wait for them. [Finding a satellite](04-acquisition.md).
+
+**Convolution theorem.** The rule that a convolution in time is a multiplication of Fourier transforms; for a correlation one of the transforms is taken as its complex conjugate. It is why acquisition can correlate by FFT. [Finding a satellite](04-acquisition.md).
 
 **Correlation.** Multiplying received samples by a replica code and summing. The operation that lifts the signal out of the noise and measures its timing. [The signal](02-the-signal.md).
 
@@ -76,9 +80,11 @@
 
 **Cycle slip.** A jump in the accumulated carrier phase by a whole number of cycles, or by half a cycle in a Costas loop, when tracking loses count; it changes the ambiguity. [Staying locked](05-tracking.md), [The measurements](07-measurements.md), [RTK](09-rtk.md).
 
+**Cyclic redundancy check.** CRC, check bits computed over a block of a modern navigation message so that the receiver can detect a corrupted block. [Reading the message](06-navigation-message.md).
+
 **Data channel, pilot channel.** The two components of a modern signal: one carries the message; the other carries no data, so once its known secondary code is removed it can be integrated coherently far longer, until the oscillator and the receiver's motion limit it. [The signal](02-the-signal.md).
 
-**Decibel, dBm, dB-Hz.** A power ratio on a log scale (10 dB is ten times, 3 dB about double); dBm is a power relative to one milliwatt, and dB-Hz the unit of C/N0. [From antenna to samples](03-antenna-to-samples.md).
+**Decibel, dBm, dBW, dB-Hz.** A power ratio on a log scale (10 dB is ten times, 3 dB about double); dBm is a power relative to one milliwatt, dBW one relative to one watt (30 less than the same power in dBm), and dB-Hz the unit of C/N0. [From antenna to samples](03-antenna-to-samples.md).
 
 **Design matrix.** In a least-squares fit, the matrix with one row per measurement and one column per unknown, holding how each predicted measurement changes with each unknown. For a fix, each row is minus the unit vector to a satellite and a 1 for the clock. It is the Jacobian of the measurement model. [A standalone fix](08-standalone-fix.md), [RTK](09-rtk.md).
 
@@ -108,6 +114,8 @@
 
 **Elevation mask.** The angle above the horizon below which satellites are ignored, typically 10 to 15 degrees. [A standalone fix](08-standalone-fix.md).
 
+**Ellipsoidal height.** Height above the reference ellipsoid, the smooth model of the Earth's shape that latitude and longitude are defined on; it differs from height above mean sea level. [A standalone fix](08-standalone-fix.md).
+
 **Ephemeris.** The broadcast parameters describing one satellite's orbit, good to a meter or two for a few hours. [Reading the message](06-navigation-message.md), [A standalone fix](08-standalone-fix.md).
 
 **Epoch.** One measurement instant, at which the receiver forms observables for every satellite it tracks. [The measurements](07-measurements.md).
@@ -116,15 +124,25 @@
 
 **False alarm.** An acquisition detection that is only noise; the detection threshold trades false alarms against missed weak satellites. [Finding a satellite](04-acquisition.md).
 
+**FFT.** Fast Fourier transform, an efficient algorithm that turns a block of samples into its frequency components and back. [Finding a satellite](04-acquisition.md).
+
 **Fixed, float.** An RTK solution with the ambiguities resolved to integers, and one with them still real-valued. [RTK](09-rtk.md).
 
 **FLL.** Frequency-locked loop, used to pull the carrier frequency in before the PLL can lock. [Staying locked](05-tracking.md).
 
+**Forward error correction.** FEC, redundancy added to a message so that the receiver can correct some bit errors itself, without a retransmission. Modern signals use it where LNAV uses parity. [Reading the message](06-navigation-message.md).
+
+**FPGA.** Field-programmable gate array, a chip of programmable digital logic; in a hardware receiver it mostly holds correlators, many running in parallel. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md).
+
 **Frame synchronization.** Finding the subframe boundaries in the bit stream, from the preamble, the parity and the 300-bit spacing between preambles; it also settles the sign the Costas loop leaves open. [Reading the message](06-navigation-message.md).
 
-**Friis formula.** The noise figure of a chain of stages, $F_1 + (F_2 - 1)/G_1$ for two, which shows why the first amplifier's noise figure dominates. [From antenna to samples](03-antenna-to-samples.md).
+**Frequency synthesizer.** The circuit in the front-end chip that derives the mixer's local-oscillator frequency from the reference oscillator. [From antenna to samples](03-antenna-to-samples.md).
+
+**Friis formula.** The noise factor (the noise figure as a linear ratio) of a chain of stages, $F_1 + (F_2 - 1)/G_1$ for two, where $F_1$ and $F_2$ are the stages' noise factors and $G_1$ is the first stage's power gain, also linear. It shows why the first amplifier's noise figure dominates. [From antenna to samples](03-antenna-to-samples.md).
 
 **Front-end.** The analog radio chain from the antenna to the analog-to-digital converter. [From antenna to samples](03-antenna-to-samples.md).
+
+**Gauss-Newton method.** Solving a nonlinear least-squares problem by repeated linearization: linearize the model around the current guess, solve for a correction, apply it and repeat. How a fix is computed. [A standalone fix](08-standalone-fix.md).
 
 **Geometry-free combination.** The difference of one satellite's carrier phases on two frequencies, in meters. Range, clocks and troposphere cancel, leaving the ionosphere and the ambiguities, so a sudden jump marks a cycle slip. [RTK](09-rtk.md).
 
@@ -135,6 +153,8 @@
 **GPS time.** A continuous count of weeks and seconds since 6 January 1980, with no leap seconds. [Reading the message](06-navigation-message.md).
 
 **Group delay.** The broadcast term, TGD, that accounts for the different paths of L1 and L2 inside the satellite; a single-frequency receiver applies it to the satellite clock. [Reading the message](06-navigation-message.md), [A standalone fix](08-standalone-fix.md).
+
+**Hamming code.** A family of error-detecting and error-correcting codes; the LNAV parity is a (32,26) Hamming code, which the receiver uses to detect bad words. [Reading the message](06-navigation-message.md).
 
 **Handover word, telemetry word.** The first two words of every LNAV subframe: the telemetry word starts with the preamble, the handover word with the 17-bit time-of-week count. [Reading the message](06-navigation-message.md).
 
@@ -148,6 +168,8 @@
 
 **IODE.** Issue of data, ephemeris: the number that identifies one set of broadcast ephemeris parameters. [Reading the message](06-navigation-message.md).
 
+**Ionosphere-free combination.** A frequency-weighted combination of one satellite's measurements on two frequencies that cancels almost all of the ionospheric delay, which scales with one over the frequency squared, at the cost of about three times the noise and multipath. [A standalone fix](08-standalone-fix.md), [RTK](09-rtk.md).
+
 **Ionosphere, troposphere.** The two layers of atmosphere that delay the signal: the upper, charged one by a frequency-dependent amount, and the lower, neutral one by the same amount at every frequency. [A standalone fix](08-standalone-fix.md).
 
 **I/Q.** In-phase and quadrature, the two components of a complex sample, and of a correlator output. [From antenna to samples](03-antenna-to-samples.md), [Staying locked](05-tracking.md).
@@ -158,13 +180,15 @@
 
 **Kepler elements.** The six numbers that describe an ideal elliptical orbit: semi-major axis, eccentricity, inclination, longitude of the ascending node, argument of perigee and mean anomaly. The core of the ephemeris. [Reading the message](06-navigation-message.md).
 
-**Kepler's equation.** $M = E - e\sin E$, linking the mean anomaly $M$, which grows steadily with time, to the eccentric anomaly $E$, which locates the satellite on its ellipse; it is solved by iteration. [Reading the message](06-navigation-message.md).
+**Kepler's equation.** $M = E - e\sin E$ for orbit eccentricity $e$, linking the mean anomaly $M$, which grows steadily with time, to the eccentric anomaly $E$, which locates the satellite on its ellipse; it is solved by iteration. [Reading the message](06-navigation-message.md).
 
 **Klobuchar.** The simple ionosphere model whose eight parameters are broadcast in the GPS message. [A standalone fix](08-standalone-fix.md).
 
 **LAMBDA.** The least-squares ambiguity decorrelation adjustment, the standard method for finding the integer ambiguities closest to a float solution: an integer change of coordinates decorrelates the ambiguities, then a search finds the best and second-best candidates. [RTK](09-rtk.md).
 
-**Least squares.** Fitting unknowns to more measurements than unknowns by minimizing the sum of squared mismatches, in weighted least squares each divided by its expected error. A nonlinear problem such as a fix is linearized around a guess and solved repeatedly. [What a GNSS is](01-what-gnss-is.md), [A standalone fix](08-standalone-fix.md).
+**Least squares.** Fitting unknowns to more measurements than unknowns by minimizing the sum of squared mismatches; weighted least squares divides each mismatch by its expected standard deviation before squaring. A nonlinear problem such as a fix is linearized around a guess and solved repeatedly. [What a GNSS is](01-what-gnss-is.md), [A standalone fix](08-standalone-fix.md).
+
+**Linearization.** Replacing a nonlinear model by its straight-line (first-order) approximation around a guess, so that a linear problem can be solved for a correction. [A standalone fix](08-standalone-fix.md).
 
 **LNA.** Low-noise amplifier, the first amplifier after the antenna element, usually inside an active antenna; it sets the noise performance of the whole chain. [From antenna to samples](03-antenna-to-samples.md).
 
@@ -194,13 +218,17 @@
 
 **NCO.** Numerically controlled oscillator, the digital oscillator that generates a tracking loop's replica: it adds a step proportional to the commanded frequency to its phase at every sample. [Staying locked](05-tracking.md).
 
+**Niell mapping function.** A mapping function that stretches a zenith troposphere delay to a satellite's elevation more accurately than $1/\sin\varepsilon$ at low elevation; this project's RTK engine uses it. [A standalone fix](08-standalone-fix.md).
+
 **Noise figure.** How much noise an amplifier adds, in dB: a noise figure of 1 dB adds 26 percent to the noise. [From antenna to samples](03-antenna-to-samples.md).
 
 **Non-coherent integration.** Adding the powers or magnitudes of several correlations, which averages noise down without needing the carrier phase or the data bits to stay constant, at a smaller gain per millisecond than coherent integration. [Finding a satellite](04-acquisition.md), [Staying locked](05-tracking.md).
 
+**Normal equations.** The linear equations whose solution is the least-squares estimate, $(H^\mathsf{T} W H)\delta\mathbf{q} = H^\mathsf{T} W \mathbf{v}$ for the design matrix $H$, the diagonal matrix $W$ of weights $1/\sigma^2$ and the residuals $\mathbf{v}$. [A standalone fix](08-standalone-fix.md).
+
 **NTRIP.** The internet protocol for streaming RTCM corrections from a base station. [RTK](09-rtk.md).
 
-**Nyquist criterion.** The rule that the sample rate must be more than twice the highest frequency present, or aliasing occurs. [From antenna to samples](03-antenna-to-samples.md).
+**Nyquist criterion.** For real low-pass sampling, the rule that the sample rate must be more than twice the highest frequency left after the filter, or aliasing occurs. Band-pass sampling can use a lower rate when the folded copies of the band do not overlap; real filters need some margin. [From antenna to samples](03-antenna-to-samples.md).
 
 **Observable.** A measurement a receiver reports: pseudorange, carrier phase, Doppler, C/N0. [The measurements](07-measurements.md).
 
@@ -224,6 +252,8 @@
 
 **Processing gain.** The improvement in signal-to-noise ratio that correlation gives, a factor equal to the number of chips summed: 1023, about 30 dB, for one C/A code period, measured in a band as wide as the chip rate (about 33 dB in the full 2 MHz band). [The signal](02-the-signal.md).
 
+**Process noise.** The uncertainty a Kalman filter adds to its covariance at each prediction for changes its model cannot foresee: a little for ambiguities, which should stay constant, and a lot for a moving rover's position. [RTK](09-rtk.md).
+
 **Pseudorange.** The travel time of the signal times the speed of light, including the receiver's unknown clock error. The basic measurement. [What a GNSS is](01-what-gnss-is.md), [The measurements](07-measurements.md), [A standalone fix](08-standalone-fix.md).
 
 **PVT.** Position, velocity and time, the output of a standalone solution. [A standalone fix](08-standalone-fix.md).
@@ -233,6 +263,8 @@
 **RAIM.** Receiver autonomous integrity monitoring: a receiver checking its own fix for consistency, from the residuals, and dropping a measurement that does not fit. [A standalone fix](08-standalone-fix.md).
 
 **Ratio test.** The check that the best integer ambiguity candidate fits the data much better than the second best, by the ratio of their squared distances, usually against a threshold of 3, before a fix is accepted. [RTK](09-rtk.md).
+
+**Reference oscillator.** The one crystal oscillator, usually a TCXO, from which both the local oscillator and the sample clock are derived, so that everything the receiver measures is measured against it. [From antenna to samples](03-antenna-to-samples.md).
 
 **Relativistic correction.** The periodic satellite clock term, tens of nanoseconds, from the orbit's slight eccentricity, computed from the ephemeris; the steady relativistic offset is built into the satellite clocks. [Reading the message](06-navigation-message.md), [A standalone fix](08-standalone-fix.md).
 
@@ -276,7 +308,9 @@
 
 **Week number.** The GPS week count; in LNAV it is 10 bits and rolls over every 1024 weeks, about 19.6 years. [Reading the message](06-navigation-message.md).
 
-**Wide lane.** The difference of two frequencies' carrier phases, which behaves like a signal with a longer wavelength and so an easier integer. [RTK](09-rtk.md).
+**Wide lane.** The difference of one satellite's carrier phases on two frequencies, both in cycles. It behaves like a phase with wavelength $c/(f_1 - f_2)$ for carrier frequencies $f_1 > f_2$ and speed of light $c$, 75 cm for L1 and L5, and its integer, the difference of the two, is easier to find. [RTK](09-rtk.md).
+
+**Zenith.** The direction straight overhead, at 90 degrees elevation; atmospheric delays are modeled there and mapped down to each satellite's elevation. [A standalone fix](08-standalone-fix.md).
 
 ## Further reading
 
