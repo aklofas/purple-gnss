@@ -72,10 +72,10 @@ with $\sqrt{A}$ the broadcast square root of the semi-major axis and $E$ the ecc
 The 17-bit count in the second word of every subframe gives the time of week on the satellite's own clock, in units of 6 seconds, at which the next subframe begins. This is the number that turns tracking into ranging. With $z$ that count, the subframe that carries it began at
 
 $$
-t_{\rm start} = 6z - 6 \quad \text{seconds of the week}.
+t_{\rm start} = (6z - 6) \bmod 604800 \quad \text{seconds of the week}.
 $$
 
-A count of 5046, for example, says the next subframe starts at 30,276 s into the week, so this one started at 30,270 s.
+A count of 5046, for example, says the next subframe starts at 30,276 s into the week, so this one started at 30,270 s. The modulo keeps the result inside the week: the last subframe of a week carries $z = 0$, and it started at 604,794 s, six seconds before the next week begins.
 
 From the tracking loop the receiver knows, to a fraction of a chip, where the code period boundaries fall in its sample stream. From bit synchronization it knows which code period is the first of a bit, and from frame synchronization it knows which bit is the first of a subframe. Chaining these together, if code period $k_0$ is the first of the subframe and each period lasts $T_{\rm code}$ = 1 ms, code period $k$ was sent at
 
@@ -95,6 +95,6 @@ Galileo's message adds a few things of its own, notably the free corrections of 
 
 ---
 
-**In pyrx:** `bitsync.py` finds the bit edge and the frame in the tracker's output, `lnav.py` holds the word layout, the parity check and the ephemeris assembly, `navdecode.py` runs them on a tracked channel, and `ephemeris.py` holds the resulting records. `pyrx-nav` runs the chain on a recording and prints what it decoded. A test decodes every tracked satellite of two recordings and compares the result with the day's published broadcast ephemeris: every satellite yields the expected subframes with time-of-week tags that agree, each decoded field matches the published value to within half of its least significant bit, and the ionosphere parameters match too when the recording holds them. Section 4 of the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) decodes the message from a real recording, and section 2 of the [standalone-positioning notebook](../../pyrx/notebooks/02-standalone-pvt.ipynb) turns ephemerides into satellite positions.
+**In pyrx:** `bitsync.py` finds the bit edge and the frame in the tracker's output, `lnav.py` holds the word layout, the parity check and the ephemeris assembly, `navdecode.py` runs them on a tracked channel, and `ephemeris.py` holds the resulting records. `pyrx-nav` runs the chain on a recording and prints what it decoded. A test decodes every tracked satellite of two recordings and compares the result with the day's published broadcast ephemeris: every satellite yields the expected subframes with time-of-week tags that agree, the orbit and clock fields it compares match the published values to within half of their least significant bit, and the week number matches exactly. Neither recording contains the ionosphere page, so synthetic tests and a worked example from the interface specification check those parameters instead. Section 4 of the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) decodes the message from a real recording, and section 2 of the [standalone-positioning notebook](../../pyrx/notebooks/02-standalone-pvt.ipynb) turns ephemerides into satellite positions.
 
 Next: [The measurements](07-measurements.md).
