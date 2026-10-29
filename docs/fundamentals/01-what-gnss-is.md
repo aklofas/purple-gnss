@@ -71,6 +71,6 @@ Subtracting a nearby reference receiver's errors brings a fix down to under a me
 
 ---
 
-**In pyrx:** `gpstime.py` holds the time scales (GPS week and time of week, the GPS epoch), and `orbits.py` computes satellite positions from broadcast orbits. The whole chain from recorded samples to an RTK fix is described in [`pyrx/README.md`](../../pyrx/README.md).
+**In pyrx:** `gpstime.py` holds the time scales (GPS week and time of week, the GPS epoch), and `orbits.py` computes satellite positions from broadcast orbits. The whole chain from recorded samples to an RTK fix is described in [`pyrx/README.md`](../../pyrx/README.md). Three notebooks run the whole chain on real data: the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) from samples to measurements, the [standalone-positioning notebook](../../pyrx/notebooks/02-standalone-pvt.ipynb) from measurements to a position, and the [RTK notebook](../../pyrx/notebooks/03-rtk.ipynb) from a base and a rover to a centimeter-level fix.
 
 Next: [The signal](02-the-signal.md).
