@@ -20,7 +20,7 @@ Everything on this page is about evaluating that equation honestly.
 
 ## Where was the satellite
 
-The satellite position is needed at the instant the signal left it, which is the transmit time from the previous page, about 70 ms before reception. The ephemeris formulas give it in the Earth-centred, Earth-fixed frame. One subtlety: the Earth turned during those 70 ms, by about 30 m at the equator, and the frame turned with it, so the satellite's position has to be rotated back by that amount to put it in the frame of the receiver at reception time. Forgetting it moves the fix by tens of metres.
+The satellite position is needed at the instant the signal left it, which is the transmit time from the previous page, about 70 ms before reception. The ephemeris formulas give it in the Earth-centred, Earth-fixed frame. One subtlety: the Earth turned during those 70 ms, by about 5 microradians (some 30 m at the equator), and the frame turned with it, so the satellite's position has to be rotated back by that angle to put it in the frame of the receiver at reception time. At the satellite's distance that moves its coordinates by up to about 135 m, and forgetting it moves the fix by tens of metres.
 
 The satellite clock correction is evaluated at the same time, with the relativistic eccentricity term, and the group delay for the signal in use.
 
