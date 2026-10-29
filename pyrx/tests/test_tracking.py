@@ -6,7 +6,14 @@ import pytest
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import B_FLL, CN0_LOST, T_FLL_PULLIN, track_channels, track_l1ca
+from pyrx.tracking import (
+    B_FLL,
+    CN0_LOST,
+    T_DLL,
+    T_FLL_PULLIN,
+    track_channels,
+    track_l1ca,
+)
 
 FS = 4e6
 
@@ -72,6 +79,8 @@ def test_track_declares_loss():
     assert not r.locked and r.lost_at is not None and r.lost_at <= 3.5
     assert r.cn0[-1] < CN0_LOST
     assert len(r.t) < 4000
+    assert r.carrier_error.shape == r.code_error.shape == r.t.shape  # the losing epoch kept
+    assert np.isfinite(r.carrier_error[-1])
 
 
 def test_track_stops_at_end_of_data():
@@ -79,6 +88,8 @@ def test_track_stops_at_end_of_data():
     assert 495 <= len(r.t) <= 500 and r.locked
     r2 = track_l1ca(_src(seconds=0.5), 0.0, 7, 1000 / FS, 1234.0, 45.0, duration=0.2)
     assert 195 <= len(r2.t) <= 200
+    for x in (r, r2):
+        assert x.carrier_error.shape == x.code_error.shape == x.t.shape
 
 
 def test_track_cn0_held_between_updates():
@@ -182,12 +193,29 @@ def test_discriminators_are_recorded_and_settle():
     x = synth_l1ca(4, fs, 0.0, doppler, offset, int(fs * 3.0), 45.0, True)
     track = track_l1ca(ArraySamples(x, fs), 0.0, 4, offset / fs, doppler, 45.0)
     n = len(track.doppler)
+    assert track.locked
     assert track.carrier_error.shape == track.code_error.shape == (n,)
     assert np.isnan(track.carrier_error[0])
+    # each recorded value is the discriminator of the recorded correlator sums
+    p = track.corr[:, 0].astype(np.complex128)
+    fll = np.arange(1, n)[(np.arange(2, n + 1) * CA_PERIOD) <= T_FLL_PULLIN]
+    dot = (p[fll] * p[fll - 1].conj()).real
+    cross = (p[fll - 1] * p[fll].conj()).imag
+    np.testing.assert_allclose(track.carrier_error[fll], np.arctan(cross / dot) / (2 * np.pi))
+    pll = np.arange(fll[-1] + 1, n)
+    np.testing.assert_allclose(
+        track.carrier_error[pll], np.arctan(p[pll].imag / p[pll].real) / (2 * np.pi)
+    )
+    n_dll = round(T_DLL / CA_PERIOD)
+    updates = np.arange(n_dll - 1, n, n_dll)
+    np.testing.assert_array_equal(np.flatnonzero(np.isfinite(track.code_error)), updates)
+    mag = np.abs(track.corr[: len(updates) * n_dll].astype(np.complex128))
+    e, lt = mag.reshape(len(updates), n_dll, 4).sum(axis=1)[:, 1:3].T
+    np.testing.assert_allclose(
+        track.code_error[updates], (e - lt) / (e + lt) / 2.0 * CA_PERIOD / 1023
+    )
     late = track.t > track.t[0] + 2.0
     assert np.nanmean(np.abs(track.carrier_error[late])) < 0.02  # cycles
-    updates = np.isfinite(track.code_error)
-    assert abs(updates.sum() - n // 10) <= 1
     assert np.nanmean(np.abs(track.code_error[late])) < 0.1 / CA_CHIP_RATE  # a tenth of a chip
 
 

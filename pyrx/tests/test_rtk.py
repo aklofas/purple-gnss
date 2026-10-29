@@ -409,13 +409,19 @@ def test_ratio_is_reported_as_zero_when_the_best_candidate_has_no_residual(monke
     import pyrx.rtk as rtk_module
 
     original = rtk_module.lambda_fix
-    monkeypatch.setattr(
-        rtk_module, "lambda_fix", lambda y, Q, m: (original(y, Q, m)[0], [0.0, 1.0])
-    )
     rng = np.random.default_rng(27)
     ephs = constellation()
+    best = []
+
+    def zero_norm(y, Q, m):
+        cands = original(y, Q, m)[0]
+        best.append(cands[0])
+        return cands, [0.0, 1.0]
+
+    monkeypatch.setattr(rtk_module, "lambda_fix", zero_norm)
     fix = _rtk(ephs).step(*_pair(rng, ephs, TOW))
     assert fix.status == "fix" and fix.ratio == 0.0
+    assert [a.integer for a in fix.ambiguities] == [round(v) for v in best[0]]
 
 
 def test_zero_innovation_limit_means_no_limit():
@@ -423,6 +429,13 @@ def test_zero_innovation_limit_means_no_limit():
     ephs = constellation()
     fix = _rtk(ephs, max_innovation=0.0).step(*_pair(rng, ephs, TOW))
     assert fix is not None and fix.nb == 10
+
+
+def _truth(a):
+    """The double-differenced integer ambiguity of a record: reference minus satellite."""
+    return (AMB_R[(a.ref, a.signal)] - AMB_B[(a.ref, a.signal)]) - (
+        AMB_R[(a.sat, a.signal)] - AMB_B[(a.sat, a.signal)]
+    )
 
 
 def test_fix_reports_the_float_state_and_the_ambiguities():
@@ -440,6 +453,7 @@ def test_fix_reports_the_float_state_and_the_ambiguities():
     for a in fix.ambiguities:
         assert a.ref != a.sat and a.signal in SIGNALS and a.std > 0
         assert a.integer is not None and abs(a.value - a.integer) < min(0.5, 3 * a.std)
+        assert a.integer == _truth(a)  # the labels, the sign and the integer itself
     assert max(abs(a.value - a.integer) for a in fix.ambiguities) < max(
         abs(a.value - a.integer) for a in fixes[0].ambiguities
     )
@@ -453,6 +467,12 @@ def test_float_epoch_has_no_integers():
     assert fix.status == "float"
     assert len(fix.ambiguities) == fix.nb >= 2
     assert all(a.integer is None for a in fix.ambiguities)
+    np.testing.assert_array_equal(fix.position, fix.float_position)
+    np.testing.assert_array_equal(fix.position_std, np.sqrt(np.diag(rtk.P[:3, :3])))
+    kept = fix.position.copy(), fix.float_position.copy(), fix.position_std.copy()
+    rtk.step(*_pair(rng, ephs, TOW + 30.0))  # the next epoch resets the state in place
+    for a, b in zip(kept, (fix.position, fix.float_position, fix.position_std)):
+        np.testing.assert_array_equal(a, b)
 
 
 def test_one_eligible_pair_is_reported_as_a_float_ambiguity():
@@ -466,7 +486,4 @@ def test_one_eligible_pair_is_reported_as_a_float_ambiguity():
     assert fix.nb == len(fix.ambiguities) == 1
     (a,) = fix.ambiguities
     assert (a.ref, a.sat, a.signal, a.integer) == ("G01", "G02", "G1C", None)
-    truth = (AMB_R[("G01", "G1C")] - AMB_B[("G01", "G1C")]) - (
-        AMB_R[("G02", "G1C")] - AMB_B[("G02", "G1C")]
-    )
-    assert a.std > 0 and abs(a.value - truth) < 3 * a.std
+    assert a.std > 0 and abs(a.value - _truth(a)) < 3 * a.std
