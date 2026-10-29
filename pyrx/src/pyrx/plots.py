@@ -10,7 +10,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from pyrx.acquisition import AcqResult
-from pyrx.tracking import TrackResult
+from pyrx.codes import CA_CHIP_RATE
+from pyrx.tracking import T_FLL_PULLIN, TrackResult
 
 INK = "#243041"  # text and ticks
 MUTED = "#637285"  # secondary text, spines, reference lines
@@ -85,35 +86,90 @@ PLOT_STYLE = {
 }
 
 
+def acquisition_figure(result: AcqResult, fs: float) -> Figure:
+    """The L1 C/A search: the strongest Doppler bin at every code offset, the samples
+    within 3 chips of the peak, and the code and Doppler cuts through it."""
+    with rc_context(PLOT_STYLE):
+        grid = result.grid
+        n = grid.shape[1]
+        row, col = np.unravel_index(np.argmax(grid), grid.shape)
+        dopplers = result.dopplers
+        step = dopplers[1] - dopplers[0] if len(dopplers) > 1 else 500.0
+        doppler_edges = np.r_[dopplers - step / 2, dopplers[-1] + step / 2] / 1e3
+        samples_per_chip = fs / CA_CHIP_RATE
+        radius = int(np.ceil(3 * samples_per_chip))
+        offsets = np.arange(-radius, radius + 1)
+        columns = (col + offsets) % n  # wraps around the code period
+        chip_edges = np.r_[offsets - 0.5, offsets[-1] + 0.5] / samples_per_chip
+        floor = 10 ** (-25 / 10)
+
+        fig = Figure(figsize=(10, 7), constrained_layout=True)
+        FigureCanvasAgg(fig)
+        ax_all, ax_zoom, ax_code, ax_dop = fig.subplots(2, 2).flat
+
+        ax_all.plot(
+            np.arange(n) / fs * 1e3,
+            10 * np.log10(np.maximum(grid.max(axis=0), floor)),
+            color=LINES[0],
+            linewidth=0.6,
+        )
+        ax_all.set(ylim=(-25, 1), xlabel="code offset (ms)", ylabel="best Doppler bin (dB)")
+        ax_all.set_title("Best Doppler bin per code offset")
+        ax_all.text(
+            0.02,
+            0.97,
+            f"sampled peak: {result.code_offset * 1e3:.4f} ms",
+            transform=ax_all.transAxes,
+            va="top",
+            fontsize=10,
+        )
+
+        mesh = ax_zoom.pcolormesh(
+            chip_edges,
+            doppler_edges,
+            10 * np.log10(np.maximum(grid[:, columns], floor)),
+            cmap="cividis",
+            vmin=-25,
+            vmax=0,
+            shading="flat",
+        )
+        ax_zoom.grid(False)
+        ax_zoom.set(xlim=(-3, 3), xlabel="offset from sampled peak (chips)", ylabel="Doppler (kHz)")
+        ax_zoom.set_title("Around the peak, ±3 chips")
+        fig.colorbar(
+            mesh, ax=ax_zoom, label="power relative to peak (dB)", ticks=[-25, -20, -10, 0]
+        )
+
+        ax_code.plot(offsets / samples_per_chip, grid[row, columns], ".-", color=LINES[0])
+        ax_code.set(
+            xlim=(-3, 3),
+            ylim=(0, 1.05),
+            xlabel="offset from sampled peak (chips)",
+            ylabel="normalised power",
+        )
+        ax_code.set_title(f"Code cut at {dopplers[row]:+.0f} Hz")
+
+        ax_dop.plot(dopplers, grid[:, col], "o-", color=LINES[0], markersize=4)
+        ax_dop.axvline(result.doppler, color=HIGHLIGHT, linestyle="--")
+        ax_dop.set(ylim=(0, 1.05), xlabel="Doppler (Hz)", ylabel="normalised power")
+        ax_dop.set_title("Doppler cut: sampled bins")
+        ax_dop.text(
+            0.98,
+            0.95,
+            f"interpolated {result.doppler:+.0f} Hz",
+            transform=ax_dop.transAxes,
+            ha="right",
+            va="top",
+            fontsize=10,
+        )
+        fig.suptitle(f"G{result.prn:02d}: C/N0 {result.cn0:.1f} dB-Hz")
+        return fig
+
+
 def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> None:
-    """Search grid (code offset x Doppler) and the Doppler cut through the peak."""
-    n = result.grid.shape[1]
-    offsets_ms = np.arange(n) / fs * 1e3
-    fig = Figure(figsize=(8, 7), constrained_layout=True)
-    FigureCanvasAgg(fig)
-    ax_grid, ax_cut = fig.subplots(2, 1, gridspec_kw={"height_ratios": [3, 1]})
-    ax_grid.imshow(
-        result.grid,
-        aspect="auto",
-        origin="lower",
-        cmap="Blues",
-        extent=(offsets_ms[0], offsets_ms[-1], result.dopplers[0], result.dopplers[-1]),
-        interpolation="nearest",
-    )
-    ax_grid.set_xlabel("code offset (ms)")
-    ax_grid.set_ylabel("Doppler (Hz)")
-    ax_grid.set_title(
-        f"PRN {result.prn}: peak at {result.code_offset * 1e3:.5f} ms, "
-        f"{result.doppler:.0f} Hz, C/N0 {result.cn0:.1f} dB-Hz"
-    )
-    col = round(result.code_offset * fs)
-    ax_cut.plot(result.dopplers, result.grid[:, col], color=BAR_DETECTED, linewidth=2)
-    ax_cut.set_xlabel("Doppler (Hz)")
-    ax_cut.set_ylabel("normalised power")
-    ax_cut.grid(color=MUTED, alpha=0.3)
-    for ax in (ax_grid, ax_cut):
-        ax.tick_params(colors=INK)
-    fig.savefig(path, dpi=120)
+    """Write `acquisition_figure` to an image file."""
+    with rc_context(PLOT_STYLE):
+        acquisition_figure(result, fs).savefig(path, dpi=120)
 
 
 def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike) -> None:
@@ -139,32 +195,65 @@ def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike
 
 
 def plot_tracking(result: TrackResult, path: str | os.PathLike) -> None:
-    """Prompt I/Q (first 2 s), Doppler, C/N0 and |E|,|P|,|L| against time."""
-    fig = Figure(figsize=(10, 10), constrained_layout=True)
-    FigureCanvasAgg(fig)
-    ax_iq, ax_dop, ax_cn0, ax_epl = fig.subplots(4, 1, sharex=True)
-    t = result.t
-    head = t <= t[0] + 2.0
-    ax_iq.plot(t[head], result.corr[head, 0].real, color=LINES[0], linewidth=1, label="I")
-    ax_iq.plot(t[head], result.corr[head, 0].imag, color=LINES[1], linewidth=1, label="Q")
-    ax_iq.set_ylabel("prompt (first 2 s)")
-    ax_iq.legend(loc="upper right")
-    ax_dop.plot(t, result.doppler, color=LINES[0], linewidth=1.5)
-    ax_dop.set_ylabel("Doppler (Hz)")
-    ax_cn0.plot(t, result.cn0, color=LINES[0], linewidth=1.5)
-    ax_cn0.set_ylabel("C/N0 (dB-Hz)")
-    mag = np.abs(result.corr)
-    for col, name, color in ((1, "|E|", LINES[1]), (0, "|P|", LINES[0]), (2, "|L|", LINES[2])):
-        ax_epl.plot(t, mag[:, col], color=color, linewidth=0.8, label=name)
-    ax_epl.set_ylabel("correlator magnitude")
-    ax_epl.set_xlabel("time (s)")
-    ax_epl.legend(loc="upper right")
-    state = "locked" if result.locked else f"lost at {result.lost_at:.1f} s"
-    ax_iq.set_title(f"PRN {result.prn}: {state}, final C/N0 {result.cn0[-1]:.1f} dB-Hz")
-    for ax in (ax_iq, ax_dop, ax_cn0, ax_epl):
-        ax.grid(color=MUTED, alpha=0.3)
-        ax.tick_params(colors=INK)
-    fig.savefig(path, dpi=120)
+    """Prompt I/Q over the first 2 s on its own time axis; Doppler change, C/N0 and
+    |E|, |P|, |L| over the whole channel."""
+    with rc_context(PLOT_STYLE):
+        fig = Figure(figsize=(10, 9), constrained_layout=True)
+        FigureCanvasAgg(fig)
+        ax_iq, ax_dop, ax_cn0, ax_epl = fig.subplots(4, 1)
+        ax_cn0.sharex(ax_dop)
+        ax_epl.sharex(ax_dop)
+        t = result.t
+        head = t <= t[0] + 2.0
+        ax_iq.set_xlim(t[0], t[0] + max(min(2.0, t[-1] - t[0]), 0.001))
+        ax_iq.plot(t[head], result.corr[head, 0].real, color=LINES[0], linewidth=0.8, label="I")
+        ax_iq.plot(
+            t[head],
+            result.corr[head, 0].imag,
+            color=LINES[1],
+            linestyle="--",
+            linewidth=0.8,
+            label="Q",
+        )
+        handover = t[0] + T_FLL_PULLIN
+        if handover <= min(t[-1], t[0] + 2.0):
+            ax_iq.axvline(handover, color=MUTED, linestyle=":")
+            ax_iq.text(
+                handover,
+                1.01,
+                "FLL → PLL",
+                transform=ax_iq.get_xaxis_transform(),
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                color=MUTED,
+            )
+        ax_iq.set_xlabel("recording time (s), first 2 s of the channel")
+        ax_iq.set_ylabel("prompt sum")
+        ax_iq.legend(loc="lower left", bbox_to_anchor=(0.0, 1.0), ncol=2)
+
+        initial = result.doppler[0]
+        ax_dop.plot(t, result.doppler - initial, color=LINES[0])
+        ax_dop.axhline(0, color=MUTED, linewidth=0.8)
+        ax_dop.set_ylabel("Doppler change (Hz)")
+        ax_dop.set_title(f"Doppler change from the seed's {initial:+.1f} Hz", loc="right")
+        ax_cn0.step(t, result.cn0, where="post", color=LINES[0])
+        ax_cn0.set_ylabel("C/N0 (dB-Hz)")
+        mag = np.abs(result.corr)
+        for col, name, color, style in (
+            (1, "|E|", LINES[1], "--"),
+            (0, "|P|", LINES[0], "-"),
+            (2, "|L|", LINES[2], "-."),
+        ):
+            ax_epl.plot(t, mag[:, col], color=color, linestyle=style, linewidth=0.8, label=name)
+        ax_epl.set_ylabel("correlator magnitude")
+        ax_epl.set_xlabel("recording time (s)")
+        ax_epl.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=3)
+        for ax in (ax_dop, ax_cn0):
+            ax.tick_params(labelbottom=False)
+        state = "locked" if result.locked else f"lost at {result.lost_at:.1f} s"
+        fig.suptitle(f"G{result.prn:02d}: {state}, final C/N0 {result.cn0[-1]:.1f} dB-Hz")
+        fig.savefig(path, dpi=120)
 
 
 def write_track_log(results: list[TrackResult], path: str | os.PathLike, interval: float = 0.1):
