@@ -36,7 +36,7 @@
 
 **Cycle slip.** A loss of carrier lock that changes the integer ambiguity by one or more cycles. [Staying locked](05-tracking.md).
 
-**Data channel, pilot channel.** The two components of a modern signal: one carries the message, the other carries no data and can be integrated indefinitely. [The signal](02-the-signal.md).
+**Data channel, pilot channel.** The two components of a modern signal: one carries the message; the other carries no data, so once its known secondary code is removed it can be integrated coherently far longer, until the oscillator and the receiver's motion limit it. [The signal](02-the-signal.md).
 
 **DLL.** Delay-locked loop, the feedback loop that keeps the replica code aligned, using early, prompt and late correlators. [Staying locked](05-tracking.md).
 
