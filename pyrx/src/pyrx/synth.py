@@ -5,6 +5,8 @@ import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca, sample_code
 from pyrx.signals import L1_FREQ
 
+BLOCK = 1 << 20  # samples generated at a time, so the float64 intermediates stay small
+
 
 def synth_l1ca(
     prn: int,
@@ -33,26 +35,39 @@ def synth_l1ca(
     if data_bits and bits is not None:
         raise ValueError("data_bits and bits cannot both be given")
     rng = np.random.default_rng(seed)
-    t = np.arange(n, dtype=np.float64) / fs
     chip_rate = CA_CHIP_RATE * (1.0 + doppler / L1_FREQ)
-    code = sample_code(gps_ca(prn), chip_rate, fs, n, phase_chips=-code_offset * chip_rate / fs)
-    phase = 2.0 * np.pi * (f_if + doppler) * t
+    phase_chips = -code_offset * chip_rate / fs
     noise_var = fs / 10 ** (cn0_dbhz / 10.0)
-    if iq:
-        signal = code * np.exp(1j * phase)
-        noise = np.sqrt(noise_var / 2.0) * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
-    else:
-        signal = code * np.cos(phase)
-        noise = np.sqrt(noise_var / 4.0) * rng.standard_normal(n)
+    period = round(fs * CA_PERIOD)
+    # drawn in one order whatever the block size: the in-phase noise of every sample,
+    # then the quadrature noise, then the data bits
+    noise_i = rng.standard_normal(n)
+    noise_q = rng.standard_normal(n) if iq and data_bits else None
+    sym = None
     if data_bits:
-        period = round(fs * CA_PERIOD)
         n_bits = (n - code_offset) // (20 * period) + 2
-        bits = rng.choice([-1.0, 1.0], size=n_bits)
-        bit_index = (np.arange(n) - code_offset) // (20 * period) + 1  # bit 0 before offset
-        signal = signal * bits[bit_index]
+        sym = rng.choice([-1.0, 1.0], size=n_bits)
     elif bits is not None:
-        period = round(fs * CA_PERIOD)
-        bit_index = (np.arange(n) - code_offset) // (20 * period)  # bit 0 starts at code_offset
         sym = np.where(np.asarray(bits) == 1, -1.0, 1.0)
-        signal = signal * sym[np.clip(bit_index, 0, len(sym) - 1)]
-    return (signal + noise).astype(np.complex64)
+    code = gps_ca(prn)
+    out = np.empty(n, dtype=np.complex64)
+    for start in range(0, n, BLOCK):
+        stop = min(start + BLOCK, n)
+        k = np.arange(start, stop)
+        t = k.astype(np.float64) / fs
+        chips = sample_code(code, chip_rate, fs, stop - start, phase_chips, start)
+        phase = 2.0 * np.pi * (f_if + doppler) * t
+        if iq:
+            signal = chips * np.exp(1j * phase)
+            q = noise_q[start:stop] if noise_q is not None else rng.standard_normal(stop - start)
+            noise = np.sqrt(noise_var / 2.0) * (noise_i[start:stop] + 1j * q)
+        else:
+            signal = chips * np.cos(phase)
+            noise = np.sqrt(noise_var / 4.0) * noise_i[start:stop]
+        if data_bits:
+            signal = signal * sym[(k - code_offset) // (20 * period) + 1]  # bit 0 before offset
+        elif bits is not None:
+            bit_index = (k - code_offset) // (20 * period)  # bit 0 starts at code_offset
+            signal = signal * sym[np.clip(bit_index, 0, len(sym) - 1)]
+        out[start:stop] = signal + noise
+    return out

@@ -46,8 +46,11 @@ def gps_ca(prn: int) -> np.ndarray:
 
 
 def sample_code(
-    code: np.ndarray, chip_rate: float, fs: float, n: int, phase_chips: float = 0.0
+    code: np.ndarray, chip_rate: float, fs: float, n: int, phase_chips: float = 0.0, start: int = 0
 ) -> np.ndarray:
-    """`n` samples of `code` at sample rate `fs`, sample k holding chip floor(phase + k*rate/fs)."""
-    chip_index = np.floor(phase_chips + np.arange(n, dtype=np.float64) * (chip_rate / fs))
+    """`n` samples of `code` at sample rate `fs` from sample `start`, sample k holding chip
+    floor(phase + (start + k)*rate/fs)."""
+    chip_index = np.floor(
+        phase_chips + np.arange(start, start + n, dtype=np.float64) * (chip_rate / fs)
+    )
     return code[chip_index.astype(np.int64) % len(code)].astype(np.float32)
