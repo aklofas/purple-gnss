@@ -36,19 +36,19 @@ All GPS satellites transmit on the same frequencies at the same time. They do no
 
 So a receiver generates its own copy of satellite 7's code, multiplies it against whatever arrives at the antenna, and sums. If satellite 7 is present and the copy is aligned, the sum is large. Every other satellite, and the noise, averages out. This operation is called correlation, and it is the single most important thing a receiver does. Each tracking channel performs it continuously, and the FPGA in a hardware receiver is mostly correlators.
 
-Finding the alignment is the timing measurement. The code is a ruler with 1023 marks, each 293 metres long (one chip at the speed of light), repeating every 300 km. Knowing where the code boundary falls in the received signal tells the receiver the transmit time to within a fraction of a chip. The ambiguity of which millisecond it is gets resolved from the data message, as covered in [reading the message](06-navigation-message.md).
+Finding the alignment is the timing measurement. The code is a ruler with 1023 marks, each 293 meters long (one chip at the speed of light), repeating every 300 km. Knowing where the code boundary falls in the received signal tells the receiver the transmit time to within a fraction of a chip. The ambiguity of which millisecond it is gets resolved from the data message, as covered in [reading the message](06-navigation-message.md).
 
 ## Hearing a signal below the noise
 
-A GPS satellite transmits about 25 watts from 20,000 km away. At the ground the signal power is around 10^-16 watts, roughly 20 dB (100 times) below the thermal noise that any antenna picks up in the same bandwidth. You cannot see a GPS signal on a spectrum analyser. It is simply not there to the eye.
+A GPS satellite transmits about 25 watts from 20,000 km away. At the ground the signal power is around 10^-16 watts, roughly 20 dB (100 times) below the thermal noise that any antenna picks up in the same bandwidth. You cannot see a GPS signal on a spectrum analyzer. It is simply not there to the eye.
 
-Correlation is what makes it usable. Summing over 1023 chips adds the signal coherently and the noise incoherently, which improves the signal-to-noise ratio by a factor of 1023, about 30 dB. The 20 dB deficit becomes a 10 dB surplus. Summing over more code periods (10 ms, 20 ms, or longer) buys more, at the cost of a finer search over frequency. This is why a receiver can use a 1-bit analogue-to-digital converter: the noise is so dominant that the sign of each sample is almost all the information there is.
+Correlation is what makes it usable. Summing over 1023 chips adds the signal coherently and the noise incoherently, which improves the signal-to-noise ratio by a factor of 1023, about 30 dB. The 20 dB deficit becomes a 10 dB surplus. Summing over more code periods (10 ms, 20 ms, or longer) buys more, at the cost of a finer search over frequency. This is why a receiver can use a 1-bit analog-to-digital converter: the noise is so dominant that the sign of each sample is almost all the information there is.
 
 The ratio that matters is called C/N0, the carrier power over the noise density, in dB-Hz. Typical values are 35 to 50 dB-Hz in the open sky. You will see this number in every receiver's status display and in every page of this series.
 
 ## Bands and modern signals
 
-GPS transmits on three frequencies, and the other systems use the same or neighbouring ones so that a single antenna and front-end can cover several.
+GPS transmits on three frequencies, and the other systems use the same or neighboring ones so that a single antenna and front-end can cover several.
 
 | Band | Frequency | Wavelength | Signals |
 |---|---|---|---|
@@ -60,7 +60,7 @@ GPS transmits on three frequencies, and the other systems use the same or neighb
 
 Two frequencies matter for two reasons. The ionosphere delays the two by different amounts, so a receiver with both can compute and remove the delay instead of guessing it. And in RTK, two wavelengths can be combined into a longer effective wavelength that makes the integer-cycle problem much easier.
 
-The modern signals (L5, E1, E5a) are also better designed than the original L1 C/A. L5 and E5a run their codes ten times faster (10.23 million chips per second), so each chip is 29 m instead of 293 m and timing is correspondingly sharper. And they are split into two components: a data channel carrying the message, and a pilot channel with no data at all. A pilot has no unknown navigation-bit flips, so it supports longer coherent sums and makes weak signals easier to track. Many pilots still change sign according to a known secondary code, which the receiver must align with and remove. Oscillator stability and motion limit how long the sum can remain coherent. Galileo E1 keeps the 1.023 million chip per second rate of L1 C/A and gets its sharper timing a different way, from a modulation called BOC that moves the signal power away from the centre of the band. The details differ, the structure of carrier, code, and data does not.
+The modern signals (L5, E1, E5a) are also better designed than the original L1 C/A. L5 and E5a run their codes ten times faster (10.23 million chips per second), so each chip is 29 m instead of 293 m and timing is correspondingly sharper. And they are split into two components: a data channel carrying the message, and a pilot channel with no data at all. A pilot has no unknown navigation-bit flips, so it supports longer coherent sums and makes weak signals easier to track. Many pilots still change sign according to a known secondary code, which the receiver must align with and remove. Oscillator stability and motion limit how long the sum can remain coherent. Galileo E1 keeps the 1.023 million chip per second rate of L1 C/A and gets its sharper timing a different way, from a modulation called BOC that moves the signal power away from the center of the band. The details differ, the structure of carrier, code, and data does not.
 
 ---
 

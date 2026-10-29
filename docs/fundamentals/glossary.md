@@ -22,7 +22,7 @@
 
 **Carrier.** The radio sine wave the code and data are modulated onto. [The signal](02-the-signal.md).
 
-**Carrier phase.** The observable formed from the tracking loop's accumulated carrier cycles, precise to millimetres but with an unknown integer part. [The measurements](07-measurements.md).
+**Carrier phase.** The observable formed from the tracking loop's accumulated carrier cycles, precise to millimeters but with an unknown integer part. [The measurements](07-measurements.md).
 
 **Chip.** One element of the spreading code. A C/A chip is 293 m long at the speed of light. [The signal](02-the-signal.md).
 
@@ -46,11 +46,11 @@
 
 **Double difference.** The difference of two receivers' measurements of two satellites, which cancels both receivers' and both satellites' clock errors. [RTK](09-rtk.md).
 
-**ECEF.** Earth-centred, Earth-fixed coordinates: X, Y, Z from the centre of the Earth, rotating with it. The frame positions are solved in. [A standalone fix](08-standalone-fix.md).
+**ECEF.** Earth-centered, Earth-fixed coordinates: X, Y, Z from the center of the Earth, rotating with it. The frame positions are solved in. [A standalone fix](08-standalone-fix.md).
 
 **Elevation mask.** The angle above the horizon below which satellites are ignored, typically 10 to 15 degrees. [A standalone fix](08-standalone-fix.md).
 
-**Ephemeris.** The broadcast parameters describing one satellite's orbit, good to a metre or two for a few hours. [Reading the message](06-navigation-message.md).
+**Ephemeris.** The broadcast parameters describing one satellite's orbit, good to a meter or two for a few hours. [Reading the message](06-navigation-message.md).
 
 **Epoch.** One measurement instant, at which the receiver forms observables for every satellite it tracks.
 
@@ -58,7 +58,7 @@
 
 **FLL.** Frequency-locked loop, used to pull the carrier frequency in before the PLL can lock. [Staying locked](05-tracking.md).
 
-**Front-end.** The analogue radio chain from the antenna to the analogue-to-digital converter. [From antenna to samples](03-antenna-to-samples.md).
+**Front-end.** The analog radio chain from the antenna to the analog-to-digital converter. [From antenna to samples](03-antenna-to-samples.md).
 
 **GPS time.** A continuous count of weeks and seconds since 6 January 1980, with no leap seconds. [Reading the message](06-navigation-message.md).
 
@@ -84,7 +84,7 @@
 
 **Observable.** A measurement a receiver reports: pseudorange, carrier phase, Doppler, C/N0. [The measurements](07-measurements.md).
 
-**Phase centre.** The point an antenna effectively receives at, which moves slightly with direction and frequency. [From antenna to samples](03-antenna-to-samples.md).
+**Phase center.** The point an antenna effectively receives at, which moves slightly with direction and frequency. [From antenna to samples](03-antenna-to-samples.md).
 
 **PLL.** Phase-locked loop, the feedback loop that keeps the replica carrier in phase with the received one. [Staying locked](05-tracking.md).
 
@@ -104,11 +104,11 @@
 
 **RTCM.** The binary format for streaming a base station's observables and corrections to a rover. [RTK](09-rtk.md).
 
-**RTK.** Real-time kinematic: carrier-phase differential positioning against a base station, to a centimetre or two. [RTK](09-rtk.md).
+**RTK.** Real-time kinematic: carrier-phase differential positioning against a base station, to a centimeter or two. [RTK](09-rtk.md).
 
 **Saastamoinen.** The standard troposphere delay model. [A standalone fix](08-standalone-fix.md).
 
-**SBAS.** Satellite-based augmentation, metre-level corrections broadcast from geostationary satellites (WAAS, EGNOS). [RTK](09-rtk.md).
+**SBAS.** Satellite-based augmentation, meter-level corrections broadcast from geostationary satellites (WAAS, EGNOS). [RTK](09-rtk.md).
 
 **Single difference.** The difference of two receivers' measurements of one satellite, which cancels the satellite's clock. [RTK](09-rtk.md).
 
