@@ -1,6 +1,7 @@
 # Claude Code worktree scratch (tooling creates these; never content)
 /.claude/
 /.worktrees/
+/.superpowers/
 
 # Python build and cache artifacts
 __pycache__/
