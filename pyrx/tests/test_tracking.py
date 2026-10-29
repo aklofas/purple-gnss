@@ -173,3 +173,17 @@ def test_carrier_phase_is_the_nco_doppler_phase():
     k = np.arange(2000, len(r.t))
     d = (r.phase[k] - (f_if * r.t[k]) % 1.0 - r.carrier_phase[k - 1] + 0.5) % 1.0 - 0.5
     assert np.abs(d).max() < 1e-3
+
+
+def test_discriminators_are_recorded_and_settle():
+    fs, doppler, offset = 2.5e6, 800.0, 500
+    x = synth_l1ca(4, fs, 0.0, doppler, offset, int(fs * 3.0), 45.0, True)
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, offset / fs, doppler, 45.0)
+    n = len(track.doppler)
+    assert track.carrier_error.shape == track.code_error.shape == (n,)
+    assert np.isnan(track.carrier_error[0])
+    late = track.t > track.t[0] + 2.0
+    assert np.nanmean(np.abs(track.carrier_error[late])) < 0.02  # cycles
+    updates = np.isfinite(track.code_error)
+    assert abs(updates.sum() - n // 10) <= 1
+    assert np.nanmean(np.abs(track.code_error[late])) < 0.1 / CA_CHIP_RATE  # a tenth of a chip
