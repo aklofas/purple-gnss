@@ -57,7 +57,7 @@ Each loop's filter has a bandwidth, which sets how quickly it responds. A wide b
 
 Under a bridge the signal disappears, the correlator outputs become pure noise, and the loops wander. The receiver watches the prompt correlator power against the noise estimate (its C/N0 estimate) and a lock detector built from the ratio of I and Q. When they fall below thresholds for long enough, the channel declares loss of lock and goes back to acquisition, now with a narrow search around its last known state.
 
-The quiet version of this problem is the cycle slip. If the signal fades briefly or the receiver jerks, the carrier loop can lose a cycle or a half-cycle and relock on the next one, with the code loop barely noticing. Every measurement afterwards is off by one wavelength. For a metre-level fix it does not matter. For RTK it is the main enemy, and every RTK engine spends effort detecting slips so that it can restart the integer estimate for that satellite.
+The quiet version of this problem is the cycle slip. If the signal fades briefly or the receiver jerks, the carrier loop can relock one or more cycles away, or half a cycle away in a Costas loop, with the code loop barely noticing. Subsequent accumulated carrier-phase measurements retain that jump until it is corrected: one wavelength per whole cycle, or half a wavelength for a half-cycle slip. For a metre-level fix it does not matter. For RTK it is the main enemy, and every RTK engine spends effort detecting slips so that it can restart the integer estimate for that satellite.
 
 ---
 

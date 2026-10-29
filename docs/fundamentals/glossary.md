@@ -34,7 +34,7 @@
 
 **Costas loop.** A carrier phase-locked loop insensitive to data-bit sign flips. [Staying locked](05-tracking.md).
 
-**Cycle slip.** A loss of carrier lock that changes the integer ambiguity by one or more cycles. [Staying locked](05-tracking.md).
+**Cycle slip.** A jump in the accumulated carrier phase by a whole number of cycles, or by half a cycle in a Costas loop, when tracking loses count; it changes the ambiguity. [Staying locked](05-tracking.md), [The measurements](07-measurements.md).
 
 **Data channel, pilot channel.** The two components of a modern signal: one carries the message; the other carries no data, so once its known secondary code is removed it can be integrated coherently far longer, until the oscillator and the receiver's motion limit it. [The signal](02-the-signal.md).
 

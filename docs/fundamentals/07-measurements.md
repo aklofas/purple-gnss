@@ -49,7 +49,7 @@ The signal strength is reported as the carrier-to-noise-density ratio in dB-Hz, 
 
 ## Loss-of-lock flags and RINEX
 
-Along with each carrier phase the receiver reports whether lock was continuous since the previous epoch. A slip or a reacquisition is flagged, and any user of the carrier phase has to reset its ambiguity for that satellite when it sees the flag.
+Along with each carrier phase the receiver reports whether lock was continuous since the previous epoch. A slip or a reacquisition is flagged, and any user of the carrier phase has to reset its ambiguity for that satellite when it sees the flag. A Costas loop can also be half a cycle out while the data polarity is unknown, or slip by half a cycle; a separate flag marks those phases, and an RTK engine keeps them out of integer fixing until the flag clears.
 
 Observables are exchanged between receivers and programs in a text format called RINEX (Receiver Independent Exchange Format). An observation file holds, per epoch, one line per satellite with its pseudorange, carrier phase, Doppler and signal strength per signal, with the lock flags. A separate navigation file holds the decoded ephemerides. Public reference stations publish both, every day, for the whole world, which is what makes it possible to develop and test RTK without owning two receivers. Everything in the next two pages is computed from RINEX files, and the `pyrx` receiver produces them from recordings.
 
