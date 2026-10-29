@@ -46,10 +46,11 @@ MAT1_MARKER = np.array([4641951.13677723, 1393053.98279794, 4133281.10948056])
 
 PVT_WINDOW = (datetime(2021, 12, 26, 8, 0), datetime(2021, 12, 26, 11, 0))
 RTK_WINDOW = (datetime(2021, 12, 26, 0, 0), datetime(2021, 12, 26, 1, 0))
+# one minute before the rover window; the base file itself starts at midnight, as the rover's does
 RTK_BASE_WINDOW = (
     datetime(2021, 12, 25, 23, 59),
     RTK_WINDOW[1],
-)  # a minute of margin only: the base file starts at midnight, with the rover
+)
 PVT_SPAN = ("2021/12/26 08:00:00", "2021/12/26 11:00:00")
 RTK_SPAN = ("2021/12/26 00:00:00", "2021/12/26 01:00:00")
 
