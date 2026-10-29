@@ -1,7 +1,7 @@
-# From samples to a centimetre fix
+# From samples to a centimeter fix
 
 These three notebooks follow the Purple GNSS receiver package, `pyrx`, from recorded radio
-samples to a position good to about a centimetre. Each step of the receiver gets an
+samples to a position good to about a centimeter. Each step of the receiver gets an
 explanation of what it is for, the idea behind it, the equations it uses and a figure of
 it working on real data. The notebooks are committed with their outputs, so GitHub shows
 every figure and printed number without running anything.
@@ -51,7 +51,7 @@ Notebook 01 needs raw samples, so it uses the recording, made in Japan on 2021-1
 RINEX files it writes stay in its own temporary directory. Notebook 02 needs hours of
 observations from a station with known coordinates to show how a standalone fix behaves
 over time. Notebook 03 needs two receivers a short distance apart with surveyed markers,
-so that the RTK error can be measured in centimetres. The station files are from the same
+so that the RTK error can be measured in centimeters. The station files are from the same
 day as the recording. You can run any notebook on its own; none reads files written by
 another.
 
@@ -101,8 +101,8 @@ export PYRX_CAPTURES=/path/to/captures
 
 If the variable is unset, or any of the files is missing, the notebooks print the reason
 and run on synthetic signals and observations from `pyrx.synth`. Notebook 01 then
-synthesises and tracks 22 s of four GPS L1 C/A signals. Notebook 02 uses an hour of
-modelled pseudoranges, one epoch every 30 s, with 0.3 m of code noise and a drifting
+synthesizes and tracks 22 s of four GPS L1 C/A signals. Notebook 02 uses an hour of
+modeled pseudoranges, one epoch every 30 s, with 0.3 m of code noise and a drifting
 receiver clock. Notebook 03 uses 40 base and rover epochs 30 s apart on GPS L1 and L2,
 with a three-cycle slip in the rover's G03 L1 phase from the halfway epoch on. Position
 errors on this path are measured against the position the observations were generated
@@ -127,7 +127,7 @@ not include RTKLIB. Notebook 01 reads Pocket SDR logs that come with the capture
 does not run Pocket SDR itself.
 
 The printed numbers in the committed outputs were produced on the project's own
-environment; the millimetre-level comparisons will differ slightly on another.
+environment; the millimeter-level comparisons will differ slightly on another.
 
 ## Notation
 
@@ -141,7 +141,7 @@ notebook 02 reads
 $$P_r^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) + I_r^s + T_r^s + \eta_P .$$
 
 Where a signal index is left out, every term refers to the same signal. Carrier phase is
-stored in cycles; multiplied by the wavelength it becomes a length in metres,
+stored in cycles; multiplied by the wavelength it becomes a length in meters,
 $\Phi = \lambda\varphi$. In the table, `_` marks a subscript and `^` a superscript, as in
 the notebooks' equations. The last column names the `pyrx` field or function that holds
 each quantity (modules under `pyrx/src/pyrx/`).
@@ -163,9 +163,9 @@ each quantity (modules under `pyrx/src/pyrx/`).
 | `N`                       | integer carrier ambiguity of one receiver and satellite                                                                              | cycles      | not estimated directly; the synthetic inputs draw it with `synth.ambiguities`      |
 | `Δx^s = x_r^s − x_b^s`    | single difference of any quantity `x`, rover minus base                                                                              | unit of `x` | `rtk.Rtk._update_biases`                                                           |
 | `∇Δx^{s,q} = Δx^s − Δx^q` | double difference, satellite minus reference satellite                                                                               | unit of `x` | `rtk.Rtk._double_differences`                                                      |
-| `b_{s,g}`                 | float single-difference ambiguity state: `ΔN^s` plus an offset shared by every state of signal `g`, cancelling in double differences | cycles      | `rtk.Rtk.x[3:]`, keyed by `Rtk.keys`                                               |
+| `b_{s,g}`                 | float single-difference ambiguity state: `ΔN^s` plus an offset shared by every state of signal `g`, canceling in double differences  | cycles      | `rtk.Rtk.x[3:]`, keyed by `Rtk.keys`                                               |
 | `∇ΔN^{s,q}`               | double-differenced ambiguity searched by LAMBDA                                                                                      | cycles      | `rtk.Ambiguity`; its `value` is reference minus satellite, `−∇ΔN^{s,q}`            |
-| `η_P`, `η_Φ`              | what the model leaves out: noise, multipath, unmodelled biases                                                                       | m           | not stored                                                                         |
+| `η_P`, `η_Φ`              | what the model leaves out: noise, multipath, unmodeled biases                                                                        | m           | not stored                                                                         |
 | `f_D`                     | Doppler shift, positive when the satellite approaches                                                                                | Hz          | `Observation.doppler`, `AcqResult.doppler`                                         |
 | `C/N0`                    | carrier-to-noise density ratio                                                                                                       | dB-Hz       | `Observation.cn0`, `AcqResult.cn0`                                                 |
 | code offset               | code phase, as an offset into the code period                                                                                        | s           | `AcqResult.code_offset`, `TrackResult.code_offset`                                 |
