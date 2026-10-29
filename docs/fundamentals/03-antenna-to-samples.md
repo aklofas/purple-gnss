@@ -36,7 +36,7 @@ Radio people measure everything in decibels because the numbers span twenty orde
 
 ## The antenna
 
-A GNSS antenna is tuned to the band and is circularly polarised, because the satellites transmit with a right-hand circular polarisation and a reflection off a surface reverses it. That gives a built-in rejection of multipath: a reflected signal arrives with the wrong polarisation and the antenna hears it 10 to 20 dB more weakly. Survey antennas add a ground plane or a choke ring to reject signals arriving from below the horizon, which are always reflections.
+A GNSS antenna is tuned to the band and is circularly polarised. GNSS satellites transmit with right-hand circular polarisation, so the antenna is designed to favour it. A reflection changes the polarisation: off the ground at steep angles it largely reverses to left-hand, which the antenna rejects, but at shallow angles and off many materials it comes back as a mix the antenna still partly hears. How much a reflection is suppressed depends on the surface, the arrival direction and the antenna, so there is no fixed figure. Survey antennas add a ground plane or a choke ring to suppress multipath, especially signals arriving from below the horizon.
 
 Almost every GNSS antenna is active: it has its own amplifier inside, powered through the same coaxial cable that carries the signal, with a few volts of DC placed on the cable by the receiver. That first amplifier sets the noise performance of the whole chain, because everything after it amplifies both the signal and the noise it adds. This is the low-noise amplifier, and "low noise" is the whole point.
 
