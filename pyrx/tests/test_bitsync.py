@@ -1,8 +1,8 @@
 import numpy as np
-from support import SF1, SF2, SF3
 
 from pyrx.bitsync import BitStream, bit_sync, frame_sync
 from pyrx.lnav import encode_subframe
+from pyrx.synth import SF1, SF2, SF3
 
 rng = np.random.default_rng(1)
 

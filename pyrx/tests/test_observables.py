@@ -3,7 +3,6 @@ from functools import cache
 
 import numpy as np
 import pytest
-from support import frame
 
 from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
@@ -13,7 +12,7 @@ from pyrx.navdecode import LnavResult, decode_lnav
 from pyrx.observables import make_observables, receiver_time0, transmit_times
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
-from pyrx.synth import synth_l1ca
+from pyrx.synth import frame, synth_l1ca
 from pyrx.tracking import TrackResult, track_l1ca
 
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame

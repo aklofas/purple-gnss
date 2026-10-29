@@ -5,26 +5,20 @@ import sys
 
 import numpy as np
 import pytest
-from support import (
-    AMB_B,
-    AMB_R,
-    ROVER,
-    SIGNALS,
-    TOW,
-    USUD,
-    check_golden,
-    constellation,
-    frame,
-    synthetic_pair,
-    truth_epoch,
-    without_date,
-    without_elapsed,
-    write_iq_int8,
-)
+from support import AMB_B, AMB_R, ROVER, SIGNALS, check_golden, without_date, without_elapsed
 
 from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, rtk_main, trk_main
 from pyrx.rinex import write_rinex_nav, write_rinex_obs, write_rinex_observations
-from pyrx.synth import synth_l1ca
+from pyrx.synth import (
+    TOW,
+    USUD,
+    constellation,
+    frame,
+    synth_l1ca,
+    synthetic_pair,
+    truth_epoch,
+    write_iq_int8,
+)
 
 
 def test_parse_prns():

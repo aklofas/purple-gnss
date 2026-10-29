@@ -3,13 +3,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from scipy.stats import chi2
-from support import IONO, TOW, USUD, constellation, truth_epoch
+from support import IONO
 
 from pyrx.ephemeris import Ionosphere
 from pyrx.models import azimuth_elevation
 from pyrx.observations import Epoch, Observation
 from pyrx.orbits import satellite_state
 from pyrx.pvt import IONO_DEFAULT, _variance, chi2_threshold, solve, solve_epoch
+from pyrx.synth import TOW, USUD, constellation, truth_epoch
 
 
 def test_constellation_is_visible_from_usud():

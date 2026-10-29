@@ -5,24 +5,7 @@ from math import isfinite, isnan, nan
 import numpy as np
 import pytest
 from conftest import capture_file
-from support import (
-    ALL_SIGNALS,
-    AMB_B,
-    AMB_R,
-    IONO,
-    ROVER,
-    SF1,
-    SF2,
-    SF3,
-    TOW,
-    USUD,
-    as_galileo,
-    check_golden,
-    constellation,
-    synthetic_pair,
-    truth_epoch,
-    without_date,
-)
+from support import ALL_SIGNALS, AMB_B, AMB_R, IONO, ROVER, check_golden, without_date
 
 from pyrx.ephemeris import URA_BOUNDS, Ionosphere, ura_index, ura_metres
 from pyrx.gpstime import gps_datetime
@@ -37,6 +20,17 @@ from pyrx.rinex import (
     write_rinex_nav,
     write_rinex_obs,
     write_rinex_observations,
+)
+from pyrx.synth import (
+    SF1,
+    SF2,
+    SF3,
+    TOW,
+    USUD,
+    as_galileo,
+    constellation,
+    synthetic_pair,
+    truth_epoch,
 )
 
 
