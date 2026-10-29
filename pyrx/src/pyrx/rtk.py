@@ -61,6 +61,18 @@ class RtkOptions:
 
 
 @dataclass(frozen=True)
+class Ambiguity:
+    """One double-differenced ambiguity of the search: reference satellite minus satellite."""
+
+    ref: str  # reference satellite, RINEX id
+    sat: str
+    signal: str  # e.g. "G1C"
+    value: float  # cycles, the float estimate
+    std: float  # cycles
+    integer: int | None  # the integer applied; None on a float epoch
+
+
+@dataclass(frozen=True)
 class Fix:
     week: int
     tow: float
@@ -70,6 +82,9 @@ class Fix:
     ratio: float
     age: float  # s, rover minus base epoch
     nb: int  # double-differenced ambiguities searched
+    float_position: np.ndarray  # rover marker from the float states, ECEF m
+    position_std: np.ndarray  # m, standard deviation of the float position per ECEF axis
+    ambiguities: tuple[Ambiguity, ...]  # the searched double differences, in search order
 
 
 class _Bias:
@@ -271,7 +286,7 @@ class Rtk:
         ns = len({sat for sat, sig in used if sig == first_sigs[sig[0]]})
         if ns < 4:  # the update stands, the epoch has no solution (RTKLIB SOLQ_NONE)
             return None
-        status, ratio, position, nb = self._resolve_ambiguities(signals, common)
+        status, ratio, position, ambiguities = self._resolve_ambiguities(signals, common)
         return Fix(
             rover.week,
             rover.tow,
@@ -280,7 +295,10 @@ class Rtk:
             ns,
             float(ratio),
             age,
-            nb,
+            len(ambiguities),
+            marker_from_arp(self.x[:3].copy(), self.rover_delta),
+            np.sqrt(np.diag(self.P[:3, :3])),
+            ambiguities,
         )
 
     def _update_biases(self, signals, cols, common, yr, yb, tt, t_base, first_sigs):
@@ -420,8 +438,8 @@ class Rtk:
 
     def _resolve_ambiguities(self, signals, common):
         """LAMBDA on the double-differenced ambiguities with the ratio test (RTKLIB
-        resamb_LAMBDA, continuous mode): status, ratio, position and the number of
-        ambiguities searched. The float states are kept whatever the outcome."""
+        resamb_LAMBDA, continuous mode): status, ratio, position and the ambiguities
+        searched. The float states are kept whatever the outcome."""
         opt = self.opt
         n = len(self.x)
         pairs = []
@@ -445,6 +463,8 @@ class Rtk:
         ratio = 0.0
         status = "float"
         position = self.x[:3]
+        fixed = None
+        y = Qb = None
         if nb >= 2:
             D = np.zeros((nb, n))
             for r, (ref, key) in enumerate(pairs):
@@ -459,9 +479,20 @@ class Rtk:
                 if s[0] <= 0.0 or ratio >= opt.ratio_threshold:
                     position = self.x[:3] - Qab @ np.linalg.solve(Qb, y - cands[0])
                     status = "fix"
+                    fixed = cands[0]
             except (ValueError, np.linalg.LinAlgError):
                 ratio = 0.0
-        return status, ratio, position, nb
+        ambiguities = ()
+        if nb >= 2:
+            std = np.sqrt(np.diag(Qb))
+            ambiguities = tuple(
+                Ambiguity(
+                    ref[0], key[0], key[1], float(y[r]), float(std[r]),
+                    None if fixed is None else round(fixed[r]),
+                )
+                for r, (ref, key) in enumerate(pairs)
+            )  # fmt: skip
+        return status, ratio, position, ambiguities
 
     def _variance(self, el, age, code):
         a = b = self.opt.phase_error * (self.opt.code_ratio if code else 1.0)
