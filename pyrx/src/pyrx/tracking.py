@@ -54,7 +54,7 @@ class TrackResult:
     phase[k]: cycles in [0, 1), the carrier NCO phase at t[k].
     cn0[k]: dB-Hz, estimate held between its 1 s updates.
     carrier_error[k]: cycles, the carrier discriminator of epoch k: the FLL's
-        frequency discriminator (phase change over one epoch) during pull-in, the
+        frequency discriminator (minus the phase change over one epoch) during pull-in, the
         Costas phase error after it; nan on the first epoch and where the
         discriminator's denominator is zero (prompt dot product in the FLL, prompt
         in-phase sum in the PLL).
