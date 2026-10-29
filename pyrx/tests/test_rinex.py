@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import datetime
-from math import isnan, nan
+from math import isfinite, isnan, nan
 
 import numpy as np
 import pytest
@@ -334,10 +334,16 @@ def test_write_rinex_observations_golden(tmp_path):
     ]
     rover = [p[0] for p in pairs]
     P, lli = rover[0].pseudorange.copy(), rover[0].lli.copy()
-    P[1, 0] = nan  # a missing pseudorange
-    lli[2, 1] = 3  # slip and half-cycle
+    sats, signals = rover[0].sats, rover[0].signals
+    blank = sats.index("G02"), signals.index("G1C")
+    flagged = sats.index("G03"), signals.index("G2W")
+    assert isfinite(P[blank]) and isfinite(rover[0].carrier_phase[flagged])
+    P[blank] = nan  # a missing pseudorange
+    lli[flagged] = 3  # slip and half-cycle on a written phase
     rover[0] = replace(rover[0], pseudorange=P, lli=lli)
     write_rinex_observations(tmp_path / "o.obs", rover, "GOLD")
+    first, _ = read_rinex_observations(tmp_path / "o.obs", ALL_SIGNALS)
+    assert isnan(first.pseudorange[blank]) and first.lli[flagged] == 3
     check_golden("write_rinex_observations.obs", without_date((tmp_path / "o.obs").read_text()))
     write_rinex_observations(tmp_path / "e.obs", [])
     check_golden(
@@ -346,7 +352,7 @@ def test_write_rinex_observations_golden(tmp_path):
 
 
 def test_write_rinex_nav_golden(tmp_path):
-    ephs = constellation() + as_galileo(constellation())
+    ephs = constellation()  # the writer is GPS-only
     write_rinex_nav(tmp_path / "n.nav", ephs, {e.prn: TOW for e in ephs}, IONO)
     check_golden("write_rinex_nav.nav", without_date((tmp_path / "n.nav").read_text()))
     write_rinex_nav(tmp_path / "e.nav", [], {})
