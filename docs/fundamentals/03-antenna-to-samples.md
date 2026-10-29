@@ -56,7 +56,7 @@ The analogue-to-digital converter samples the filtered IF signal millions of tim
 
 The surprising part is the resolution. One or two bits per sample is enough, and some receivers use one. The signal is 20 dB below the noise, so each sample is almost entirely noise and the signal is only a slight bias in the sign. A 1-bit converter loses about 2 dB of sensitivity relative to a perfect one, and 2 bits lose about half a decibel. Front-end chips use automatic gain control to keep the noise amplitude at the right level for the few quantiser thresholds they have, which is why a GNSS front-end does not have a gain setting in the usual sense.
 
-A recording of two bits per sample at 20 million samples per second is 5 MB per second, and this is the raw material every later page works on. The recordings `pyrx` was developed on are exactly this: a file of 8-bit integers, each holding one sample, with a known sample rate and IF.
+If two-bit real samples are packed four to a byte, 20 million samples per second use 5 MB per second. Converter resolution and file storage are separate choices: the Pocket SDR recordings used by `pyrx` store each real value in a signed 8-bit integer. A real recording uses one byte per sample; an I/Q recording interleaves an I byte and a Q byte for each complex sample. At 20 million samples per second those formats use 20 MB/s and 40 MB/s respectively. `pyrx` reads these byte formats, so packed one- or two-bit data must be unpacked first.
 
 ## The reference oscillator
 
@@ -68,6 +68,6 @@ For a receiver with several antennas, the other requirement is that every front-
 
 ---
 
-**In pyrx:** `samples.py` reads recordings in the sample formats described above (real or I/Q, with the sample rate and IF given on the command line). There is no front-end in software; the recordings come from a Pocket SDR front-end or from this project's hardware when it exists.
+**In pyrx:** `samples.py` reads signed 8-bit real recordings, or interleaved signed 8-bit I and Q values with `--iq`; the sample rate and IF are given by `--fs` and `--f-if`. There is no front-end in software; the recordings come from a Pocket SDR front-end or from this project's hardware when it exists.
 
 Next: [Finding a satellite](04-acquisition.md).
