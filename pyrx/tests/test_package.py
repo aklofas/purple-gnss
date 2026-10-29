@@ -7,7 +7,8 @@ import pytest
 
 import pyrx
 
-# modules of the signal chain; positioning (orbits, pvt, rtk) must load none of them
+# modules of the signal chain, the synthesiser and the plots; the positioning and RINEX
+# modules (orbits, pvt, rtk, rinex, models) must load none of them
 SIGNAL_CHAIN = {
     "acquisition",
     "tracking",
@@ -18,6 +19,8 @@ SIGNAL_CHAIN = {
     "navdecode",
     "observables",
     "lnav",
+    "synth",
+    "plots",
 }
 
 
@@ -36,7 +39,7 @@ def test_ruff_is_clean():
     assert run.returncode == 0, run.stdout
 
 
-@pytest.mark.parametrize("module", ["pyrx.orbits", "pyrx.pvt", "pyrx.rtk"])
+@pytest.mark.parametrize("module", ["pyrx.orbits", "pyrx.pvt", "pyrx.rtk", "pyrx.rinex", "pyrx.models"])
 def test_positioning_does_not_load_the_signal_chain(module):
     code = f"import sys, {module}; print(*sorted(m for m in sys.modules if m.startswith('pyrx.')))"
     run = subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
