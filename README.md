@@ -32,11 +32,11 @@ RINEX file and `pyrx-rtk` gives the RTK fix.
 
 → **[`docs/index.md`](docs/index.md)** routes readers by what they want to do. Or jump straight in:
 
-| If you are…                                                         | Start here                                                                                                                      |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| New to GNSS and want to understand every step from satellite to fix | [`docs/fundamentals/`](docs/fundamentals/01-what-gnss-is.md), a series written for technical readers without a radio background |
-| Running the receiver on a recording                                 | [`pyrx/README.md`](pyrx/README.md), processing commands and recordings                                                          |
-| Looking up a term                                                   | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md)                                                                |
+| If you are…                                                        | Start here                                                                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| New to GNSS and want to understand the steps from satellite to fix | [`docs/fundamentals/`](docs/fundamentals/01-what-gnss-is.md), a series written for technical readers |
+| Running the receiver on a recording                                | [`pyrx/README.md`](pyrx/README.md), processing commands and recordings                               |
+| Looking up a term                                                  | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md)                                     |
 
 ## License
 
