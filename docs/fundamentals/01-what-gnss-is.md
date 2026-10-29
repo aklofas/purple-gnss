@@ -22,12 +22,14 @@ A receiver listens to several satellites, works out how long each signal took to
 
 ## Where the satellites are
 
-| System | Satellites in use | Altitude | Orbit period |
-|---|---|---|---|
-| GPS | about 31 | 20,200 km | 11 h 58 min |
-| Galileo | about 28 | 23,200 km | 14 h 05 min |
-| GLONASS | about 24 | 19,100 km | 11 h 16 min |
-| BeiDou | about 45, in three orbit types | 21,500 km for the main group | 12 h 53 min |
+| System  | Design constellation                                              | Altitude  | Orbit period |
+| ------- | ----------------------------------------------------------------- | --------- | ------------ |
+| GPS     | 24 or more, in six planes                                         | 20,200 km | 11 h 58 min  |
+| Galileo | 24 plus 6 spares, in three planes                                 | 23,200 km | 14 h 05 min  |
+| GLONASS | 24, in three planes                                               | 19,100 km | 11 h 16 min  |
+| BeiDou  | medium Earth orbit plus geostationary and inclined geosynchronous | 21,500 km | 12 h 53 min  |
+
+The table gives the size each constellation is designed around. The number actually in service changes as satellites are launched and retired, and each operator publishes a constellation status page with the current count.
 
 The altitudes listed are for medium Earth orbits, far above the International Space Station (400 km) and far below geostationary satellites (36,000 km). BeiDou also has geostationary and inclined geosynchronous satellites at about 36,000 km. A GPS satellite crosses the sky in a few hours and the pattern repeats every sidereal day. From any open spot on Earth you can usually see 8 to 12 GPS satellites, and 25 to 40 satellites across all four systems.
 
