@@ -12,6 +12,7 @@ dependencies = ["numpy", "scipy", "matplotlib", "georinex", "hatanaka", "pymap3d
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-xdist", "ruff"]
+notebooks = ["jupyterlab", "nbconvert", "pandas"]
 
 [project.scripts]
 pyrx-acq = "pyrx.cli:acq_main"
