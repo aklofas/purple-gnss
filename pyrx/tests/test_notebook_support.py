@@ -25,6 +25,16 @@ def test_data_source_is_none_without_complete_captures(monkeypatch, tmp_path):
     assert nbsupport.data_source() is None
 
 
+def test_data_source_prints_no_path(monkeypatch, tmp_path, capsys):
+    for rel in list(nbsupport._FILES.values())[1:]:  # all but the recording
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).touch()
+    monkeypatch.setenv("PYRX_CAPTURES", str(tmp_path))
+    assert nbsupport.data_source() is None
+    out = capsys.readouterr().out
+    assert nbsupport._FILES["recording"] in out and str(tmp_path) not in out
+
+
 def test_synthetic_pvt_epochs_solve_to_the_truth():
     epochs, ephs, iono, truth = nbsupport.synthetic_pvt_epochs(n=6)
     sols = solve(epochs, ephs, iono, 15.0)

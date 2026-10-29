@@ -44,7 +44,7 @@ RTK_WINDOW = (datetime(2021, 12, 26, 0, 0), datetime(2021, 12, 26, 1, 0))
 RTK_BASE_WINDOW = (
     datetime(2021, 12, 25, 23, 59),
     RTK_WINDOW[1],
-)  # a base epoch for the first rover epoch
+)  # a minute of margin only: the base file starts at midnight, with the rover
 PVT_SPAN = ("2021/12/26 08:00:00", "2021/12/26 11:00:00")
 RTK_SPAN = ("2021/12/26 00:00:00", "2021/12/26 01:00:00")
 
@@ -94,7 +94,7 @@ def data_source() -> Captures | None:
     paths = {name: root / rel for name, rel in _FILES.items()}
     missing = [rel for name, rel in _FILES.items() if not paths[name].is_file()]
     if missing:
-        print(f"missing under {root}: {', '.join(missing)}; running on synthetic data")
+        print(f"PYRX_CAPTURES lacks {', '.join(missing)}: running on synthetic data")
         return None
     print("running on the recordings named by PYRX_CAPTURES")
     return Captures(root, **paths)
