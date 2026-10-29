@@ -143,7 +143,7 @@ Free material:
 
 Specifications, when you need the exact bit layout:
 
-- IS-GPS-200, the GPS L1/L2 interface specification, and IS-GPS-705 for L5, at <https://www.gps.gov/technical/icwg/>.
+- IS-GPS-200, the GPS L1/L2 interface specification, and IS-GPS-705 for L5, at <https://www.gps.gov/interface-control-documents-icds-interface-specifications-iss>.
 - Galileo Open Service Signal-in-Space Interface Control Document, at <https://www.gsc-europa.eu/electronic-library/programme-reference-documents>.
 - RINEX 3 and 4 format descriptions, at <https://igs.org/formats-and-standards/>.
 
