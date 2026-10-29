@@ -62,7 +62,13 @@ class RtkOptions:
 
 @dataclass(frozen=True)
 class Ambiguity:
-    """One double-differenced ambiguity of the search: reference satellite minus satellite."""
+    """One double-differenced ambiguity of the search: reference satellite minus satellite.
+
+    The reference is the first eligible state of its system and signal, not the satellite
+    highest in the sky that the measurement double differences use; it and the order of the
+    records can change when a state is reset, so identify a record by `ref`, `sat` and
+    `signal`.
+    """
 
     ref: str  # reference satellite, RINEX id
     sat: str
@@ -81,10 +87,10 @@ class Fix:
     ns: int  # satellites used on the first signal of their system
     ratio: float
     age: float  # s, rover minus base epoch
-    nb: int  # double-differenced ambiguities searched
+    nb: int  # double-differenced ambiguities eligible for the search (LAMBDA runs from 2)
     float_position: np.ndarray  # rover marker from the float states, ECEF m
     position_std: np.ndarray  # m, standard deviation of the float position per ECEF axis
-    ambiguities: tuple[Ambiguity, ...]  # the searched double differences, in search order
+    ambiguities: tuple[Ambiguity, ...]  # the nb eligible double differences, in search order
 
 
 class _Bias:
@@ -438,8 +444,8 @@ class Rtk:
 
     def _resolve_ambiguities(self, signals, common):
         """LAMBDA on the double-differenced ambiguities with the ratio test (RTKLIB
-        resamb_LAMBDA, continuous mode): status, ratio, position and the ambiguities
-        searched. The float states are kept whatever the outcome."""
+        resamb_LAMBDA, continuous mode): status, ratio, position and the eligible
+        ambiguities, searched from two on. The float states are kept whatever the outcome."""
         opt = self.opt
         n = len(self.x)
         pairs = []
@@ -463,27 +469,26 @@ class Rtk:
         ratio = 0.0
         status = "float"
         position = self.x[:3]
-        fixed = None
-        y = Qb = None
-        if nb >= 2:
+        ambiguities = ()
+        if nb >= 1:
             D = np.zeros((nb, n))
             for r, (ref, key) in enumerate(pairs):
                 D[r, self._index(ref)] = 1.0
                 D[r, self._index(key)] = -1.0
             y = D @ self.x
             Qb = D @ self.P @ D.T
-            Qab = self.P[:3] @ D.T
-            try:
-                cands, s = lambda_fix(y, Qb, 2)
-                ratio = 0.0 if s[0] <= 0.0 else min(s[1] / s[0], 999.9)
-                if s[0] <= 0.0 or ratio >= opt.ratio_threshold:
-                    position = self.x[:3] - Qab @ np.linalg.solve(Qb, y - cands[0])
-                    status = "fix"
-                    fixed = cands[0]
-            except (ValueError, np.linalg.LinAlgError):
-                ratio = 0.0
-        ambiguities = ()
-        if nb >= 2:
+            fixed = None
+            if nb >= 2:
+                Qab = self.P[:3] @ D.T
+                try:
+                    cands, s = lambda_fix(y, Qb, 2)
+                    ratio = 0.0 if s[0] <= 0.0 else min(s[1] / s[0], 999.9)
+                    if s[0] <= 0.0 or ratio >= opt.ratio_threshold:
+                        position = self.x[:3] - Qab @ np.linalg.solve(Qb, y - cands[0])
+                        status = "fix"
+                        fixed = cands[0]
+                except (ValueError, np.linalg.LinAlgError):
+                    ratio = 0.0
             std = np.sqrt(np.diag(Qb))
             ambiguities = tuple(
                 Ambiguity(
