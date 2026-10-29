@@ -25,14 +25,29 @@ def test_data_source_is_none_without_complete_captures(monkeypatch, tmp_path):
     assert nbsupport.data_source() is None
 
 
+def _capture_tree(root, skip=()):
+    for name, rel in nbsupport._FILES.items():
+        if name not in skip:
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).touch()  # data_source checks only that the files exist
+
+
 def test_data_source_prints_no_path(monkeypatch, tmp_path, capsys):
-    for rel in list(nbsupport._FILES.values())[1:]:  # all but the recording
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / rel).touch()
+    _capture_tree(tmp_path, skip=("recording",))
     monkeypatch.setenv("PYRX_CAPTURES", str(tmp_path))
     assert nbsupport.data_source() is None
     out = capsys.readouterr().out
     assert nbsupport._FILES["recording"] in out and str(tmp_path) not in out
+
+
+def test_data_source_names_every_file_of_a_complete_tree(monkeypatch, tmp_path, capsys):
+    _capture_tree(tmp_path)
+    monkeypatch.setenv("PYRX_CAPTURES", str(tmp_path))
+    src = nbsupport.data_source()
+    assert src.root == tmp_path and (src.fs, src.f_if, src.iq) == (24e6, 6e6, False)
+    for name, rel in nbsupport._FILES.items():
+        assert getattr(src, name) == tmp_path / rel
+    assert str(tmp_path) not in capsys.readouterr().out
 
 
 def test_synthetic_pvt_epochs_solve_to_the_truth():
@@ -45,9 +60,12 @@ def test_synthetic_pvt_epochs_solve_to_the_truth():
 
 def test_synthetic_rtk_epochs_fix_and_carry_the_slip():
     rover, base, ephs, station, delta, truth = nbsupport.synthetic_rtk_epochs(n=8, slip_at=4)
-    fixes = solve_rtk(rover, base, ephs, station, delta)
-    assert fixes[3].status == "fix" and np.linalg.norm(fixes[3].position - truth) < 0.02
-    assert fixes[-1].status == "fix" and np.linalg.norm(fixes[-1].position - truth) < 0.02
+    fixes = {(f.week, f.tow): f for f in solve_rtk(rover, base, ephs, station, delta)}
+    before, after = (rover[3].week, rover[3].tow), (rover[-1].week, rover[-1].tow)
+    assert fixes[before].status == "fix" and fixes[after].status == "fix"
+    for f in fixes.values():
+        if f.status == "fix":
+            assert np.linalg.norm(f.position - truth) < 0.02
     i, j = rover[0].sats.index("G03"), rover[0].signals.index("G1C")
     r, jj = rover[0].sats.index("G01"), j
     before = (rover[3].carrier_phase[i, j] - base[3].carrier_phase[i, j]) - (
@@ -71,6 +89,12 @@ def test_synthetic_recording_is_cached_and_sized(tmp_path):
 def test_reference_runners_return_none_without_rtklib(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert nbsupport.rnx2rtkp_single("a.obs", "a.nav", tmp_path, nbsupport.PVT_SPAN) is None
+    assert (
+        nbsupport.rnx2rtkp_rtk(
+            "r.obs", "b.obs", "a.nav", tmp_path, np.zeros(3), 0.0, 0.0, nbsupport.RTK_SPAN
+        )
+        is None
+    )
 
 
 # a stand-in for rnx2rtkp: "none" writes nothing and exits 0 (RTKLIB with no data), "header"
@@ -135,3 +159,15 @@ def test_synthetic_recording_follows_its_recipe(monkeypatch, tmp_path):
     monkeypatch.setattr(nbsupport, "SYNTH_PRNS", [4, 7])
     path3, _, _, _, prns = nbsupport.synthetic_recording(tmp_path, seconds=0.05)
     assert prns == [4, 7] and path3.read_bytes() not in (data, path2.read_bytes())
+
+
+def test_reference_runners_read_the_solution_columns(monkeypatch, tmp_path):
+    _fake_rnx2rtkp(monkeypatch, tmp_path, "echo")
+    rover = tmp_path / "r.obs"
+    rover.write_text("4641951.5 1393054.25 4133281.125")
+    ref = nbsupport.rnx2rtkp_rtk(
+        rover, "b.obs", "a.nav", tmp_path / "out", np.zeros(3), 0.0, 0.0, nbsupport.RTK_SPAN
+    )
+    ((key, row),) = ref.items()
+    assert key == (2190, 0.0) and (row["q"], row["ns"], row["ratio"]) == (1, 8, 3.5)
+    assert row["xyz"].tolist() == [4641951.5, 1393054.25, 4133281.125]
