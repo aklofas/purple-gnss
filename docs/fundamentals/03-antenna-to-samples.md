@@ -23,7 +23,7 @@ flowchart LR
     C --> D[mixer]
     E[reference oscillator] --> D
     D --> F[filter + gain]
-    F --> G[analogue-to-digital converter]
+    F --> G[analog-to-digital converter]
     E --> G
     G --> H[samples to software]
 ```
@@ -36,25 +36,25 @@ Radio people measure everything in decibels because the numbers span twenty orde
 
 ## The antenna
 
-A GNSS antenna is tuned to the band and is circularly polarised. GNSS satellites transmit with right-hand circular polarisation, so the antenna is designed to favour it. A reflection changes the polarisation: off the ground at steep angles it largely reverses to left-hand, which the antenna rejects, but at shallow angles and off many materials it comes back as a mix the antenna still partly hears. How much a reflection is suppressed depends on the surface, the arrival direction and the antenna, so there is no fixed figure. Survey antennas add a ground plane or a choke ring to suppress multipath, especially signals arriving from below the horizon.
+A GNSS antenna is tuned to the band and is circularly polarized. GNSS satellites transmit with right-hand circular polarization, so the antenna is designed to favor it. A reflection changes the polarization: off the ground at steep angles it largely reverses to left-hand, which the antenna rejects, but at shallow angles and off many materials it comes back as a mix the antenna still partly hears. How much a reflection is suppressed depends on the surface, the arrival direction and the antenna, so there is no fixed figure. Survey antennas add a ground plane or a choke ring to suppress multipath, especially signals arriving from below the horizon.
 
 Almost every GNSS antenna is active: it has its own amplifier inside, powered through the same coaxial cable that carries the signal, with a few volts of DC placed on the cable by the receiver. That first amplifier sets the noise performance of the whole chain, because everything after it amplifies both the signal and the noise it adds. This is the low-noise amplifier, and "low noise" is the whole point.
 
-Where the signal is received is the antenna's phase centre, a point near the element that moves slightly with frequency and direction. For a metre-level fix it does not matter. For RTK it does, and survey antennas ship with calibration tables for it.
+Where the signal is received is the antenna's phase center, a point near the element that moves slightly with frequency and direction. For a meter-level fix it does not matter. For RTK it does, and survey antennas ship with calibration tables for it.
 
 ## Filtering and mixing
 
 The filter after the amplifier passes only the GNSS band, a few MHz to a few tens of MHz wide, and rejects everything else, in particular mobile phone signals a few hundred MHz away that are billions of times stronger.
 
-The mixer is the part that puzzles people without a radio background. Multiplying the incoming signal by a locally generated sine wave at a nearby frequency produces copies of the signal at the sum and the difference of the two frequencies. The difference is what is kept. Mixing 1575.42 MHz with a local oscillator at 1571.42 MHz gives a copy of the entire GPS L1 signal centred at 4 MHz, unchanged in every other way. That copy is at the intermediate frequency, the IF, and from here on everything happens at a few MHz instead of 1.5 GHz. If the local oscillator is set to the band centre, the IF is zero and the signal lands at baseband.
+The mixer is the part that puzzles people without a radio background. Multiplying the incoming signal by a locally generated sine wave at a nearby frequency produces copies of the signal at the sum and the difference of the two frequencies. The difference is what is kept. Mixing 1575.42 MHz with a local oscillator at 1571.42 MHz gives a copy of the entire GPS L1 signal centered at 4 MHz, unchanged in every other way. That copy is at the intermediate frequency, the IF, and from here on everything happens at a few MHz instead of 1.5 GHz. If the local oscillator is set to the band center, the IF is zero and the signal lands at baseband.
 
 Mixing with two local oscillator copies 90 degrees apart gives two outputs, called I and Q (in-phase and quadrature). Together they form a complex sample that keeps the sign of the frequency offset, which a single real output loses. Receivers use either: real sampling at a non-zero IF, or I/Q sampling at or near zero IF. The software has to know which it was given.
 
 ## Sampling
 
-The analogue-to-digital converter samples the filtered IF signal millions of times a second. With real samples, the rate has to be more than twice the highest frequency left after the filter: the 2 MHz main lobe of GPS L1 C/A centred at a 4 MHz IF reaches 5 MHz, so it needs more than 10 million samples per second. With I/Q sampling at zero IF the same band runs from -1 to +1 MHz, and a little over 2 million complex samples per second, each an I and a Q value, is enough. L5 and Galileo E5a, whose codes are ten times faster, have main lobes about 20 MHz wide and need a little over 20 million complex samples per second, or a correspondingly higher real rate. A carefully chosen pairing of IF and sample rate (band-pass sampling) can go lower, and real filters need some margin on top.
+The analog-to-digital converter samples the filtered IF signal millions of times a second. With real samples, the rate has to be more than twice the highest frequency left after the filter: the 2 MHz main lobe of GPS L1 C/A centered at a 4 MHz IF reaches 5 MHz, so it needs more than 10 million samples per second. With I/Q sampling at zero IF the same band runs from -1 to +1 MHz, and a little over 2 million complex samples per second, each an I and a Q value, is enough. L5 and Galileo E5a, whose codes are ten times faster, have main lobes about 20 MHz wide and need a little over 20 million complex samples per second, or a correspondingly higher real rate. A carefully chosen pairing of IF and sample rate (band-pass sampling) can go lower, and real filters need some margin on top.
 
-The surprising part is the resolution. One or two bits per sample is enough, and some receivers use one. The signal is 20 dB below the noise, so each sample is almost entirely noise and the signal is only a slight bias in the sign. A 1-bit converter loses about 2 dB of sensitivity relative to a perfect one, and 2 bits lose about half a decibel. Front-end chips use automatic gain control to keep the noise amplitude at the right level for the few quantiser thresholds they have, which is why a GNSS front-end does not have a gain setting in the usual sense.
+The surprising part is the resolution. One or two bits per sample is enough, and some receivers use one. The signal is 20 dB below the noise, so each sample is almost entirely noise and the signal is only a slight bias in the sign. A 1-bit converter loses about 2 dB of sensitivity relative to a perfect one, and 2 bits lose about half a decibel. Front-end chips use automatic gain control to keep the noise amplitude at the right level for the few quantizer thresholds they have, which is why a GNSS front-end does not have a gain setting in the usual sense.
 
 If two-bit real samples are packed four to a byte, 20 million samples per second use 5 MB per second. Converter resolution and file storage are separate choices: the Pocket SDR recordings used by `pyrx` store each real value in a signed 8-bit integer. A real recording uses one byte per sample; an I/Q recording interleaves an I byte and a Q byte for each complex sample. At 20 million samples per second those formats use 20 MB/s and 40 MB/s respectively. `pyrx` reads these byte formats, so packed one- or two-bit data must be unpacked first.
 

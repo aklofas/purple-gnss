@@ -33,11 +33,11 @@ The table gives the size each constellation is designed around. The number actua
 
 The altitudes listed are for medium Earth orbits, far above the International Space Station (400 km) and far below geostationary satellites (36,000 km). BeiDou also has geostationary and inclined geosynchronous satellites at about 36,000 km. A GPS satellite crosses the sky in a few hours and the pattern repeats every sidereal day. From any open spot on Earth you can usually see 8 to 12 GPS satellites, and 25 to 40 satellites across all four systems.
 
-The medium Earth orbits are nearly circular and spread over several planes for even coverage. Their inclinations to the equator are about 55 degrees for GPS and BeiDou, 56 degrees for Galileo, and 65 degrees for GLONASS. A satellite's orbit is predictable to within a metre or two over a few hours from the parameters it broadcasts, which is what the receiver relies on.
+The medium Earth orbits are nearly circular and spread over several planes for even coverage. Their inclinations to the equator are about 55 degrees for GPS and BeiDou, 56 degrees for Galileo, and 65 degrees for GLONASS. A satellite's orbit is predictable to within a meter or two over a few hours from the parameters it broadcasts, which is what the receiver relies on.
 
 ## Time is the product
 
-A radio signal travels 30 cm in a nanosecond. To measure a distance to a metre, the receiver has to measure a travel time to about 3 nanoseconds. The satellite clocks are good enough for that. The receiver's clock is not: it is an ordinary crystal oscillator, wrong by microseconds and drifting all the time.
+A radio signal travels 30 cm in a nanosecond. To measure a distance to a meter, the receiver has to measure a travel time to about 3 nanoseconds. The satellite clocks are good enough for that. The receiver's clock is not: it is an ordinary crystal oscillator, wrong by microseconds and drifting all the time.
 
 The trick is that the receiver's clock error is the same for every satellite it listens to at a given instant. So instead of measuring four true distances, the receiver measures four distances that are all wrong by the same unknown amount, and solves for that amount alongside its position. This is why a fix needs four satellites: three unknowns for position, one for the receiver clock. The distances before the clock error is removed are called pseudoranges, and they are the basic measurement of the whole system.
 
@@ -45,19 +45,19 @@ A side effect is that every GNSS receiver is also a clock accurate to tens of na
 
 ## What limits a plain fix
 
-With one antenna and no outside help, a receiver gets a position good to a few metres. The errors come from:
+With one antenna and no outside help, a receiver gets a position good to a few meters. The errors come from:
 
-- The satellite's broadcast orbit and clock are only accurate to about a metre.
-- The ionosphere, the charged upper atmosphere, slows the signal by a variable amount worth a few metres to tens of metres. It is the largest single error and the reason modern receivers use two frequencies.
-- The lower atmosphere adds a couple of metres, mostly predictable.
-- Reflections off buildings and the ground, called multipath, add metres in bad places.
-- The receiver's own measurement noise is a fraction of a metre.
+- The satellite's broadcast orbit and clock are only accurate to about a meter.
+- The ionosphere, the charged upper atmosphere, slows the signal by a variable amount worth a few meters to tens of meters. It is the largest single error and the reason modern receivers use two frequencies.
+- The lower atmosphere adds a couple of meters, mostly predictable.
+- Reflections off buildings and the ground, called multipath, add meters in bad places.
+- The receiver's own measurement noise is a fraction of a meter.
 
-The next pages explain where each of these comes from. The important thing to notice now is that most of them are the same for two receivers a few kilometres apart. A second receiver at a known location can measure the errors and the first receiver can subtract them. That is differential GNSS, and its precise form, RTK, is what this project is for.
+The next pages explain where each of these comes from. The important thing to notice now is that most of them are the same for two receivers a few kilometers apart. A second receiver at a known location can measure the errors and the first receiver can subtract them. That is differential GNSS, and its precise form, RTK, is what this project is for.
 
-## Why RTK reaches centimetres
+## Why RTK reaches centimeters
 
-Subtracting a nearby reference receiver's errors brings a fix down to tens of centimetres. Getting to one or two centimetres takes a second idea: measuring the signal's carrier wave itself, not just the timing marks on it. The carrier wavelength is 19 cm at the main GPS frequency, and with a strong signal and steady tracking a receiver can measure its phase to a millimetre or two. The catch is that it cannot tell which cycle it is looking at. Working out that integer count of cycles, for every satellite, is the central problem of RTK, and it is covered in the [RTK](09-rtk.md) page.
+Subtracting a nearby reference receiver's errors brings a fix down to tens of centimeters. Getting to one or two centimeters takes a second idea: measuring the signal's carrier wave itself, not just the timing marks on it. The carrier wavelength is 19 cm at the main GPS frequency, and with a strong signal and steady tracking a receiver can measure its phase to a millimeter or two. The catch is that it cannot tell which cycle it is looking at. Working out that integer count of cycles, for every satellite, is the central problem of RTK, and it is covered in the [RTK](09-rtk.md) page.
 
 ---
 

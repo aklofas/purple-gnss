@@ -35,7 +35,7 @@ The code loop keeps the replica code aligned with the received code. It cannot t
              -1/2    0   +1/2 chip
 ```
 
-If the replica is aligned, the early and late correlators are equal. If the replica is late, early is larger than late. The difference between them, normalised, is the error signal, and a filter turns it into a small correction to the replica's code rate. This is the delay-locked loop, the DLL, and the prompt correlator's alignment is the receiver's measurement of when the code arrived, which becomes the pseudorange. A well-designed DLL in the open sky tracks the code to about one hundredth of a chip, a few metres of raw precision before any averaging.
+If the replica is aligned, the early and late correlators are equal. If the replica is late, early is larger than late. The difference between them, normalized, is the error signal, and a filter turns it into a small correction to the replica's code rate. This is the delay-locked loop, the DLL, and the prompt correlator's alignment is the receiver's measurement of when the code arrived, which becomes the pseudorange. A well-designed DLL in the open sky tracks the code to about one hundredth of a chip, a few meters of raw precision before any averaging.
 
 Moving the early and late taps closer to prompt sharpens the tracking and reduces the effect of multipath, if the front-end bandwidth is wide enough to preserve the sharp peak. This is one reason survey receivers want wide front-ends.
 
@@ -45,9 +45,9 @@ The carrier loop keeps the replica carrier in phase with the received one. Its e
 
 The data bits complicate it. Every 20 ms the data message may flip the sign of the signal, which looks like a sudden 180 degree phase jump. A plain PLL would try to chase it. The Costas loop, the standard answer, uses an error signal that is insensitive to sign, so a flip is ignored, and the sign of the I output after locking is the data bit. Tracking and demodulation come out of the same loop. On pilot signals, after removing any secondary code, a plain PLL with its stronger error signal can be used instead.
 
-When the carrier loop is locked, two things are true. The I correlator output is a clean stream of data bits, which the next page decodes. And the accumulated phase of the replica carrier is a measurement of how the distance to the satellite has changed, cycle by cycle, with a precision of a few millimetres. That is the carrier-phase observable, and it is the basis of RTK.
+When the carrier loop is locked, two things are true. The I correlator output is a clean stream of data bits, which the next page decodes. And the accumulated phase of the replica carrier is a measurement of how the distance to the satellite has changed, cycle by cycle, with a precision of a few millimeters. That is the carrier-phase observable, and it is the basis of RTK.
 
-Before the PLL can lock the frequency has to be within a few tens of Hz, which acquisition does not guarantee. Receivers therefore pull in with a frequency-locked loop first, which measures the change in phase between successive correlations and only needs to be in the right neighbourhood, and switch to the PLL once the frequency error is small.
+Before the PLL can lock the frequency has to be within a few tens of Hz, which acquisition does not guarantee. Receivers therefore pull in with a frequency-locked loop first, which measures the change in phase between successive correlations and only needs to be in the right neighborhood, and switch to the PLL once the frequency error is small.
 
 ## Loop bandwidth
 
@@ -57,7 +57,7 @@ Each loop's filter has a bandwidth, which sets how quickly it responds. A wide b
 
 Under a bridge the signal disappears, the correlator outputs become pure noise, and the loops wander. The receiver watches the prompt correlator power against the noise estimate (its C/N0 estimate) and a lock detector built from the ratio of I and Q. When they fall below thresholds for long enough, the channel declares loss of lock and goes back to acquisition, now with a narrow search around its last known state.
 
-The quiet version of this problem is the cycle slip. If the signal fades briefly or the receiver jerks, the carrier loop can relock one or more cycles away, or half a cycle away in a Costas loop, with the code loop barely noticing. Subsequent accumulated carrier-phase measurements retain that jump until it is corrected: one wavelength per whole cycle, or half a wavelength for a half-cycle slip. For a metre-level fix it does not matter. For RTK it is the main enemy, and every RTK engine spends effort detecting slips so that it can restart the integer estimate for that satellite.
+The quiet version of this problem is the cycle slip. If the signal fades briefly or the receiver jerks, the carrier loop can relock one or more cycles away, or half a cycle away in a Costas loop, with the code loop barely noticing. Subsequent accumulated carrier-phase measurements retain that jump until it is corrected: one wavelength per whole cycle, or half a wavelength for a half-cycle slip. For a meter-level fix it does not matter. For RTK it is the main enemy, and every RTK engine spends effort detecting slips so that it can restart the integer estimate for that satellite.
 
 ---
 

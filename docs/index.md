@@ -2,7 +2,7 @@
 
 Purple GNSS is an open-source RTK GNSS receiver built from scratch: the antenna and
 processing hardware, the firmware on it, and the positioning math that turns
-raw satellite measurements into a centimetre-level fix. The project is early.
+raw satellite measurements into a centimeter-level fix. The project is early.
 What exists today is `pyrx`, an offline receiver in Python that takes recorded
 radio samples all the way to an RTK fix and is checked against Pocket SDR and
 RTKLIB at every stage.
@@ -37,7 +37,7 @@ the end collects the terms and further reading.
 6. [Reading the message](fundamentals/06-navigation-message.md): frames, ephemeris, and time of week.
 7. [The measurements](fundamentals/07-measurements.md): pseudorange, carrier phase, and Doppler.
 8. [A standalone fix](fundamentals/08-standalone-fix.md): satellite positions, clocks, the atmosphere, and least squares.
-9. [RTK](fundamentals/09-rtk.md): differencing, integer ambiguities, and how centimetres become possible.
+9. [RTK](fundamentals/09-rtk.md): differencing, integer ambiguities, and how centimeters become possible.
 10. [Glossary and further reading](fundamentals/glossary.md).
 
 ## What kind of pages live here?
