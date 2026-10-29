@@ -18,8 +18,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pymap3d
 
+from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
-from pyrx.plots import INK, MUTED
+from pyrx.plots import MUTED, PLOT_STYLE
 from pyrx.pvt import IONO_DEFAULT
 from pyrx.synth import (
     TOW,
@@ -181,12 +182,53 @@ def synthetic_rtk_epochs(n: int = 40, interval: float = 30.0, slip_at: int = 20,
 
 
 def figure(nrows: int = 1, ncols: int = 1, figsize=(10, 4), **kw):
-    """`plt.subplots` with the package's plot style: muted grid, ink-coloured ticks."""
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, constrained_layout=True, **kw)
-    for ax in np.atleast_1d(axes).flat:
-        ax.tick_params(colors=INK)
-        ax.grid(color=MUTED, alpha=0.3)
-    return fig, axes
+    """`plt.subplots` in the package's plot style (`pyrx.plots.PLOT_STYLE`), with
+    constrained layout unless `kw` says otherwise.
+
+    The style goes into the notebook's rcParams, so titles, legends, twin axes and
+    colour bars added after the call get it too.
+    """
+    plt.rcParams.update(PLOT_STYLE)
+    kw.setdefault("constrained_layout", True)
+    return plt.subplots(nrows, ncols, figsize=figsize, **kw)
+
+
+def threshold_line(ax, y: float, label: str, right: bool = False):
+    """A dashed horizontal threshold at `y` with its label just above the line at the
+    left end of the axes (`right=True` for the right end, when data sit under the label)."""
+    ax.axhline(y, color=MUTED, linestyle="--", linewidth=1)
+    return ax.annotate(
+        label,
+        (0.99 if right else 0.01, y),
+        xycoords=ax.get_yaxis_transform(),
+        xytext=(0, 4),
+        textcoords="offset points",
+        ha="right" if right else "left",
+        va="bottom",
+        fontsize=10,
+        color=MUTED,
+        bbox={"facecolor": "white", "edgecolor": "none", "pad": 1},
+    )
+
+
+def elapsed_minutes(items, start) -> np.ndarray:
+    """Minutes from `start` of every item; items and start carry `week` and `tow` (epochs,
+    fixes), and the count runs on across a week boundary."""
+    t0 = start.week * WEEK_S + start.tow
+    return np.array([(i.week * WEEK_S + i.tow - t0) / 60.0 for i in items])
+
+
+def time_note(start, synthetic: bool) -> str:
+    """The origin of an `elapsed_minutes` axis, for `figure_note`."""
+    if synthetic:
+        return "time: minutes from the first synthetic epoch"
+    return f"time: minutes from {gps_datetime(start.week, start.tow):%Y-%m-%d %H:%M:%S} GPST"
+
+
+def figure_note(fig, text: str):
+    """A small note under the bottom-left corner of `fig`; the notebook's inline display
+    (and `savefig(bbox_inches="tight")`) widens the image to hold it."""
+    return fig.text(0.0, 0.0, text, ha="left", va="top", fontsize=9, color=MUTED)
 
 
 def enu(xyz: np.ndarray, origin: np.ndarray) -> np.ndarray:
