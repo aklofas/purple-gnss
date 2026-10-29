@@ -35,7 +35,7 @@ $$
 \Phi_r^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) - I_r^s + T_r^s + \lambda N_r^s + \eta_\Phi .
 $$
 
-$\rho$ is the geometric range, $\mathrm{dt}_r$ and $\mathrm{dt}^s$ the receiver and satellite clock errors, $I$ and $T$ the ionospheric and tropospheric delays, and $\eta$ the noise and multipath. The ionosphere advances the carrier phase by the amount it delays the code, hence its minus sign in the second line. $N$ is the unknown whole number of cycles in the phase measurement, the ambiguity. The phase noise $\eta_\Phi$ is a millimeter or two, against a meter or so for the code.
+$\rho$ is the geometric range, $`\mathrm{dt}_r`$ and $\mathrm{dt}^s$ the receiver and satellite clock errors, $I$ and $T$ the ionospheric and tropospheric delays, and $\eta$ the noise and multipath. The ionosphere advances the carrier phase by the amount it delays the code, hence its minus sign in the second line. $N$ is the unknown whole number of cycles in the phase measurement, the ambiguity. The phase noise $`\eta_\Phi`$ is a millimeter or two, against a meter or so for the code.
 
 The receiver forms differences in two steps, using the [notation](../../pyrx/notebooks/README.md#notation) of the project's notebooks: $\Delta$ for rover minus base, $\nabla\Delta$ for that, satellite minus reference satellite.
 
