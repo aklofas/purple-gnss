@@ -138,7 +138,7 @@ satellite and $q$ the reference satellite of a double difference. So $\mathrm{dt
 the receiver clock bias and $\mathrm{dt}^s$ the satellite's, and the pseudorange model of
 notebook 02 reads
 
-$$P_r^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) + I_r^s + T_r^s + e_P .$$
+$$P_r^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) + I_r^s + T_r^s + \eta_P .$$
 
 Where a signal index is left out, every term refers to the same signal. Carrier phase is
 stored in cycles; multiplied by the wavelength it becomes a length in metres,
@@ -146,34 +146,34 @@ $\Phi = \lambda\varphi$. In the table, `_` marks a subscript and `^` a superscri
 the notebooks' equations. The last column names the `pyrx` field or function that holds
 each quantity (modules under `pyrx/src/pyrx/`).
 
-| Symbol                    | Quantity                                                                      | Unit        | Where it lives in `pyrx`                                                           |
-| ------------------------- | ----------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------- |
-| `P`                       | pseudorange                                                                   | m           | `Observation.pseudorange`, `Observations.pseudorange`                              |
-| `φ`                       | carrier phase                                                                 | cycles      | `Observation.carrier_phase`, `Observations.carrier_phase`                          |
-| `λ`                       | signal wavelength                                                             | m per cycle | `signals.wavelength(signal)`                                                       |
-| `Φ = λφ`                  | carrier phase as a length                                                     | m           | `lam * obs.carrier_phase[row]` in `rtk.Rtk._residuals`                             |
-| `ρ`                       | geometric range, including the Earth-rotation term                            | m           | first value returned by `models.geometric_range`                                   |
-| `d_rot`                   | Earth-rotation (Sagnac) term, `(Ω_E / c)(x^s y_r − y^s x_r)`                  | m           | `sagnac` in `models.geometric_range`, already inside `ρ`                           |
-| `x^s`, `x_r`              | satellite and receiver positions, ECEF                                        | m           | `orbits.SatState.position`; `pvt.Solution.position`                                |
-| `dt_r`                    | receiver clock bias relative to GPS time                                      | s           | `pvt.Solution.clock_bias`; the solver's state holds `c * dt_r`                     |
-| `dt^s`                    | satellite clock bias, including the relativistic term                         | s           | `orbits.SatState.clock`                                                            |
-| `t_g`                     | broadcast group delay                                                         | s           | `ephemeris.Ephemeris.tgd`; the fix uses `P − c * t_g`                              |
-| `I`                       | ionospheric delay of the code (the carrier phase advances by the same amount) | m           | `models.klobuchar` in the standalone fix; no ionosphere term in RTK                |
-| `T`                       | tropospheric delay                                                            | m           | `models.saastamoinen` in the standalone fix; `zenith_hydrostatic * nmf_dry` in RTK |
-| `N`                       | integer carrier ambiguity of one receiver and satellite                       | cycles      | not estimated directly; the synthetic inputs draw it with `synth.ambiguities`      |
-| `Δx^s = x_r^s − x_b^s`    | single difference of any quantity `x`, rover minus base                       | unit of `x` | `rtk.Rtk._update_biases`                                                           |
-| `∇Δx^{s,q} = Δx^s − Δx^q` | double difference, satellite minus reference satellite                        | unit of `x` | `rtk.Rtk._double_differences`                                                      |
-| `ΔN̂`                      | float single-differenced ambiguity                                            | cycles      | `rtk.Rtk.x[3:]`, keyed by `Rtk.keys`                                               |
-| `∇ΔN^{s,q}`               | double-differenced ambiguity searched by LAMBDA                               | cycles      | `rtk.Ambiguity`; its `value` is reference minus satellite, `−∇ΔN^{s,q}`            |
-| `e_P`, `e_Φ`              | what the model leaves out: noise, multipath, unmodelled biases                | m           | not stored                                                                         |
-| `f_D`                     | Doppler shift, positive when the satellite approaches                         | Hz          | `Observation.doppler`, `AcqResult.doppler`                                         |
-| `C/N0`                    | carrier-to-noise density ratio                                                | dB-Hz       | `Observation.cn0`, `AcqResult.cn0`                                                 |
-| `τ_c`                     | code phase, as an offset into the code period                                 | s           | `AcqResult.code_offset`, `TrackResult.code_offset`                                 |
-| `f_s`                     | sample rate                                                                   | Hz          | `samples.SampleFile.fs`                                                            |
-| `c`                       | speed of light                                                                | m/s         | `gpstime.C_LIGHT`                                                                  |
+| Symbol                    | Quantity                                                                                                                             | Unit        | Where it lives in `pyrx`                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------- |
+| `P`                       | pseudorange                                                                                                                          | m           | `Observation.pseudorange`, `Observations.pseudorange`                              |
+| `φ`                       | carrier phase                                                                                                                        | cycles      | `Observation.carrier_phase`, `Observations.carrier_phase`                          |
+| `λ`                       | signal wavelength                                                                                                                    | m per cycle | `signals.wavelength(signal)`                                                       |
+| `Φ = λφ`                  | carrier phase as a length                                                                                                            | m           | `lam * obs.carrier_phase[row]` in `rtk.Rtk._residuals`                             |
+| `ρ`                       | geometric range, including the Earth-rotation term                                                                                   | m           | first value returned by `models.geometric_range`                                   |
+| `x^s`, `x_r`              | satellite and receiver positions, ECEF                                                                                               | m           | `orbits.SatState.position`; `pvt.Solution.position`                                |
+| `ε`                       | satellite elevation seen from the receiver                                                                                           | rad         | second value returned by `models.azimuth_elevation`                                |
+| `dt_r`                    | receiver clock bias relative to GPS time                                                                                             | s           | `pvt.Solution.clock_bias`; the solver's state holds `c * dt_r`                     |
+| `dt^s`                    | satellite clock bias, including the relativistic term                                                                                | s           | `orbits.SatState.clock`                                                            |
+| `t_g`                     | broadcast group delay                                                                                                                | s           | `ephemeris.Ephemeris.tgd`; the fix uses `P − c * t_g`                              |
+| `I`                       | ionospheric delay of the code (the carrier phase advances by the same amount)                                                        | m           | `models.klobuchar` in the standalone fix; no ionosphere term in RTK                |
+| `T`                       | tropospheric delay                                                                                                                   | m           | `models.saastamoinen` in the standalone fix; `zenith_hydrostatic * nmf_dry` in RTK |
+| `N`                       | integer carrier ambiguity of one receiver and satellite                                                                              | cycles      | not estimated directly; the synthetic inputs draw it with `synth.ambiguities`      |
+| `Δx^s = x_r^s − x_b^s`    | single difference of any quantity `x`, rover minus base                                                                              | unit of `x` | `rtk.Rtk._update_biases`                                                           |
+| `∇Δx^{s,q} = Δx^s − Δx^q` | double difference, satellite minus reference satellite                                                                               | unit of `x` | `rtk.Rtk._double_differences`                                                      |
+| `b_{s,g}`                 | float single-difference ambiguity state: `ΔN^s` plus an offset shared by every state of signal `g`, cancelling in double differences | cycles      | `rtk.Rtk.x[3:]`, keyed by `Rtk.keys`                                               |
+| `∇ΔN^{s,q}`               | double-differenced ambiguity searched by LAMBDA                                                                                      | cycles      | `rtk.Ambiguity`; its `value` is reference minus satellite, `−∇ΔN^{s,q}`            |
+| `η_P`, `η_Φ`              | what the model leaves out: noise, multipath, unmodelled biases                                                                       | m           | not stored                                                                         |
+| `f_D`                     | Doppler shift, positive when the satellite approaches                                                                                | Hz          | `Observation.doppler`, `AcqResult.doppler`                                         |
+| `C/N0`                    | carrier-to-noise density ratio                                                                                                       | dB-Hz       | `Observation.cn0`, `AcqResult.cn0`                                                 |
+| code offset               | code phase, as an offset into the code period                                                                                        | s           | `AcqResult.code_offset`, `TrackResult.code_offset`                                 |
+| `f_s`                     | sample rate                                                                                                                          | Hz          | `samples.SampleFile.fs`                                                            |
+| `c`                       | speed of light                                                                                                                       | m/s         | `gpstime.C_LIGHT`                                                                  |
 
-A hat marks an estimate. The filter estimates real-valued single-differenced
-ambiguities; the integer search works on double differences formed from them. The raw
+A hat marks an estimate. The filter estimates real-valued single-difference
+ambiguity states; the integer search works on double differences formed from them. The raw
 double differences plotted in notebook 03 and the filter's measurement update both take
 satellite minus reference, as the table does. The search results that `pyrx` reports,
 `Ambiguity.value`, run the other way, reference minus satellite, so they are
