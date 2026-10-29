@@ -37,7 +37,7 @@ The code loop keeps the replica code aligned with the received code. It cannot t
 
 If the replica is aligned, the early and late correlators are equal. If the replica is late, early is larger than late. The difference between them, normalised, is the error signal, and a filter turns it into a small correction to the replica's code rate. This is the delay-locked loop, the DLL, and the prompt correlator's alignment is the receiver's measurement of when the code arrived, which becomes the pseudorange. A well-designed DLL in the open sky tracks the code to about one hundredth of a chip, a few metres of raw precision before any averaging.
 
-Narrowing the early-late spacing below half a chip sharpens the tracking and reduces the effect of multipath, if the front-end bandwidth is wide enough to preserve the sharp peak. This is one reason survey receivers want wide front-ends.
+Moving the early and late taps closer to prompt sharpens the tracking and reduces the effect of multipath, if the front-end bandwidth is wide enough to preserve the sharp peak. This is one reason survey receivers want wide front-ends.
 
 ## The carrier loop
 
