@@ -1,6 +1,8 @@
 """The notebooks' support module: data-source detection and the synthetic inputs."""
 
+import gzip
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -59,3 +61,67 @@ def test_synthetic_recording_is_cached_and_sized(tmp_path):
 def test_reference_runners_return_none_without_rtklib(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert nbsupport.rnx2rtkp_single("a.obs", "a.nav", tmp_path, nbsupport.PVT_SPAN) is None
+
+
+# a stand-in for rnx2rtkp: "none" writes nothing and exits 0 (RTKLIB with no data), "header"
+# writes a header only, "echo" writes one solution row whose position is the first input
+# file's contents
+_FAKE_RNX2RTKP = """\
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+out = Path(args[args.index("-o") + 1])
+if MODE == "header":
+    out.write_text("% header\\n")
+elif MODE == "echo":
+    xyz = Path(args[args.index("-o") + 2]).read_text().split()
+    out.write_text("% header\\n2190 0.000 " + " ".join(xyz) + " 1 8 0 0 0 0 0 0 0.0 3.5\\n")
+"""
+
+
+def _fake_rnx2rtkp(monkeypatch, tmp_path, mode):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    exe = bin_dir / "rnx2rtkp"
+    exe.write_text(f"#!{sys.executable}\nMODE = {mode!r}\n" + _FAKE_RNX2RTKP)
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+
+def test_reference_runners_never_return_a_previous_solution(monkeypatch, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    for mode in ("none", "header"):
+        _fake_rnx2rtkp(monkeypatch, tmp_path, mode)
+        (out / "rnx2rtkp.pos").write_text("2190 0.000 1 2 3 1 8 0 0 0 0 0 0 0.0 3.5\n")
+        assert nbsupport.rnx2rtkp_single("a.obs", "a.nav", out, nbsupport.PVT_SPAN) is None
+        (out / "rnx2rtkp.pos").write_text("2190 0.000 1 2 3 1 8 0 0 0 0 0 0 0.0 3.5\n")
+        assert (
+            nbsupport.rnx2rtkp_rtk(
+                "r.obs", "b.obs", "a.nav", out, np.zeros(3), 0.0, 0.0, nbsupport.RTK_SPAN
+            )
+            is None
+        )
+
+
+def test_reference_runner_reads_the_current_source(monkeypatch, tmp_path):
+    _fake_rnx2rtkp(monkeypatch, tmp_path, "echo")
+    out = tmp_path / "out"
+    for name, xyz in (("one", "1 2 3"), ("two", "4 5 6")):  # same file name, other contents
+        src = tmp_path / name / "USUD00JPN_R_20213600000_01D_30S_MO.rnx.gz"
+        src.parent.mkdir()
+        src.write_bytes(gzip.compress(xyz.ljust(100).encode()))  # hatanaka rejects tiny files
+        ref = nbsupport.rnx2rtkp_single(src, "a.nav", out, nbsupport.PVT_SPAN)
+        assert ref[(2190, 0.0)].tolist() == [float(v) for v in xyz.split()]
+
+
+def test_synthetic_recording_follows_its_recipe(monkeypatch, tmp_path):
+    path, *_ = nbsupport.synthetic_recording(tmp_path, seconds=0.05)
+    data = path.read_bytes()
+    monkeypatch.setattr(nbsupport, "SYNTH_CN0", 30.0)
+    path2, *_ = nbsupport.synthetic_recording(tmp_path, seconds=0.05)
+    assert path2.read_bytes() != data
+    monkeypatch.setattr(nbsupport, "SYNTH_PRNS", [4, 7])
+    path3, _, _, _, prns = nbsupport.synthetic_recording(tmp_path, seconds=0.05)
+    assert prns == [4, 7] and path3.read_bytes() not in (data, path2.read_bytes())
