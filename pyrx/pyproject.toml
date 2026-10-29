@@ -27,5 +27,8 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+extend-select = ["I", "FURB", "PLW"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
