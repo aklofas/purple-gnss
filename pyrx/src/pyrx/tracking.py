@@ -53,6 +53,11 @@ class TrackResult:
         one origin and are comparable to a fraction of a cycle.
     phase[k]: cycles in [0, 1), the carrier NCO phase at t[k].
     cn0[k]: dB-Hz, estimate held between its 1 s updates.
+    carrier_error[k]: cycles, the carrier discriminator of epoch k: the FLL's
+        frequency discriminator (phase change over one epoch) during pull-in, the
+        Costas phase error after it; nan on the first epoch.
+    code_error[k]: s of code time, the early-minus-late discriminator on the epochs
+        that update the DLL, nan between them.
     """
 
     prn: int
@@ -65,6 +70,8 @@ class TrackResult:
     cn0: np.ndarray
     locked: bool
     lost_at: float | None
+    carrier_error: np.ndarray
+    code_error: np.ndarray
 
 
 def track_l1ca(
@@ -98,6 +105,8 @@ def track_l1ca(
     out_adr = np.empty(n_max)
     out_phase = np.empty(n_max)
     out_cn0 = np.empty(n_max)
+    out_err_carrier = np.full(n_max, np.nan)
+    out_err_code = np.full(n_max, np.nan)
 
     # plain floats throughout: a numpy float32 seed would otherwise propagate into
     # t_code and limit the code time to ~1e-10 s
@@ -143,9 +152,12 @@ def track_l1ca(
                 cross = prompt.real * prompt_prev.imag - prompt.imag * prompt_prev.real
                 if dot != 0.0:
                     b = B_FLL[0] if epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
-                    fd -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
+                    err_freq = atan(cross / dot) / (2.0 * pi)
+                    out_err_carrier[k] = err_freq
+                    fd -= b / 0.25 * err_freq
         elif prompt.real != 0.0:
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+            out_err_carrier[k] = err_phase
             w = B_PLL / 0.53
             fd += 1.4 * w * (err_phase - err_phase_prev) + w * w * err_phase * t
             err_phase_prev = err_phase
@@ -157,6 +169,7 @@ def track_l1ca(
         if epoch % n_dll == 0:
             if sum_e + sum_l > 0.0:
                 err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / len(code)
+                out_err_code[k] = err_code
                 t_code -= B_DLL / 0.25 * err_code * t * n_dll
             sum_e = sum_l = 0.0
 
@@ -198,6 +211,8 @@ def track_l1ca(
         cn0=out_cn0[:k],
         locked=lost_at is None,
         lost_at=lost_at,
+        carrier_error=out_err_carrier[:k],
+        code_error=out_err_code[:k],
     )
 
 

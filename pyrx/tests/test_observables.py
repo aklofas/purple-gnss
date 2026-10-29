@@ -191,7 +191,7 @@ def _still_channel(subframes, inverted=False, n=30000, k0=1500):
     zeros = np.zeros(n)
     track = TrackResult(
         4, np.arange(n) * CA_PERIOD, np.zeros((n, 4), np.complex64), zeros, zeros, zeros, zeros,
-        np.full(n, 45.0), True, None,
+        np.full(n, 45.0), True, None, zeros, zeros,
     )  # fmt: skip
     sfs = []
     for epoch, tow, flipped in subframes:
