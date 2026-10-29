@@ -136,11 +136,12 @@ class Rtk:
         self.gf: dict[
             tuple[str, str], float
         ] = {}  # geometry-free against the system's first signal
-        self.lli: dict[tuple[str, str], tuple[int, int]] = {}  # last rover and base indicators
+        self.lli_rover: dict[tuple[str, str], int] = {}  # each receiver's last indicator
+        self.lli_base: dict[tuple[str, str], int] = {}
+        self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
-        self.last_base_time: float | None = None
 
     # --- state bookkeeping ---------------------------------------------------------------
 
@@ -163,6 +164,14 @@ class Rtk:
 
     def _index(self, key):
         return 3 + self.keys.index(key)
+
+    @staticmethod
+    def _flagged(last, key, lli):
+        """Whether one receiver's loss-of-lock indicator marks a slip: bit 1 set, or the
+        half-cycle bit changed since that receiver's previous indicator (RTKLIB detslp_ll)."""
+        prev = last.get(key, lli)
+        last[key] = lli
+        return bool(lli & 1) or bool((prev ^ lli) & 2)
 
     def _age(self):
         for key in list(self.keys):
@@ -250,12 +259,9 @@ class Rtk:
         signals = rover.signals
         cols = [base.signals.index(s) if s in base.signals else None for s in signals]
         age = t - _time(base)
-        # a base epoch reused for several rover epochs reports its slips once
-        base_new = _time(base) != self.last_base_time
-        self.last_base_time = _time(base)
         first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
 
-        sd = self._update_biases(signals, cols, common, yr, yb, tt, base_new, first_sigs)
+        sd = self._update_biases(signals, cols, common, yr, yb, tt, _time(base), first_sigs)
         dd = self._double_differences(signals, common, sd, yr, age)
         if dd is None:
             return None
@@ -277,7 +283,7 @@ class Rtk:
             nb,
         )
 
-    def _update_biases(self, signals, cols, common, yr, yb, tt, base_new, first_sigs):
+    def _update_biases(self, signals, cols, common, yr, yb, tt, t_base, first_sigs):
         """Single differences, slips and ambiguity states (RTKLIB udbias).
 
         Removes slipped and flags half-cycle states, adds process noise, aligns the
@@ -295,33 +301,34 @@ class Rtk:
             ref_phase = None
             for j, sig in enumerate(signals):
                 jb = cols[j]
-                if jb is None or not (isfinite(yr_p[j]) and isfinite(yb_p[jb])):
+                if jb is None:
                     continue
                 key = (sat, sig)
-                phase = yr_p[j] - yb_p[jb]
-                code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
-                # a loss-of-lock flag, or a half-cycle flag changing, at either receiver
-                prev_r, prev_b = self.lli.get(key, (lli_r[j], lli_b[jb]))
-                slip = (
-                    bool(lli_r[j] & 1)
-                    or (base_new and bool(lli_b[jb] & 1))
-                    or bool(((prev_r ^ lli_r[j]) | (prev_b ^ lli_b[jb])) & 2)
-                )
-                self.lli[key] = (int(lli_r[j]), int(lli_b[jb]))
-                halves[key] = bool((lli_r[j] | lli_b[jb]) & 2)
-                if sig == ref_sig:
-                    ref_phase = phase
-                elif ref_phase is not None:  # geometry-free against the first signal, when present
-                    gf = ref_phase - phase
-                    prev = self.gf.get(key)
-                    if prev is not None and abs(gf - prev) > opt.slip_threshold:
-                        slip = True
-                        if (sat, ref_sig) in self.biases:
-                            self._remove((sat, ref_sig))
-                    self.gf[key] = gf
+                # each receiver's indicator counts on its own, whether or not the other
+                # receiver has a phase; a base epoch reused for several rover epochs
+                # reports its slips once
+                slip = isfinite(yr_p[j]) and self._flagged(self.lli_rover, key, int(lli_r[j]))
+                if isfinite(yb_p[jb]) and self.base_seen.get(key) != t_base:
+                    self.base_seen[key] = t_base
+                    slip |= self._flagged(self.lli_base, key, int(lli_b[jb]))
+                phase = None
+                if isfinite(yr_p[j]) and isfinite(yb_p[jb]):
+                    phase = yr_p[j] - yb_p[jb]
+                    code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
+                    halves[key] = bool((lli_r[j] | lli_b[jb]) & 2)
+                    if sig == ref_sig:
+                        ref_phase = phase
+                    elif ref_phase is not None:  # geometry-free against the first signal
+                        gf = ref_phase - phase
+                        prev = self.gf.get(key)
+                        if prev is not None and abs(gf - prev) > opt.slip_threshold:
+                            slip = True
+                            if (sat, ref_sig) in self.biases:
+                                self._remove((sat, ref_sig))
+                        self.gf[key] = gf
                 if slip and key in self.biases:
                     self._remove(key)
-                if code is not None:
+                if phase is not None and code is not None:
                     sd[key] = (phase, code)
                     if key in self.biases:
                         i = self._index(key)

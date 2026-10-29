@@ -261,6 +261,107 @@ def test_a_reused_base_epoch_applies_its_slip_flag_once():
     assert rtk.biases[key].lock == 4
 
 
+def _one_hz_run(rng, ephs, rtk, base_every, seconds, amb_r=AMB_R, amb_b=AMB_B, edit=None):
+    """Fixes by rover time of a 1 Hz L1-only rover against a base every `base_every` s;
+    `edit` may replace the (rover, base) pair of a rover time before it is stepped."""
+    rover, base = [], []
+    for k in range(seconds):
+        r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), amb_r, amb_b, rng)
+        if edit is not None:
+            r, b = edit(k, r, b)
+        rover.append(r)
+        if k % base_every == 0:
+            base.append(b)
+    fixes = {}
+    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+        f = rtk.step(r, b)
+        if f is not None:
+            fixes[r.tow - TOW] = f
+    return fixes
+
+
+def _blank_phase(obs, sat, sig):
+    L = obs.carrier_phase.copy()
+    L[obs.sats.index(sat), obs.signals.index(sig)] = np.nan
+    return replace(obs, carrier_phase=L)
+
+
+def _flag(obs, sat, sig, flag):
+    lli = obs.lli.copy()
+    lli[obs.sats.index(sat), obs.signals.index(sig)] = flag
+    return replace(obs, lli=lli)
+
+
+def test_a_base_slip_is_applied_while_the_rover_phase_is_missing():
+    # 1 Hz rover, 5 s base, L1 only (no second signal for the geometry-free test to
+    # catch it): the base epoch at 60 s flags a slip on G03 and the rover's G03 phase
+    # is missing at that one epoch (code kept); the slip must reset the ambiguity at
+    # the base epoch's first use, as RTKLIB's per-receiver test does, not be lost
+    # because the rover had no phase to pair with
+    rng = np.random.default_rng(30)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    key = ("G03", "G1C")
+    amb_b = dict(AMB_B)
+
+    def edit(k, r, b):
+        if k == 60:
+            amb_b[key] += 7
+            r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), AMB_R, amb_b, rng)
+            r, b = _blank_phase(r, *key), _flag(b, *key, 1)
+        return r, b
+
+    locks = {}
+    original = rtk.step
+
+    def step(r, b):
+        f = original(r, b)
+        locks[r.tow - TOW] = rtk.biases[key].lock if key in rtk.biases else None
+        return f
+
+    rtk.step = step
+    fixes = _one_hz_run(rng, ephs, rtk, 5, 75, amb_b=amb_b, edit=edit)
+    assert fixes[59.0].status == "fix" and locks[59.0] == 60
+    assert locks[61.0] <= 2  # a fresh state once the rover phase returns
+    assert np.linalg.norm(fixes[61.0].position - ROVER) < 1.0
+    assert fixes[74.0].status == "fix"
+    np.testing.assert_allclose(fixes[74.0].position, ROVER, atol=0.01, rtol=0)
+
+
+def test_a_rover_slip_is_applied_while_the_base_phase_is_missing():
+    # the mirror: both receivers at 1 Hz, the rover flags a slip on G03 at 60 s while the
+    # base has no G03 phase at that epoch; the next epoch carries no flag, so the slip
+    # is lost unless the rover's own indicator was applied when it came
+    rng = np.random.default_rng(31)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    key = ("G03", "G1C")
+    amb_r = dict(AMB_R)
+
+    def edit(k, r, b):
+        if k == 60:
+            amb_r[key] += 7
+            r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), amb_r, AMB_B, rng)
+            r, b = _flag(r, *key, 1), _blank_phase(b, *key)
+        return r, b
+
+    locks = {}
+    original = rtk.step
+
+    def step(r, b):
+        f = original(r, b)
+        locks[r.tow - TOW] = rtk.biases[key].lock if key in rtk.biases else None
+        return f
+
+    rtk.step = step
+    fixes = _one_hz_run(rng, ephs, rtk, 1, 75, amb_r=amb_r, edit=edit)
+    assert fixes[59.0].status == "fix" and locks[59.0] == 60
+    assert locks[61.0] <= 2
+    assert np.linalg.norm(fixes[61.0].position - ROVER) < 1.0
+    assert fixes[74.0].status == "fix"
+    np.testing.assert_allclose(fixes[74.0].position, ROVER, atol=0.01, rtol=0)
+
+
 def test_ambiguities_survive_a_base_gap_longer_than_the_outage_limit():
     # 1 Hz rover, 30 s base with one epoch missing: the rover epochs that get no base (or
     # no seed) never reach the relative solution, so they must not count as outages; the
