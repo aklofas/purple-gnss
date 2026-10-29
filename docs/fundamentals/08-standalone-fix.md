@@ -14,7 +14,7 @@ This page is conceptual. The series continues with [RTK](09-rtk.md).
 
 ## The equation
 
-For each satellite, the pseudorange equals the geometric distance from the satellite's position at transmission to the receiver's position at reception, plus the speed of light times the receiver's clock error, plus the delays on the path, minus the satellite's own clock error. The receiver knows the pseudorange, computes the satellite position and clock from the message, models the path delays, and is left with four unknowns: three coordinates and its clock error. With four satellites the system is solvable; with more it is over-determined and least squares finds the best position.
+For each satellite, the pseudorange equals the geometric distance from the satellite's position at transmission to the receiver's position at reception, plus the speed of light times the receiver's clock error, plus the delays on the path, minus the speed of light times the satellite's own clock error. The receiver knows the pseudorange, computes the satellite position and clock from the message, models the path delays, and is left with four unknowns: three coordinates and its clock error. With four satellites the system is solvable; with more it is over-determined and least squares finds the best position.
 
 Everything on this page is about evaluating that equation honestly.
 
@@ -42,7 +42,7 @@ The same solution, run on the Doppler observables, gives velocity and clock drif
 
 ## Geometry
 
-Where the satellites are in the sky matters as much as how good the measurements are. If they are bunched together, a small error in each range moves the solution a long way; if they are spread across the sky, the errors partly cancel. The dilution of precision, DOP, is the factor by which the geometry multiplies the range error into position error. A DOP of 1 is excellent, 2 to 3 is typical in the open, and 6 or more means a street canyon or a bad hour. Height is always worse than horizontal position, because all the satellites are above the receiver and none below, so there is nothing to average the vertical error against.
+Where the satellites are in the sky matters as much as how good the measurements are. If they are bunched together, a small error in each range moves the solution a long way; if they are spread across the sky, the errors partly cancel. The dilution of precision, DOP, is the factor by which the geometry multiplies the range error into position error. A DOP of 1 is excellent, 2 to 3 is typical in the open, and 6 or more means a street canyon or a bad hour. Height is usually worse than horizontal position, because all the satellites are above the receiver and none below, so there is nothing to average the vertical error against.
 
 ## The error budget
 

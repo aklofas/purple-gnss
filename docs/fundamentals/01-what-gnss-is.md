@@ -57,7 +57,7 @@ The next pages explain where each of these comes from. The important thing to no
 
 ## Why RTK reaches centimetres
 
-Subtracting a nearby reference receiver's errors brings a fix down to tens of centimetres. Getting to one or two centimetres takes a second idea: measuring the signal's carrier wave itself, not just the timing marks on it. The carrier wavelength is 19 cm at the main GPS frequency, and a receiver can measure its phase to a millimetre or two. The catch is that it cannot tell which cycle it is looking at. Working out that integer count of cycles, for every satellite, is the central problem of RTK, and it is covered in the [RTK](09-rtk.md) page.
+Subtracting a nearby reference receiver's errors brings a fix down to tens of centimetres. Getting to one or two centimetres takes a second idea: measuring the signal's carrier wave itself, not just the timing marks on it. The carrier wavelength is 19 cm at the main GPS frequency, and with a strong signal and steady tracking a receiver can measure its phase to a millimetre or two. The catch is that it cannot tell which cycle it is looking at. Working out that integer count of cycles, for every satellite, is the central problem of RTK, and it is covered in the [RTK](09-rtk.md) page.
 
 ---
 

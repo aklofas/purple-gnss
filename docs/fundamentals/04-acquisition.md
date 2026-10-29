@@ -18,7 +18,7 @@ When a receiver starts cold it knows nothing: not which satellites are overhead,
 
 **Which satellite.** Try each PRN's code in turn. For GPS L1 there are 32 to try.
 
-**Code phase.** The received code is a repeating 1 ms pattern. The receiver's copy has to be aligned to it to within about half a chip, roughly 500 nanoseconds, before correlation gives anything. There are 1023 chips in a period, so at two trial positions per chip that is about 2000 alignments to test.
+**Code phase.** The received code is a repeating 1 ms pattern. The receiver's copy has to be aligned to it to within about half a chip, roughly 500 nanoseconds, for the correlation peak to stand out; it fades to nothing one chip away. There are 1023 chips in a period, so at two trial positions per chip that is about 2000 alignments to test.
 
 **Doppler.** Satellites move at nearly 4 km/s and the component along the line of sight changes the received frequency by up to about 5 kHz for a stationary user. The receiver's own oscillator error adds a few kHz more. If the receiver's replica is off in frequency by 1 kHz, the mismatch rotates the sum through a full cycle over the 1 ms correlation and it cancels entirely; at half that offset about 4 dB is lost. So the frequency range is searched in steps of 500 Hz, so that no satellite is ever more than 250 Hz from a bin, which is 20 to 40 bins.
 

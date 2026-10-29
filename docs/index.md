@@ -23,9 +23,10 @@ series. It is written to be read in order.
 
 ## The fundamentals series
 
-Each page follows the signal one step further on its way from the satellite to
-a fix. Each one opens with who it is for and what you will learn, and closes
-with a pointer to where that stage lives in `pyrx`.
+The nine pages each follow the signal one step further on its way from the
+satellite to a fix. Each one opens with who it is for and what you will learn,
+and closes with a pointer to where that stage lives in `pyrx`. The glossary at
+the end collects the terms and further reading.
 
 1. [What a GNSS is](fundamentals/01-what-gnss-is.md): the constellations, the orbits, why four satellites, and why time is the real product.
 2. [The signal](fundamentals/02-the-signal.md): carrier, spreading code, and data message, and why the signal arrives below the noise.
