@@ -460,8 +460,9 @@ digits), every subframe's time tag to match its position in the file within
 0.1 s, every channel to agree on the file start time to within 30 ms, and the
 2021-12-26 recording to yield a complete ephemeris on every channel. The 2022-01-14 recording starts inside subframe 1, so its window holds
 subframes 2 to 5 and no complete ephemeris. Neither window contains subframe 4
-page 18, so the ionosphere parameters are checked only by the synthetic
-round-trip tests.
+page 18, so the ionosphere parameters are checked by the synthetic round-trip
+tests and by a page-18 vector laid out word by word from IS-GPS-200, independent
+of the decoder's field table.
 
 ## Tracking loops
 

@@ -123,16 +123,15 @@ def test_rtk_skips_epochs_without_a_base():
     amb = dict(AMB_R)
     for k in range(3):
         rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, amb_r=amb))
-    for k in range(3, 10):  # seven epochs without a base: every ambiguity state ages out
+    # seven epochs without a base: unpaired epochs leave the ambiguity states as they are
+    for k in range(3, 10):
         assert rtk.step(_pair(rng, ephs, TOW + 30.0 * k, amb_r=amb)[0], None) is None
     amb.update({k: v + 3 for k, v in amb.items()})  # the receiver re-acquired everything meanwhile
     fixes = [rtk.step(*_pair(rng, ephs, TOW + 300.0 + 30.0 * k, amb_r=amb)) for k in range(3)]
     assert all(f is not None and f.nb == 10 for f in fixes) and fixes[-1].status == "fix"
     for f in fixes:
         if f.status == "fix":
-            np.testing.assert_allclose(
-                f.position, ROVER, atol=0.01, rtol=0
-            )  # recreated states, not stale
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
 
 
 def test_rtk_drops_satellites_without_ephemeris():
