@@ -91,13 +91,13 @@ Fixing is what the status display means by "RTK fixed" against "RTK float", and 
 
 ## What goes wrong
 
-A cycle slip on one satellite invalidates its ambiguity, and the engine has to detect it and restart that ambiguity while keeping the rest. It can detect a slip from the receiver's lock flag, from a jump in the phase that the pseudorange does not show, or, with two frequencies, from a jump in the geometry-free combination, the difference of the two phases in meters, in which the range and clocks cancel and only the slowly changing ionosphere and the ambiguities remain. A satellite setting or a new one rising is handled the same way. A wrong fix, an integer vector accepted that was not the true one, is the worst outcome, because it gives a confidently wrong position by a multiple of a wavelength, and the ratio test and validation of the fixed residuals are the defenses against it. Long baselines, low satellites, multipath and a poor oscillator all make fixing slower and wrong fixes likelier.
+A cycle slip on one satellite invalidates its ambiguity, and the engine has to detect it and restart that ambiguity while keeping the rest. It can detect a slip from the receiver's lock flag, from a jump in the phase that the pseudorange does not show, or, with two frequencies, from a jump in the geometry-free combination, the difference of the two phases in meters, in which the range and clocks cancel and only the slowly changing ionosphere and the ambiguities remain. A satellite setting or a new one rising is handled the same way. A wrong fix, an integer vector accepted that was not the true one, is the worst outcome, because it gives a confidently wrong position, off by an amount set by the wrong integers and the satellite geometry, and the ratio test and validation of the fixed residuals are the defenses against it. Long baselines, low satellites, multipath and a poor oscillator all make fixing slower and wrong fixes likelier.
 
 ## Beyond RTK
 
 Precise point positioning, PPP, drops the base station and instead uses precise orbits and clocks, good to centimeters, computed by a global network and either downloaded or, for Galileo, broadcast on E6 for free. Without a base there is nothing to difference the atmosphere against, so it has to be estimated, and convergence takes many minutes, to a decimeter or two. Satellite-based augmentation, SBAS, is the meter-level version of the same idea broadcast from geostationary satellites, usable with a single frequency.
 
-The RTK engine in this project follows the single-baseline model of RTKLIB, the open-source reference, and is checked against it epoch by epoch on public station pairs. The intent is for that engine to run on the receiver's own processor on observations from the receiver's own correlators, with the base's observations arriving over a link, which closes the loop that this series opened with the signal leaving the satellite.
+The RTK engine in this project follows the single-baseline model of RTKLIB, the open-source reference, and is checked against it epoch by epoch on public station pairs.
 
 ---
 
