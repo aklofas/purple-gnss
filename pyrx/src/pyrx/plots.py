@@ -4,17 +4,85 @@ import os
 from pathlib import Path
 
 import numpy as np
+from cycler import cycler
+from matplotlib import rc_context
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from pyrx.acquisition import AcqResult
 from pyrx.tracking import TrackResult
 
-INK = "#333333"
-MUTED = "#9aa5b1"
-BAR = "#9ecae1"
-BAR_DETECTED = "#2171b5"
-LINES = ("#2171b5", "#6baed6", "#08306b")
+INK = "#243041"  # text and ticks
+MUTED = "#637285"  # secondary text, spines, reference lines
+BAR = "#CDD5DF"
+BAR_DETECTED = "#0072B2"
+LINES = ("#0072B2", "#D55E00", "#009E73")  # also east, north, up, with "-", "--", "-."
+HIGHLIGHT = "#A64B00"  # exceptional events
+GRID = "#DCE2E8"
+# Okabe-Ito without its yellow, plus a dark wine: under simulated protanopia, deuteranopia
+# and tritanopia every pair stays at least 16 CIELAB units apart. The orange and the light
+# blue are too pale for text; identities still need a dash, marker or label as well.
+CATEGORIES = (
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#E69F00",
+    "#56B4E9",
+    "#882255",
+    "#222222",
+)
+DASHES = (
+    "-",
+    "--",
+    "-.",
+    ":",
+    (0, (5, 1)),
+    (0, (3, 1, 1, 1)),
+    (0, (1, 1, 3, 1)),
+    (0, (6, 2, 1, 2, 1, 2)),
+)
+# matplotlib rcParams of every figure, for `rc_context` or `rcParams.update`: opaque white,
+# left-aligned bold titles (DejaVu Sans has no semibold), light grid, colour and dash cycled
+PLOT_STYLE = {
+    "font.family": "DejaVu Sans",
+    "font.size": 11,
+    "text.color": INK,
+    "axes.labelcolor": INK,
+    "axes.labelsize": 11,
+    "axes.titlesize": 13,
+    "axes.titleweight": "bold",
+    "axes.titlelocation": "left",
+    "axes.titlepad": 10,
+    "axes.edgecolor": MUTED,
+    "axes.linewidth": 0.7,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.facecolor": "#FFFFFF",
+    "axes.axisbelow": True,
+    "axes.grid": True,
+    "axes.prop_cycle": cycler(color=CATEGORIES) + cycler(linestyle=DASHES),
+    "grid.color": GRID,
+    "grid.linewidth": 0.6,
+    "grid.alpha": 1.0,
+    "xtick.color": INK,
+    "ytick.color": INK,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "xtick.direction": "out",
+    "ytick.direction": "out",
+    "legend.fontsize": 10,
+    "legend.frameon": False,
+    "lines.linewidth": 1.4,
+    "lines.markersize": 4,
+    "figure.facecolor": "#FFFFFF",
+    "figure.dpi": 100,
+    "figure.titlesize": 14,
+    "figure.titleweight": "bold",
+    "savefig.facecolor": "#FFFFFF",
+    "savefig.edgecolor": "#FFFFFF",
+    "savefig.transparent": False,
+}
 
 
 def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> None:
@@ -50,23 +118,24 @@ def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> N
 
 def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike) -> None:
     """C/N0 per PRN with the detection threshold; detected PRNs are darker and labelled."""
-    prns = [r.prn for r in results]
-    cn0 = [r.cn0 for r in results]
-    colors = [BAR_DETECTED if r.detected else BAR for r in results]
-    fig = Figure(figsize=(10, 4), constrained_layout=True)
-    FigureCanvasAgg(fig)
-    ax = fig.subplots()
-    ax.bar(prns, cn0, color=colors, width=0.8)
-    ax.axhline(threshold, color=MUTED, linestyle="--", linewidth=1)
-    for r in results:
-        if r.detected:
-            ax.annotate(f"{r.cn0:.1f}", (r.prn, r.cn0), ha="center", va="bottom", fontsize=8)
-    ax.set_xlabel("PRN")
-    ax.set_ylabel("C/N0 (dB-Hz)")
-    ax.set_title(f"Acquisition C/N0 (threshold {threshold:.0f} dB-Hz)")
-    ax.set_xticks(prns)
-    ax.grid(axis="y", color=MUTED, alpha=0.3)
-    fig.savefig(path, dpi=120)
+    with rc_context(PLOT_STYLE):
+        prns = [r.prn for r in results]
+        cn0 = [r.cn0 for r in results]
+        colors = [BAR_DETECTED if r.detected else BAR for r in results]
+        fig = Figure(figsize=(10, 4), constrained_layout=True)
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
+        ax.bar(prns, cn0, color=colors, width=0.8)
+        ax.axhline(threshold, color=MUTED, linestyle="--", linewidth=1)
+        for r in results:
+            if r.detected:
+                ax.annotate(f"{r.cn0:.1f}", (r.prn, r.cn0), ha="center", va="bottom", fontsize=8)
+        ax.set_xlabel("PRN")
+        ax.set_ylabel("C/N0 (dB-Hz)")
+        ax.set_title(f"Acquisition C/N0 (threshold {threshold:.0f} dB-Hz)")
+        ax.set_xticks(prns)
+        ax.grid(axis="x", visible=False)
+        fig.savefig(path, dpi=120)
 
 
 def plot_tracking(result: TrackResult, path: str | os.PathLike) -> None:
