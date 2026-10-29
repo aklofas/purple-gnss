@@ -95,7 +95,7 @@ def data_source() -> Captures | None:
     if missing:
         print(f"missing under {root}: {', '.join(missing)}; running on synthetic data")
         return None
-    print(f"running on the recordings under {root}")
+    print("running on the recordings named by PYRX_CAPTURES")
     return Captures(root, **paths)
 
 

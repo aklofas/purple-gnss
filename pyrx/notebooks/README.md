@@ -37,3 +37,6 @@ interpreter the package is installed in:
 ```sh
 python -m nbconvert --to notebook --execute --inplace 01-signal-chain.ipynb
 ```
+
+The printed numbers in the committed outputs were produced on the project's own
+environment; the millimetre-level comparisons will differ slightly on another.
