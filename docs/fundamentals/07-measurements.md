@@ -26,7 +26,7 @@ A pseudorange from the L1 C/A code is noisy at the level of a few decimetres to 
 
 ## Carrier phase
 
-The carrier phase is the number of carrier cycles between the satellite and the receiver, as measured by the tracking loop's accumulated replica phase. It is measured to about one hundredth of a cycle, two millimetres on L1, a hundred times better than the pseudorange. The ionosphere affects it by the same amount as the pseudorange but with the opposite sign (it advances the phase while delaying the code), which turns out to be useful. And multipath affects it far less, a few centimetres at worst.
+The carrier phase is the number of carrier cycles between the satellite and the receiver, as measured by the tracking loop's accumulated replica phase. It is recorded so that it grows as the distance grows. It is measured to about one hundredth of a cycle, two millimetres on L1, a hundred times better than the pseudorange. The ionosphere affects it by the same amount as the pseudorange but with the opposite sign (it advances the phase while delaying the code), which turns out to be useful. And multipath affects it far less, a few centimetres at worst.
 
 The price is that the integer part is unknown. When the tracking loop locks on, it starts counting cycles from zero, and the true count at that moment, some 100 million cycles, is not observable. From then on the receiver counts every cycle gained and lost, so the phase measures changes in distance perfectly while the absolute distance is off by an unknown integer number of wavelengths. That integer is the ambiguity, it is constant for as long as lock holds, and it changes if the loop slips a cycle. RTK is the business of finding those integers. Until they are found, the carrier phase is a very precise measurement of how far the receiver has moved, not of where it is.
 
@@ -41,7 +41,7 @@ The price is that the integer part is unknown. When the tracking loop locks on, 
 
 ## Doppler
 
-The Doppler observable is the frequency offset the carrier loop is currently applying, in Hz, which is the rate of change of distance to the satellite plus the receiver's clock drift. It gives the receiver's velocity directly: with four satellites the solution is three velocity components and the clock drift, by exactly the same argument as for position. Velocity from Doppler is accurate to a few centimetres per second and needs no ambiguity resolution, so it is available instantly and is what navigation displays show as speed and heading.
+The Doppler observable is the frequency offset the carrier loop is currently applying, in Hz, positive while the satellite approaches. Multiplied by minus the carrier wavelength it becomes the rate of change of distance to the satellite, plus the receiver's and the satellite's clock drift, in metres per second. It gives the receiver's velocity directly: with four satellites the solution is three velocity components and the clock drift, by exactly the same argument as for position. Velocity from Doppler is accurate to a few centimetres per second and needs no ambiguity resolution, so it is available instantly and is what navigation displays show as speed and heading.
 
 ## C/N0
 
