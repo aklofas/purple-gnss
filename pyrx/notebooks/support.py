@@ -3,6 +3,7 @@ the recordings are absent, figure styling, and the readers and runners of the
 reference results (Pocket SDR logs, RTKLIB's rnx2rtkp).
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -112,22 +113,26 @@ SYNTH_PRNS = [4, 7, 12, 25]
 _SYNTH_DOPPLERS = (800.0, -1200.0, 2500.0, -300.0)  # Hz
 _SYNTH_OFFSETS = (500, 1700, 3100, 900)  # samples
 SYNTH_CN0 = 45.0  # dB-Hz
+_SYNTH_TOW = 5044  # TOW count of the first subframe (6 s units)
 
 
 def synthetic_recording(
     directory: Path, seconds: float = 22.0, fs: float = 2.5e6
 ) -> tuple[Path, float, float, bool, list[int]]:
     """An int8 I/Q recording at baseband of four L1 C/A signals carrying three real
-    navigation subframes each; returns path, fs, f_if, iq, prns. Written once and reused.
+    navigation subframes each; returns path, fs, f_if, iq, prns. Written once and reused
+    while the parameters that make it are unchanged.
 
     Each signal is synthesised 10 log10(4) dB above the target so that the sum of the
     four noise realisations lands at `SYNTH_CN0`.
     """
     n = int(fs * seconds)
-    path = Path(directory) / f"synthetic_l1ca_{fs / 1e6:g}MHz_{seconds:g}s.bin"
+    recipe = (SYNTH_PRNS, _SYNTH_DOPPLERS, _SYNTH_OFFSETS, SYNTH_CN0, _SYNTH_TOW, fs, seconds)
+    key = hashlib.sha256(repr(recipe).encode()).hexdigest()[:12]
+    path = Path(directory) / f"synthetic_l1ca_{fs / 1e6:g}MHz_{seconds:g}s_{key}.bin"
     if path.is_file() and path.stat().st_size == 2 * n:
         return path, fs, 0.0, True, list(SYNTH_PRNS)
-    bits = np.concatenate([np.zeros(100, dtype=np.uint8), frame(5044)])
+    bits = np.concatenate([np.zeros(100, dtype=np.uint8), frame(_SYNTH_TOW)])
     cn0 = SYNTH_CN0 + 10 * log10(len(SYNTH_PRNS))
     x = np.zeros(n, dtype=np.complex64)
     for i, (prn, dop, off) in enumerate(zip(SYNTH_PRNS, _SYNTH_DOPPLERS, _SYNTH_OFFSETS)):
@@ -277,24 +282,24 @@ def _rnx2rtkp() -> str | None:
 
 
 def _plain(path, out_dir) -> Path:
-    """A decompressed copy (gzip, Hatanaka) of a RINEX file for rnx2rtkp."""
+    """A fresh decompressed copy (gzip, Hatanaka) of a RINEX file for rnx2rtkp."""
     path = Path(path)
     if not path.name.endswith((".gz", ".crx", ".Z")):
         return path
-    plain = Path(out_dir) / path.name.replace(".crx.gz", ".rnx").replace(".gz", "")
-    if plain.exists():
-        return plain
     copy = Path(out_dir) / path.name
     shutil.copyfile(path, copy)
     return Path(hatanaka.decompress_on_disk(copy, delete=True))
 
 
-def _run(exe, conf, out_dir, span, files) -> list[list[str]]:
+def _run(exe, conf, out_dir, span, files) -> list[list[str]] | None:
+    """The solution rows rnx2rtkp writes, or None (with a printed reason) when it writes
+    none: it exits 0 without touching its output when the inputs hold no data."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     conf_path = out_dir / "rnx2rtkp.conf"
     conf_path.write_text(conf)
     pos = out_dir / "rnx2rtkp.pos"
+    pos.unlink(missing_ok=True)
     ts, te = span
     subprocess.run(
         [exe, "-k", str(conf_path), "-y", "2", "-ts", *ts.split(), "-te", *te.split(),
@@ -302,8 +307,12 @@ def _run(exe, conf, out_dir, span, files) -> list[list[str]]:
         check=True,
         capture_output=True,
     )  # fmt: skip
-    lines = pos.read_text().splitlines()
-    return [line.split() for line in lines if line.strip() and not line.startswith("%")]
+    lines = pos.read_text().splitlines() if pos.is_file() else []
+    rows = [line.split() for line in lines if line.strip() and not line.startswith("%")]
+    if not rows:
+        print("rnx2rtkp wrote no solutions: no reference solution")
+        return None
+    return rows
 
 
 def rnx2rtkp_single(obs, nav, out_dir, span) -> dict[tuple[int, float], np.ndarray] | None:
@@ -312,6 +321,8 @@ def rnx2rtkp_single(obs, nav, out_dir, span) -> dict[tuple[int, float], np.ndarr
     if exe is None:
         return None
     rows = _run(exe, SINGLE_CONF, out_dir, span, (obs, nav))
+    if rows is None:
+        return None
     return {(int(f[0]), round(float(f[1]), 1)): np.array([float(v) for v in f[2:5]]) for f in rows}
 
 
@@ -328,6 +339,8 @@ def rnx2rtkp_rtk(
         base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2],
     )  # fmt: skip
     rows = _run(exe, conf, out_dir, span, (rover, base, nav))
+    if rows is None:
+        return None
     return {
         (int(f[0]), round(float(f[1]), 1)): {
             "xyz": np.array([float(v) for v in f[2:5]]),
