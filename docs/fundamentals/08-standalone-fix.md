@@ -60,6 +60,6 @@ Combined and multiplied by a DOP of 2, that is a few metres horizontally, which 
 
 ---
 
-**In pyrx:** `orbits.py` evaluates the ephemeris, `models.py` holds the Klobuchar and Saastamoinen corrections, and `pvt.py` is the weighted least-squares solver, with the same models and weights as RTKLIB's single-point mode so the two can be compared. `pyrx-pvt` runs it on RINEX files, and on a day of a public reference station it agrees with RTKLIB to the millimetre.
+**In pyrx:** `orbits.py` evaluates the ephemeris, `models.py` holds the Klobuchar and Saastamoinen corrections, and `pvt.py` is the weighted least-squares solver, with the same models and weights as RTKLIB's single-point mode so the two can be compared. `pyrx-pvt` runs it on RINEX files, and on a day of a public reference station it agrees with RTKLIB to about a millimetre on average, with a handful of epochs up to 0.5 m apart.
 
 Next: [RTK](09-rtk.md).

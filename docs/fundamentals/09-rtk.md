@@ -60,6 +60,6 @@ The RTK engine in this project follows the single-baseline model of RTKLIB, the 
 
 ---
 
-**In pyrx:** `rtk.py` is the engine (double differences, the Kalman float filter, cycle-slip handling and the ratio test) and `ambiguity.py` is the LAMBDA search. `pyrx-rtk` runs it on rover and base RINEX files. On six hours of two public station pairs it fixes the same epochs as RTKLIB and agrees with it and with the published marker coordinates within a few millimetres.
+**In pyrx:** `rtk.py` is the engine (double differences, the Kalman float filter, cycle-slip handling and the ratio test) and `ambiguity.py` is the LAMBDA search. `pyrx-rtk` runs it on rover and base RINEX files. On six hours of two public station pairs, with GPS it fixes exactly the same epochs as RTKLIB and its fixed positions agree with RTKLIB's within 3 mm; they lie within a centimetre of the published marker coordinates on average and within 3 cm epoch by epoch.
 
 Back to the [index](../index.md), or on to the [glossary](glossary.md).
