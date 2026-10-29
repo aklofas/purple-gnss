@@ -29,9 +29,9 @@ A receiver listens to several satellites, works out how long each signal took to
 | GLONASS | about 24 | 19,100 km | 11 h 16 min |
 | BeiDou | about 45, in three orbit types | 21,500 km for the main group | 12 h 53 min |
 
-These are medium Earth orbits, far above the International Space Station (400 km) and far below geostationary satellites (36,000 km). A GPS satellite crosses the sky in a few hours and the pattern repeats every sidereal day. From any open spot on Earth you can usually see 8 to 12 GPS satellites, and 25 to 40 satellites across all four systems.
+The altitudes listed are for medium Earth orbits, far above the International Space Station (400 km) and far below geostationary satellites (36,000 km). BeiDou also has geostationary and inclined geosynchronous satellites at about 36,000 km. A GPS satellite crosses the sky in a few hours and the pattern repeats every sidereal day. From any open spot on Earth you can usually see 8 to 12 GPS satellites, and 25 to 40 satellites across all four systems.
 
-The orbits are nearly circular and tilted about 55 degrees to the equator, spread over several planes so that coverage is even. A satellite's orbit is predictable to within a metre or two over a few hours from the parameters it broadcasts, which is what the receiver relies on.
+The medium Earth orbits are nearly circular and spread over several planes for even coverage. Their inclinations to the equator are about 55 degrees for GPS and BeiDou, 56 degrees for Galileo, and 65 degrees for GLONASS. A satellite's orbit is predictable to within a metre or two over a few hours from the parameters it broadcasts, which is what the receiver relies on.
 
 ## Time is the product
 
