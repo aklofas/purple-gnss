@@ -34,7 +34,7 @@ The satellite clock correction is evaluated at the same time, with the relativis
 
 ## Solving
 
-The distance from receiver to satellite is not linear in the receiver's position, so the solver starts from a guess (the centre of the Earth works, from cold), linearises around it, solves the linear least-squares problem for the correction to the guess and the clock, and repeats. Three or four iterations converge from anywhere on the planet. Each pseudorange is weighted by its expected quality, mostly a function of elevation and C/N0.
+The distance from receiver to satellite is not linear in the receiver's position, so the solver starts from a guess (the centre of the Earth works, from cold), linearises around it, solves the linear least-squares problem for the correction to the guess and the clock, and repeats. Three or four iterations converge from anywhere on the planet. Each pseudorange is weighted by its expected quality, usually a function of elevation and, in some receivers, C/N0.
 
 The result is a position in Earth-centred coordinates, which is converted to latitude, longitude and ellipsoidal height, and a receiver clock error. The clock error is discarded by most users and is the whole point for timing users. A solver also checks the residuals: if the measurements do not fit the solution as well as they should, something is wrong (a bad satellite, a multipath reflection, a misdecoded ephemeris), and the usual approach is to drop the worst measurement and solve again.
 

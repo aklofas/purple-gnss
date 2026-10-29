@@ -45,7 +45,7 @@ The Doppler observable is the frequency offset the carrier loop is currently app
 
 ## C/N0
 
-The signal strength is reported as the carrier-to-noise-density ratio in dB-Hz, estimated from the correlator outputs. It is not used in the position solution directly, but it is the main input to weighting: a measurement at 30 dB-Hz is noisier and more likely to be multipath than one at 48 dB-Hz, and a solver down-weights it. It is also the first thing a person looks at when a receiver misbehaves.
+The signal strength is reported as the carrier-to-noise-density ratio in dB-Hz, estimated from the correlator outputs. It is not used in the position solution directly, but many receivers use it in weighting: a measurement at 30 dB-Hz is noisier and more likely to be multipath than one at 48 dB-Hz, and such a solver down-weights it. It is also the first thing a person looks at when a receiver misbehaves.
 
 ## Loss-of-lock flags and RINEX
 
