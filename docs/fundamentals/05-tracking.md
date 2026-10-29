@@ -59,7 +59,7 @@ It is zero when the replica is aligned, positive when the replica is late, and i
 
 The loop filter turns $e_{\rm code}$ into a small correction to the replica's code rate. This is the delay-locked loop, the DLL, and the prompt correlator's alignment is the receiver's measurement of when the code arrived, which becomes the pseudorange. A well-designed DLL in the open sky tracks the code to about one hundredth of a chip, a few meters of raw precision before any averaging: a chip is 293 m, so a hundredth is about 3 m.
 
-The DLL does not have to follow the satellite's motion on its own. The Doppler that compresses the carrier compresses the code by the same fraction, so the carrier loop can tell the code NCO how fast to run. This is carrier aiding. A Doppler of 1 kHz on L1 is a fraction $1000/1.57542\times10^9$, 0.63 parts per million, which moves the code by about 0.65 chip per second. With aiding, the DLL only corrects what is left and can be made very slow.
+The DLL does not have to follow the satellite's motion on its own. The Doppler that compresses the carrier compresses the code by the same fraction, so the carrier loop can tell the code NCO how fast to run. This is carrier aiding. A Doppler of 1 kHz on L1 is a fraction $1000/(1.57542\times10^9)$, 0.63 parts per million, which moves the code by about 0.65 chip per second. With aiding, the DLL only corrects what is left and can be made very slow.
 
 Moving the early and late taps closer to prompt sharpens the tracking and reduces the effect of multipath, if the front-end bandwidth is wide enough to preserve the sharp peak. This is one reason survey receivers want wide front-ends.
 
