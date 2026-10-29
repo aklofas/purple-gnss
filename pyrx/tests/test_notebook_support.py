@@ -4,6 +4,7 @@ import gzip
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -102,6 +103,7 @@ def test_reference_runners_return_none_without_rtklib(monkeypatch, tmp_path):
 # file's contents
 _FAKE_RNX2RTKP = """\
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -171,3 +173,21 @@ def test_reference_runners_read_the_solution_columns(monkeypatch, tmp_path):
     ((key, row),) = ref.items()
     assert key == (2190, 0.0) and (row["q"], row["ns"], row["ratio"]) == (1, 8, 3.5)
     assert row["xyz"].tolist() == [4641951.5, 1393054.25, 4133281.125]
+
+
+def test_elapsed_minutes_run_across_the_week_boundary():
+    start = SimpleNamespace(week=2189, tow=604740.0)  # one minute before the week ends
+    later = [start, SimpleNamespace(week=2190, tow=0.0), SimpleNamespace(week=2190, tow=90.0)]
+    assert nbsupport.elapsed_minutes(later, start).tolist() == [0.0, 1.0, 2.5]
+    assert nbsupport.time_note(SimpleNamespace(week=2190, tow=0.0), synthetic=False) == (
+        "time: minutes from 2021-12-26 00:00:00 GPST"
+    )
+    assert "synthetic" in nbsupport.time_note(start, synthetic=True)
+
+
+def test_figure_applies_the_package_style():
+    nbsupport.plt.switch_backend("agg")  # no display in the test run
+    fig, ax = nbsupport.figure()
+    assert fig.get_facecolor() == (1.0, 1.0, 1.0, 1.0)
+    assert ax.title.get_fontweight() == "bold" and ax.xaxis.get_gridlines()[0].get_visible()
+    nbsupport.plt.close(fig)
