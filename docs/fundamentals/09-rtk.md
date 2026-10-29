@@ -54,7 +54,7 @@ A cycle slip on one satellite invalidates its ambiguity, and the engine has to d
 
 ## Beyond RTK
 
-Precise point positioning, PPP, drops the base station and instead uses precise orbits and clocks, good to centimetres, computed by a global network and either downloaded or, for Galileo, broadcast on E6 for free. Without a base there is nothing to difference the atmosphere against, so it has to be estimated, and convergence takes many minutes, to a decimetre or two. It is the fallback in this project for when no base is reachable. Satellite-based augmentation, SBAS, is the metre-level version of the same idea broadcast from geostationary satellites, usable with a single frequency.
+Precise point positioning, PPP, drops the base station and instead uses precise orbits and clocks, good to centimetres, computed by a global network and either downloaded or, for Galileo, broadcast on E6 for free. Without a base there is nothing to difference the atmosphere against, so it has to be estimated, and convergence takes many minutes, to a decimetre or two. It is the planned fallback in this project for when no base is reachable. Satellite-based augmentation, SBAS, is the metre-level version of the same idea broadcast from geostationary satellites, usable with a single frequency.
 
 The RTK engine in this project follows the single-baseline model of RTKLIB, the open-source reference, and is checked against it epoch by epoch on public station pairs. The intent is for that engine to run on the receiver's own processor on observations from the receiver's own correlators, with the base's observations arriving over a link, which closes the loop that this series opened with the signal leaving the satellite.
 

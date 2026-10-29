@@ -52,7 +52,7 @@ GPS time itself is a continuous count of weeks and seconds since midnight on 6 J
 
 Subframes 4 and 5 cycle through 25 pages over 12.5 minutes and carry the almanac, a coarse orbit and clock for every satellite in the constellation, accurate to a kilometre or so and valid for months. It is what lets a warm receiver predict which satellites are up. They also carry the eight Klobuchar parameters of a simple ionosphere model that removes about half of the ionospheric delay for a single-frequency receiver, and the parameters relating GPS time to UTC.
 
-Galileo's message adds a few things of its own, notably the free high-accuracy corrections on E6, which bring the orbit and clock from a metre to a few centimetres and are the basis of the PPP fallback in this project.
+Galileo's message adds a few things of its own, notably the free high-accuracy corrections on E6, which bring the orbit and clock from a metre to a few centimetres and are the basis of the planned PPP fallback in this project.
 
 ---
 
