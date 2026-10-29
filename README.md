@@ -14,7 +14,7 @@ today is the reference receiver, and its interfaces will change:
 | **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A samples to RINEX, and RINEX to a standalone or RTK fix; each stage checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
 | **Hardware**                           | In design                                                                                                                             |                                    |
 
-## See it in 30 seconds
+## Quick start
 
 Install the receiver (Python 3.12 or later, in a virtual environment) from the
 repository root, download Pocket SDR's
