@@ -55,9 +55,12 @@ class TrackResult:
     cn0[k]: dB-Hz, estimate held between its 1 s updates.
     carrier_error[k]: cycles, the carrier discriminator of epoch k: the FLL's
         frequency discriminator (phase change over one epoch) during pull-in, the
-        Costas phase error after it; nan on the first epoch.
+        Costas phase error after it; nan on the first epoch and where the
+        discriminator's denominator is zero (prompt dot product in the FLL, prompt
+        in-phase sum in the PLL).
     code_error[k]: s of code time, the early-minus-late discriminator on the epochs
-        that update the DLL, nan between them.
+        that update the DLL, nan between them and where the accumulated early and late
+        magnitudes are both zero.
     """
 
     prn: int
@@ -152,9 +155,9 @@ def track_l1ca(
                 cross = prompt.real * prompt_prev.imag - prompt.imag * prompt_prev.real
                 if dot != 0.0:
                     b = B_FLL[0] if epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
-                    err_freq = atan(cross / dot) / (2.0 * pi)
-                    out_err_carrier[k] = err_freq
-                    fd -= b / 0.25 * err_freq
+                    angle = atan(cross / dot)
+                    out_err_carrier[k] = angle / (2.0 * pi)
+                    fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
         elif prompt.real != 0.0:
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
             out_err_carrier[k] = err_phase
