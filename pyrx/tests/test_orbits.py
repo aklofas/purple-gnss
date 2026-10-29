@@ -2,7 +2,6 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from support import ephemeris
 
 from pyrx.orbits import (
     OMEGA_E,
@@ -12,6 +11,7 @@ from pyrx.orbits import (
     select_ephemeris,
     wrap_week,
 )
+from pyrx.synth import ephemeris
 
 
 def test_wrap_week():

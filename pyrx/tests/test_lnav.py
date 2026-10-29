@@ -2,7 +2,6 @@ from math import pi
 
 import numpy as np
 import pytest
-from support import SF1, SF2, SF3
 
 from pyrx.ephemeris import Ephemeris
 from pyrx.lnav import (
@@ -15,6 +14,7 @@ from pyrx.lnav import (
     encode_word,
     parity_ok,
 )
+from pyrx.synth import SF1, SF2, SF3
 
 # exact multiples of the LSBs (12*2^-30, -1*2^-27, -1*2^-24, 2*2^-24; 56*2^11, -10*2^14,
 # -3*2^16, 14*2^16), which is what the broadcast values of 2022-01-14 round to in RINEX

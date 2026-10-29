@@ -2,21 +2,12 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from support import (
-    AMB_B,
-    AMB_R,
-    ROVER,
-    SIGNALS,
-    TOW,
-    USUD,
-    as_galileo,
-    constellation,
-    synthetic_pair,
-)
+from support import AMB_B, AMB_R, ROVER, SIGNALS
 
 from pyrx.models import Station, marker_from_arp
 from pyrx.observations import Observations
 from pyrx.rtk import Rtk, RtkOptions, pair_epochs, solve_rtk
+from pyrx.synth import TOW, USUD, as_galileo, constellation, synthetic_pair
 
 
 def _pair(rng, ephs, tow, signals=SIGNALS, rover=ROVER, lli=None, drop=(), amb_r=None):

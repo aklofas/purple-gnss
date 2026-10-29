@@ -1,10 +1,9 @@
 import numpy as np
 import pytest
-from support import SF1, frame
 
 from pyrx.navdecode import decode_lnav
 from pyrx.samples import ArraySamples
-from pyrx.synth import synth_l1ca
+from pyrx.synth import SF1, frame, synth_l1ca
 from pyrx.tracking import track_l1ca
 
 FS = 2.5e6
