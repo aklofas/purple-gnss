@@ -24,8 +24,8 @@ class AcqResult:
     doppler: float  # Hz, after quadratic interpolation between bins
     cn0: float  # dB-Hz
     detected: bool
-    grid: np.ndarray  # float32, shape (len(dopplers), samples per period), peak normalised to 1
-    dopplers: np.ndarray  # Hz, bin centres
+    grid: np.ndarray  # float32, shape (len(dopplers), samples per period), peak normalized to 1
+    dopplers: np.ndarray  # Hz, bin centers
 
 
 def acquire(
@@ -74,7 +74,7 @@ def acquire(
 
 
 def _fine_doppler(column: np.ndarray, dopplers: np.ndarray, i: int) -> float:
-    """Vertex of the parabola through the peak bin and its neighbours; edge bins as-is."""
+    """Vertex of the parabola through the peak bin and its neighbors; edge bins as-is."""
     if i == 0 or i == len(dopplers) - 1:
         return float(dopplers[i])
     a, b, _ = np.polyfit(dopplers[i - 1 : i + 2], column[i - 1 : i + 2].astype(np.float64), 2)

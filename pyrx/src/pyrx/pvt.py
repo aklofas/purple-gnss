@@ -36,7 +36,7 @@ _CHI2 = (
     138, 139, 140, 142, 143, 144, 145, 147, 148, 149,
 )  # fmt: skip
 LAMBDA_L1 = wavelength("G1C")  # m
-_ON_EARTH = 6e6  # m, estimates nearer the centre get no mask, weights or atmosphere
+_ON_EARTH = 6e6  # m, estimates nearer the center get no mask, weights or atmosphere
 _ERR_CODE = 0.003 * 100.0  # m, RTKLIB err[0] * err[1]: the a priori code error
 _ERR_CBIAS = 0.3  # m, code bias error
 _ERR_BRDCI = 0.5  # fraction of the broadcast ionospheric delay
@@ -158,7 +158,7 @@ def solve_epoch(
     """Least-squares fix of one epoch, or None when it has none that passes validation.
 
     `x0` seeds the position (ECEF m); from None the iteration starts at the Earth's
-    centre. Satellites without an ephemeris within 2 h, with an unhealthy or
+    center. Satellites without an ephemeris within 2 h, with an unhealthy or
     unusable record (a blank or zero orbit field) and those below `mask_deg` are
     left out; degenerate geometry gives no solution. `iono` None or all zeros (a
     navigation file without GPSA/GPSB) means RTKLIB's default Klobuchar

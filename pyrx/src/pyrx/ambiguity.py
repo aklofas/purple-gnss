@@ -1,6 +1,6 @@
 """LAMBDA integer least squares: decorrelation and the modified (MLAMBDA) search.
 
-Follows RTKLIB's `lambda.c` step for step (LDLᵀ factorisation from the last row,
+Follows RTKLIB's `lambda.c` step for step (LDLᵀ factorization from the last row,
 integer Gauss transformations with permutations, depth-first search keeping the
 `m` best candidates), so the ratio test sees the same candidates as RTKLIB.
 """

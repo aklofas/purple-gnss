@@ -62,7 +62,7 @@ def test_solve_epoch_without_coefficients_uses_rtklib_defaults():
     assert np.array_equal(solve_epoch(ep, ephs, zeros).position, solve_epoch(ep, ephs).position)
     strong = Ionosphere(tuple(3 * a for a in IONO.alpha), IONO.beta)
     ep = truth_epoch(ephs, USUD, 0.0, iono=strong)
-    off = solve_epoch(ep, ephs, None).position  # the defaults leave metres, mostly up
+    off = solve_epoch(ep, ephs, None).position  # the defaults leave meters, mostly up
     assert 1.0 < np.linalg.norm(off - USUD) < 30.0
     np.testing.assert_allclose(solve_epoch(ep, ephs, strong).position, USUD, atol=1e-3, rtol=0)
 

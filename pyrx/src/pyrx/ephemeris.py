@@ -10,7 +10,7 @@ URA_BOUNDS = (
 
 
 def ura_metres(index: int) -> float:
-    """SV accuracy in metres from the 4-bit URA index (IS-GPS-200 20.3.3.3.1.3)."""
+    """SV accuracy in meters from the 4-bit URA index (IS-GPS-200 20.3.3.3.1.3)."""
     if index <= 6:
         return 2.0 ** (1 + index / 2)
     if index < 15:
@@ -19,7 +19,7 @@ def ura_metres(index: int) -> float:
 
 
 def ura_index(metres: float) -> int:
-    """4-bit URA index whose interval holds an SV accuracy in metres; 15 above the table."""
+    """4-bit URA index whose interval holds an SV accuracy in meters; 15 above the table."""
     for index, bound in enumerate(URA_BOUNDS):
         if metres <= bound:
             return index
@@ -30,10 +30,10 @@ def ura_index(metres: float) -> int:
 class Ephemeris:
     """Clock and orbit parameters of one satellite from subframes 1, 2 and 3.
 
-    Units: seconds, metres, radians and their rates; `toc` and `toe` are seconds
+    Units: seconds, meters, radians and their rates; `toc` and `toe` are seconds
     of week and `wn` the 10-bit week number. A Galileo record read from RINEX
     uses the same fields (`iode` and `iodc` hold IODnav; `ura` is the GPS URA
-    index whose interval holds the SISA in metres, not the SISA index).
+    index whose interval holds the SISA in meters, not the SISA index).
     """
 
     prn: int
