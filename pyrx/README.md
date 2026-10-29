@@ -31,7 +31,9 @@ pytest
 
 The files under `tests/golden/` pin the exact output of the RINEX writers and of every
 command on synthetic inputs; `PYRX_UPDATE_GOLDENS=1 pytest` rewrites them after a
-deliberate output change.
+deliberate output change. The float-valued ones (observations, positions) were captured
+on this project's environment (numpy 2.5, scipy 1.18, x86-64); another numerical stack
+may differ in the last printed digit.
 
 The reference tests compare acquisition and tracking with Pocket SDR's results on
 its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`),
