@@ -50,7 +50,7 @@ $$
 \Phi = \rho + c (\mathrm{dt}_r - \mathrm{dt}^s) - I + T + \lambda N + \eta_\Phi .
 $$
 
-The ionosphere term has flipped sign, the ambiguity $\lambda N$ has appeared, and $\eta_\Phi$ is a hundred times or more smaller than $\eta_P$. RTK is the business of finding the integers $N$. Until they are found, the carrier phase is a very precise measurement of how far the receiver has moved, not of where it is.
+The ionosphere term has flipped sign, the ambiguity $\lambda N$ has appeared, and $\eta_\Phi$ is a hundred times or more smaller than $\eta_P$. RTK is the business of finding the integers $N$. While lock holds, $N$ stays constant, so until it is found the carrier phase precisely tracks how the range changes, together with the clocks and the atmosphere, rather than the range itself.
 
 ```text
                     pseudorange              carrier phase
