@@ -191,3 +191,17 @@ def test_figure_applies_the_package_style():
     assert fig.get_facecolor() == (1.0, 1.0, 1.0, 1.0)
     assert ax.title.get_fontweight() == "bold" and ax.xaxis.get_gridlines()[0].get_visible()
     nbsupport.plt.close(fig)
+
+
+def test_diagram_arrows_meet_the_box_sides_and_control_paths_are_dashed():
+    nbsupport.plt.switch_backend("agg")
+    fig, ax = nbsupport.diagram_canvas(16, 8, "test")
+    a = nbsupport.diagram_box(ax, 1, 2, 4, 2, "A", code="acquire_l1ca")
+    b = nbsupport.diagram_box(ax, 9, 2, 4, 2, "B", role="measure")
+    assert (a.right, b.left, a.top) == ((5, 3), (9, 3), (3, 4))
+    nbsupport.diagram_arrow(
+        ax, [b.top, (11, 6), (3, 6), a.top], "feedback", (7, 6.3), role="control"
+    )
+    line, head = ax.patches[-2:]
+    assert line.get_linestyle() == "--" and head.get_linestyle() == "solid"
+    nbsupport.plt.close(fig)

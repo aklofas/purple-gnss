@@ -1,6 +1,6 @@
 """Shared pieces of the notebooks: which data to run on, the synthetic inputs when
-the recordings are absent, figure styling, and the readers and runners of the
-reference results (Pocket SDR logs, RTKLIB's rnx2rtkp).
+the recordings are absent, figure styling, the drawing helpers of the diagrams, and the
+readers and runners of the reference results (Pocket SDR logs, RTKLIB's rnx2rtkp).
 """
 
 import hashlib
@@ -17,10 +17,14 @@ import hatanaka
 import matplotlib.pyplot as plt
 import numpy as np
 import pymap3d
+from matplotlib.colors import to_hex, to_rgb
+from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+from matplotlib.path import Path as DrawPath
 
 from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
-from pyrx.plots import MUTED, PLOT_STYLE
+from pyrx.plots import CATEGORIES, HIGHLIGHT, INK, MUTED, PLOT_STYLE
 from pyrx.pvt import IONO_DEFAULT
 from pyrx.synth import (
     TOW,
@@ -237,6 +241,153 @@ def enu(xyz: np.ndarray, origin: np.ndarray) -> np.ndarray:
     xyz = np.atleast_2d(xyz)
     e, n, u = pymap3d.ecef2enu(xyz[:, 0], xyz[:, 1], xyz[:, 2], np.degrees(lat), np.degrees(lon), h)
     return np.column_stack([e, n, u])
+
+
+# diagrams -----------------------------------------------------------------------
+#
+# Block diagrams drawn in data units on an opaque white canvas, in the figure style and
+# colours. A role sets the colour of a box (edge, and a pale tint of it as fill) or of
+# an arrow; the text is always ink.
+
+DIAGRAM_ROLES = {
+    "flow": CATEGORIES[0],  # signal-chain stages and the data passed between them
+    "measure": CATEGORIES[2],  # measurements and the files that carry them
+    "position": CATEGORIES[6],  # positioning
+    "control": CATEGORIES[3],  # feedback and control paths, drawn dashed
+    "highlight": HIGHLIGHT,  # the one thing a diagram points at
+    "context": MUTED,  # outside pyrx, or background
+}
+
+
+def _tint(color: str, amount: float = 0.1) -> str:
+    """`color` mixed with white, `amount` of the colour."""
+    return to_hex([1 - amount * (1 - c) for c in to_rgb(color)])
+
+
+@dataclass(frozen=True)
+class Box:
+    """Where `diagram_box` drew a box, with the midpoints of its sides to start and end
+    arrows on (`left`, `right`, `top`, `bottom`) and `at(fx, fy)` for any point by
+    fraction of its width and height."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+    def at(self, fx: float, fy: float) -> tuple[float, float]:
+        return (self.x + fx * self.width, self.y + fy * self.height)
+
+    @property
+    def left(self):
+        return self.at(0, 0.5)
+
+    @property
+    def right(self):
+        return self.at(1, 0.5)
+
+    @property
+    def top(self):
+        return self.at(0.5, 1)
+
+    @property
+    def bottom(self):
+        return self.at(0.5, 0)
+
+
+def diagram_canvas(width: float, height: float, title: str = ""):
+    """A figure 10 in wide for a diagram `width` x `height` data units (equal aspect,
+    origin bottom left, no axes); returns fig, ax. Units of about 0.6 in (16 across)
+    suit the 10 to 11 pt text of the helpers."""
+    fig, ax = figure(figsize=(10, 10 * height / width))
+    ax.set(xlim=(0, width), ylim=(0, height))
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    if title:
+        ax.set_title(title)
+    return fig, ax
+
+
+def diagram_text(ax, x, y, text, size=11, ha="center", va="center", color=INK, **kw):
+    """Text at data point (x, y); mathtext (`r"$\\varphi_u^j$"`) works."""
+    return ax.text(x, y, text, ha=ha, va=va, color=color, fontsize=size, linespacing=1.3, **kw)
+
+
+def diagram_label(ax, x, y, text, ha="center", va="center"):
+    """A 10 pt label of an arrow, on a white patch so a line under it does not cut the
+    text; place it beside its arrow, not on another one."""
+    return diagram_text(
+        ax, x, y, text, size=10, ha=ha, va=va, zorder=4,
+        bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5},
+    )  # fmt: skip
+
+
+def diagram_box(ax, x, y, width, height, title, detail="", code="", formula="", role="flow") -> Box:
+    """A rounded box with lower-left corner (x, y), its lines centred together: `title`
+    in bold, then `formula` (mathtext at 12 pt, so sub- and superscripts stay legible),
+    `detail` (plain, may hold several lines) and `code` (monospace, for a pyrx name)."""
+    color = DIAGRAM_ROLES[role]
+    ax.add_patch(
+        FancyBboxPatch(
+            (x, y), width, height, boxstyle="round,pad=0,rounding_size=0.18",
+            linewidth=1.2, edgecolor=color, facecolor=_tint(color), zorder=2,
+        )
+    )  # fmt: skip
+    lines = [TextArea(title, textprops={"color": INK, "fontsize": 11, "fontweight": "bold"})]
+    if formula:
+        lines.append(TextArea(formula, textprops={"color": INK, "fontsize": 12}))
+    if detail:
+        lines.append(TextArea(detail, textprops={"color": INK, "fontsize": 10, "ha": "center"}))
+    if code:
+        style = {"color": INK, "fontsize": 9.5, "family": "DejaVu Sans Mono", "ha": "center"}
+        lines.append(TextArea(code, textprops=style))
+    ax.add_artist(
+        AnnotationBbox(
+            VPacker(children=lines, align="center", pad=0, sep=3),
+            (x + width / 2, y + height / 2), frameon=False, pad=0, zorder=3,
+        )
+    )  # fmt: skip
+    return Box(x, y, width, height)
+
+
+def diagram_arrow(ax, points, label="", label_xy=None, role="flow", dashed=None, **label_kw):
+    """An arrow along the corners `points` (data units), the head at the last one; `role`
+    "control" draws it dashed unless `dashed` says otherwise. `label` goes at `label_xy`
+    through `diagram_label` (`ha`, `va` in `label_kw`)."""
+    color = DIAGRAM_ROLES[role]
+    dashed = role == "control" if dashed is None else dashed
+    line = {"color": color, "linewidth": 1.6, "zorder": 1, "shrinkA": 0, "shrinkB": 0}
+    path = DrawPath(points)
+    ax.add_patch(
+        FancyArrowPatch(path=path, arrowstyle="-", linestyle="--" if dashed else "-", **line)
+    )
+    (x0, y0), (x1, y1) = points[-2], points[-1]
+    step = 1e-3 / max(np.hypot(x1 - x0, y1 - y0), 1e-9)  # a solid head on a dashed line
+    tail = (x1 - step * (x1 - x0), y1 - step * (y1 - y0))
+    ax.add_patch(FancyArrowPatch(tail, (x1, y1), arrowstyle="-|>", mutation_scale=12, **line))
+    if label:
+        diagram_label(ax, *label_xy, label, **label_kw)
+
+
+def diagram_line(ax, points, role="context", dashed=False, width=1.2):
+    """A plain line through `points` (data units), no head."""
+    xs, ys = zip(*points)
+    color = DIAGRAM_ROLES[role]
+    return ax.plot(xs, ys, color=color, linestyle="--" if dashed else "-", linewidth=width)
+
+
+def diagram_dot(ax, x, y, label="", where="above", role="flow", size=11):
+    """A point (a satellite, a receiver) with its label `where` = above, below, left or
+    right of it, 7 pt away, so arrows ending at the point leave the label clear."""
+    ax.plot(x, y, "o", color=DIAGRAM_ROLES[role], markersize=6, zorder=3)
+    if label:
+        dx, dy = {"above": (0, 7), "below": (0, -7), "left": (-7, 0), "right": (7, 0)}[where]
+        ha = {"left": "right", "right": "left"}.get(where, "center")
+        va = {"above": "bottom", "below": "top"}.get(where, "center")
+        ax.annotate(
+            label, (x, y), xytext=(dx, dy), textcoords="offset points",
+            ha=ha, va=va, color=INK, fontsize=size,
+        )  # fmt: skip
 
 
 # references ---------------------------------------------------------------------
