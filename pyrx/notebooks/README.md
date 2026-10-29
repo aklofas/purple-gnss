@@ -138,7 +138,10 @@ satellite and $q$ the reference satellite of a double difference. So $\mathrm{dt
 the receiver clock bias and $\mathrm{dt}^s$ the satellite's, and the pseudorange model of
 notebook 02 reads
 
-$$P_r^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) + I_r^s + T_r^s + \eta_P .$$
+$$P_r^s - c\,t_g^s = \rho_r^s + c(\mathrm{dt}_r - \mathrm{dt}^s) + I_r^s + T_r^s + \eta_P ,$$
+
+with $t_g^s$ the satellite's broadcast group delay, which the fix removes from the measured
+pseudorange before it models the rest.
 
 Where a signal index is left out, every term refers to the same signal. Carrier phase is
 stored in cycles; multiplied by the wavelength it becomes a length in meters,
