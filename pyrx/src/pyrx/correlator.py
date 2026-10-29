@@ -26,7 +26,7 @@ def correlate(
     The replica carrier is exp(-2*pi*j*(carrier_freq*k/fs + carrier_phase)), with
     `carrier_phase` in cycles at the block's first sample. Tap `d` (chips) uses the
     code resampled with phase `code_phase + d`, so a positive tap is early (replica
-    advanced) and a negative tap is late. Outputs are plain sums, not normalised.
+    advanced) and a negative tap is late. Outputs are plain sums, not normalized.
     """
     n = len(block)
     k = _ramp(n)

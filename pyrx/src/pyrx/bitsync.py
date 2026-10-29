@@ -1,4 +1,4 @@
-"""Bit and frame synchronisation of a tracked GPS L1 C/A channel.
+"""Bit and frame synchronization of a tracked GPS L1 C/A channel.
 
 Bit sync finds which of the 20 one-millisecond epochs in a 20 ms data bit
 carries the bit edge, by counting prompt sign changes at each epoch phase:

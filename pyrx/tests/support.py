@@ -1,5 +1,5 @@
 """Shared test helpers: fixed ambiguity sets, the golden-file comparison and the
-normalisers of dated or timed output."""
+normalizers of dated or timed output."""
 
 import difflib
 import os

@@ -7,7 +7,7 @@ import pytest
 
 import pyrx
 
-# modules of the signal chain, the synthesiser and the plots; the positioning and RINEX
+# modules of the signal chain, the synthesizer and the plots; the positioning and RINEX
 # modules (orbits, pvt, rtk, rinex, models) must load none of them
 SIGNAL_CHAIN = {
     "acquisition",

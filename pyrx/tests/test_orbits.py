@@ -96,5 +96,5 @@ def test_satellite_state_uses_galileo_constants():
     e = replace(g, system="E")
     dg = satellite_state(g, g.toe + 3600.0).position
     de = satellite_state(e, g.toe + 3600.0).position
-    # the mean motions differ by (MU_GAL / MU_GPS)**0.5 - 1 = -7.3e-8: metres after an hour
+    # the mean motions differ by (MU_GAL / MU_GPS)**0.5 - 1 = -7.3e-8: meters after an hour
     assert 0.5 < np.linalg.norm(dg - de) < 5.0

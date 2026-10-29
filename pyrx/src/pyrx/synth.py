@@ -268,7 +268,7 @@ def synthetic_pair(
 
     The default phase noise is a little above the jitter of a 15 Hz PLL at 45 dB-Hz
     (0.7 mm); with it a fixed single-epoch position lands within 1 cm of the truth, while a
-    wrong integer moves it by centimetres to a wavelength.
+    wrong integer moves it by centimeters to a wavelength.
     """
     args = (tow, signals, rng, phase_noise, code_noise, week)
     rover = synthetic_observations(ephs, rover_xyz, 1e-4, args[0], args[1], amb_rover, *args[2:])

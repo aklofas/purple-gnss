@@ -129,8 +129,8 @@ def synthetic_recording(
     navigation subframes each; returns path, fs, f_if, iq, prns. Written once and reused
     while the parameters that make it are unchanged.
 
-    Each signal is synthesised 10 log10(4) dB above the target so that the sum of the
-    four noise realisations lands at `SYNTH_CN0`.
+    Each signal is synthesized 10 log10(4) dB above the target so that the sum of the
+    four noise realizations lands at `SYNTH_CN0`.
     """
     n = int(fs * seconds)
     recipe = (SYNTH_PRNS, _SYNTH_DOPPLERS, _SYNTH_OFFSETS, SYNTH_CN0, _SYNTH_TOW, fs, seconds)
@@ -191,7 +191,7 @@ def figure(nrows: int = 1, ncols: int = 1, figsize=(10, 4), **kw):
     constrained layout unless `kw` says otherwise.
 
     The style goes into the notebook's rcParams, so titles, legends, twin axes and
-    colour bars added after the call get it too.
+    color bars added after the call get it too.
     """
     plt.rcParams.update(PLOT_STYLE)
     kw.setdefault("constrained_layout", True)
@@ -247,7 +247,7 @@ def enu(xyz: np.ndarray, origin: np.ndarray) -> np.ndarray:
 # diagrams -----------------------------------------------------------------------
 #
 # Block diagrams drawn in data units on an opaque white canvas, in the figure style and
-# colours. A role sets the colour of a box (edge, and a pale tint of it as fill) or of
+# colors. A role sets the color of a box (edge, and a pale tint of it as fill) or of
 # an arrow; the text is always ink.
 
 DIAGRAM_ROLES = {
@@ -261,7 +261,7 @@ DIAGRAM_ROLES = {
 
 
 def _tint(color: str, amount: float = 0.1) -> str:
-    """`color` mixed with white, `amount` of the colour."""
+    """`color` mixed with white, `amount` of the color."""
     return to_hex([1 - amount * (1 - c) for c in to_rgb(color)])
 
 
@@ -324,7 +324,7 @@ def diagram_label(ax, x, y, text, ha="center", va="center"):
 
 
 def diagram_box(ax, x, y, width, height, title, detail="", code="", formula="", role="flow") -> Box:
-    """A rounded box with lower-left corner (x, y), its lines centred together: `title`
+    """A rounded box with lower-left corner (x, y), its lines centered together: `title`
     in bold, then `formula` (mathtext at 12 pt, so sub- and superscripts stay legible),
     `detail` (plain, may hold several lines) and `code` (monospace, for a pyrx name)."""
     color = DIAGRAM_ROLES[role]

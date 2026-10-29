@@ -186,7 +186,7 @@ epochs in GPS time, `--mask` is the elevation mask in degrees. The command print
 the number of epochs solved and read, the mean latitude, longitude, height and
 receiver clock bias, and the run time; with `-v` one line per solved epoch; with
 `-o` those lines go to a file whose header line (starting with `%`) names the
-columns: `week tow lat lon height clock_s ns gdop vx vy vz ddtr` (degrees, metres,
+columns: `week tow lat lon height clock_s ns gdop vx vy vz ddtr` (degrees, meters,
 seconds, satellites used, geometric dilution of precision, ECEF velocity in m/s and
 clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 
@@ -205,7 +205,7 @@ given. `--signals` lists the signals to use as system letter plus RINEX attribut
 command prints the numbers of fixed and float epochs, the mean fixed baseline in
 the base's east-north-up frame and the median ratio, then the run time; `-v`
 prints one line per solved epoch; `-o` writes those lines with the header
-`% week tow x y z Q ns ratio age` (rover marker in ECEF metres, `Q` 1 fixed 2
+`% week tow x y z Q ns ratio age` (rover marker in ECEF meters, `Q` 1 fixed 2
 float, satellites used, ratio, age of the base epoch). It returns 2 when no
 epoch solves.
 
@@ -280,7 +280,7 @@ ant2-antdelu=<base ARP height above its marker>
 
 is the configuration `pyrx-rtk` mirrors (RTKLIB applies the antenna offsets as
 range corrections, which agrees with moving the stations to their antenna
-reference points to well under a millimetre). Epochs where RTKLIB finds no
+reference points to well under a millimeter). Epochs where RTKLIB finds no
 relative solution produce no output line. USUD is
 29 km from the site of both recordings, which is why its day serves as the
 long-run check.
@@ -306,7 +306,7 @@ Residuals use the geometric range with the Earth-rotation term to the antenna
 reference point, the satellite clock with its relativistic term, and the
 hydrostatic Saastamoinen zenith delay mapped with the Niell dry function. Nothing
 else is applied: no ionosphere, no wet troposphere, no group delays, no antenna
-phase-centre model (the reference pairs have identical antennas). This is what
+phase-center model (the reference pairs have identical antennas). This is what
 RTKLIB's single-baseline mode applies with its default options, so the two solvers
 compare number for number on the same files; the deliberate differences (existing
 ambiguities aligned to the current clock per signal rather than per frequency, the
@@ -317,7 +317,7 @@ the highest satellite, carrier phase and code, with RTKLIB's single-difference
 variance `2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) plus a
 receiver-clock-stability term in the age of the base epoch, and the block
 covariance of a shared reference; a double difference beyond 30 m is dropped. One
-Kalman update per epoch, linearised at the seed; the update stands but the epoch
+Kalman update per epoch, linearized at the seed; the update stands but the epoch
 reports no solution when fewer than four satellites of the first signal were used.
 
 Integer ambiguities are searched with LAMBDA (decorrelation and a depth-first

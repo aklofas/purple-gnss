@@ -44,7 +44,7 @@ DASHES = (
     (0, (6, 2, 1, 2, 1, 2)),
 )
 # matplotlib rcParams of every figure, for `rc_context` or `rcParams.update`: opaque white,
-# left-aligned bold titles (DejaVu Sans has no semibold), light grid, colour and dash cycled
+# left-aligned bold titles (DejaVu Sans has no semibold), light grid, color and dash cycled
 PLOT_STYLE = {
     "font.family": "DejaVu Sans",
     "font.size": 11,
@@ -145,13 +145,13 @@ def acquisition_figure(result: AcqResult, fs: float) -> Figure:
             xlim=(-3, 3),
             ylim=(0, 1.05),
             xlabel="offset from sampled peak (chips)",
-            ylabel="normalised power",
+            ylabel="normalized power",
         )
         ax_code.set_title(f"Code cut at {dopplers[row]:+.0f} Hz")
 
         ax_dop.plot(dopplers, grid[:, col], "o-", color=LINES[0], markersize=4)
         ax_dop.axvline(result.doppler, color=HIGHLIGHT, linestyle="--")
-        ax_dop.set(ylim=(0, 1.05), xlabel="Doppler (Hz)", ylabel="normalised power")
+        ax_dop.set(ylim=(0, 1.05), xlabel="Doppler (Hz)", ylabel="normalized power")
         ax_dop.set_title("Doppler cut: sampled bins")
         ax_dop.text(
             0.98,
@@ -173,7 +173,7 @@ def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> N
 
 
 def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike) -> None:
-    """C/N0 per PRN with the detection threshold; detected PRNs are darker and labelled."""
+    """C/N0 per PRN with the detection threshold; detected PRNs are darker and labeled."""
     with rc_context(PLOT_STYLE):
         prns = [r.prn for r in results]
         cn0 = [r.cn0 for r in results]
