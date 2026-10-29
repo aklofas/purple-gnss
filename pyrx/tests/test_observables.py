@@ -6,7 +6,7 @@ from support import frame
 
 from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
-from pyrx.gpstime import C_LIGHT, full_week
+from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, Subframe
 from pyrx.navdecode import LnavResult, decode_lnav
 from pyrx.observables import make_observables, receiver_time0, transmit_times
@@ -18,8 +18,9 @@ from pyrx.tracking import TrackResult, track_l1ca
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 
 
-def _channel(prn, code_offset, doppler, fs=2.5e6, tow0=5044, seconds=20.1):
-    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame(tow0)])
+def _channel(prn, code_offset, doppler, fs=2.5e6, tow0=5044, seconds=20.1, wn=142, lead=None):
+    lead = np.zeros(100, dtype=np.uint8) if lead is None else lead
+    seq = np.concatenate([lead, frame(tow0, wn)])
     x = synth_l1ca(prn, fs, 0.0, doppler, code_offset, int(fs * seconds), 45.0, True, bits=seq)
     track = track_l1ca(ArraySamples(x, fs), 0.0, prn, code_offset / fs, doppler, 45.0)
     return track, decode_lnav(track)
@@ -77,10 +78,47 @@ def test_channels_either_side_of_the_week_rollover_share_one_clock():
         )
         assert e.obs[1].pseudorange - e.obs[0].pseudorange == pytest.approx(expect, abs=3.0)
     # a recording whose every observation epoch lies past the boundary is dated in the
-    # new week, whichever side sample 0 was on
+    # new week, whichever side sample 0 was on, and its pseudoranges are the plain
+    # geometry: bit 0 of this channel left at 604798.0 of the old week
     c = _channel(4, 500, 800.0, fs=fs, tow0=100800 + 1)
     later = make_observables([c[0]], [c[1]])
     assert later[0].week == 2190 and 0.0 <= later[0].tow < 100.0
+    rx0 = receiver_time0([c[0]], [c[1]])
+    assert 604798.0 < rx0 < 604800.0
+    for e in later:
+        t_rx = e.tow + WEEK_S  # receiver time counted in the old week, as rx0 is
+        n = (t_rx - rx0) * fs
+        t_tx = 604798.0 + (n - 500) / fs * (1 + 800.0 / L1_FREQ)
+        assert e.obs[0].pseudorange == pytest.approx(C_LIGHT * (t_rx - t_tx), abs=3.0)
+
+
+def test_subframe_1_on_either_side_of_the_rollover_dates_the_run_the_same():
+    # channel 4 decodes its subframe 1 before the boundary (week number 142), channel 7
+    # 12 s later, after it (week number 143), 12 s into a channel whose bit 0 left at
+    # 604788: both place the run in week 2190 whichever channel comes first, and the
+    # epochs are identical in either order
+    fs = 2.5e6
+    a = _channel(4, 500, 800.0, fs=fs, tow0=100800 - 1)
+    # 12 s of lead: random bits to sync on, then the zeros the frame's parity continues from
+    rng = np.random.default_rng(5)
+    lead = np.concatenate([rng.integers(0, 2, 500), np.zeros(100)]).astype(np.uint8)
+    b = _channel(7, 1700, -1200.0, fs=fs, tow0=100800 + 1, wn=143, lead=lead)
+    assert b[1].subframes[0].sf_id == 1 and b[1].subframes[0].tow_s == 0
+    epochs = make_observables([a[0], b[0]], [a[1], b[1]])
+    assert epochs == make_observables([b[0], a[0]], [b[1], a[1]])
+    assert epochs and all(e.week == 2190 for e in epochs)
+    tows = [e.tow for e in epochs]
+    assert tows == sorted(tows) and tows[0] < 604800.0 < tows[-1]
+    rx0 = receiver_time0([a[0], b[0]], [a[1], b[1]])
+    for e in epochs:
+        assert [o.prn for o in e.obs] == [4, 7]
+        # PRN 7's bit 0 left 2 s after PRN 4's (604788 against 604786), on top of the
+        # sample-offset and Doppler-rate geometry of the in-week case
+        n = (e.tow - rx0) * fs
+        expect = C_LIGHT * (
+            (n - 500) / fs * (1 + 800.0 / L1_FREQ) - (n - 1700) / fs * (1 - 1200.0 / L1_FREQ) - 2.0
+        )
+        assert e.obs[1].pseudorange - e.obs[0].pseudorange == pytest.approx(expect, abs=3.0)
 
 
 def test_pseudorange_matches_synthetic_truth():

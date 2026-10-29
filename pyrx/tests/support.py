@@ -65,10 +65,10 @@ SF3 = {
 }
 
 
-def frame(tow0=5044):
+def frame(tow0=5044, wn=SF1["wn"]):
     """Subframes 1 to 3 of SF1..SF3 as one encoded bit stream starting at `tow0`."""
     out, d29, d30 = [], 0, 0
-    for i, f in ((1, SF1), (2, SF2), (3, SF3)):
+    for i, f in ((1, {**SF1, "wn": wn}), (2, SF2), (3, SF3)):
         sf = encode_subframe(i, (tow0 + i - 1) % 100800, f, d29, d30)
         d29, d30 = int(sf[298]), int(sf[299])
         out.append(sf)

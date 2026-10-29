@@ -173,7 +173,8 @@ def make_observables(
     epochs = []
     for i in range(first, last + 1):
         t = i * interval - rx0
-        tow = i * interval - weeks_on * WEEK_S
+        t_rx = i * interval  # in the week of the time origin, as the transmit times are
+        tow = t_rx - weeks_on * WEEK_S
         obs = []
         for c, (tr, ln, tc, tt, k0) in enumerate(per):
             k = int(np.searchsorted(tc, t, side="right")) - 1
@@ -190,7 +191,7 @@ def make_observables(
             obs.append(
                 Observation(
                     tr.prn,
-                    C_LIGHT * (tow - t_tx),
+                    C_LIGHT * (t_rx - t_tx),
                     float(phase),
                     float(tr.doppler[k]),
                     float(tr.cn0[k]),
