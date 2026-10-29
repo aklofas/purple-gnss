@@ -64,6 +64,6 @@ The modern signals (L5, E1, E5a) are also better designed than the original L1 C
 
 ---
 
-**In pyrx:** `codes.py` generates the spreading codes, `signals.py` defines the frequencies and code rates of each signal, and `correlator.py` performs the correlation that every later stage is built on.
+**In pyrx:** `codes.py` generates GPS L1 C/A codes and defines their chip rate and period, `signals.py` defines carrier frequencies and wavelengths for the supported observation bands, and `correlator.py` performs the correlation that every later stage is built on.
 
 Next: [From antenna to samples](03-antenna-to-samples.md).

@@ -58,6 +58,6 @@ Once a satellite is acquired, the coarse code phase and Doppler are handed to a 
 
 ---
 
-**In pyrx:** `acquisition.py` implements the FFT search described here on a recording, and `pyrx-acq` runs it from the command line and plots the grid. It is checked against Pocket SDR's acquisition on the same recordings.
+**In pyrx:** `acquisition.py` implements the FFT search described here on a recording, and `pyrx-acq` runs it from the command line; adding `--plot DIR` also writes a C/N0 chart and a search-grid image for each detected satellite. It is checked against Pocket SDR's acquisition on the same recordings.
 
 Next: [Staying locked](05-tracking.md).

@@ -61,6 +61,6 @@ The quiet version of this problem is the cycle slip. If the signal fades briefly
 
 ---
 
-**In pyrx:** `tracking.py` holds the DLL (with a quarter-chip early-late spacing), the FLL pull-in and the Costas PLL, `bitsync.py` finds the data-bit boundaries (and later the frame) in the prompt output, and `pyrx-trk` runs a channel on a recording and plots its correlator outputs and loop state. Its C/N0, Doppler and code phase are checked against Pocket SDR's tracker on the same recordings.
+**In pyrx:** `tracking.py` holds the DLL (with early and late taps each a quarter chip from prompt, half a chip apart), the FLL pull-in and the Costas PLL, `bitsync.py` finds the data-bit boundaries (and later the frame) in the prompt output, and `pyrx-trk` runs tracking on a recording; adding `--plot DIR` writes images of each channel's correlator outputs and loop state. The tracker's C/N0, Doppler and code phase are checked against Pocket SDR's tracker on the same recordings.
 
 Next: [Reading the message](06-navigation-message.md).
