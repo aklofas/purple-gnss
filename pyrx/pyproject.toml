@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 dependencies = ["numpy", "scipy", "matplotlib", "georinex", "hatanaka", "pymap3d"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "pytest-xdist", "ruff"]
 
 [project.scripts]
 pyrx-acq = "pyrx.cli:acq_main"
@@ -32,3 +32,4 @@ extend-select = ["I", "FURB", "PLW"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-n auto"

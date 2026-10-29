@@ -1,4 +1,5 @@
 import dataclasses
+from functools import cache
 
 import numpy as np
 import pytest
@@ -18,8 +19,9 @@ from pyrx.tracking import TrackResult, track_l1ca
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 
 
+@cache  # a 20 s synthetic channel takes tens of seconds to track; several tests share one
 def _channel(prn, code_offset, doppler, fs=2.5e6, tow0=5044, seconds=20.1, wn=142, lead=None):
-    lead = np.zeros(100, dtype=np.uint8) if lead is None else lead
+    lead = np.zeros(100, dtype=np.uint8) if lead is None else np.array(lead, dtype=np.uint8)
     seq = np.concatenate([lead, frame(tow0, wn)])
     x = synth_l1ca(prn, fs, 0.0, doppler, code_offset, int(fs * seconds), 45.0, True, bits=seq)
     track = track_l1ca(ArraySamples(x, fs), 0.0, prn, code_offset / fs, doppler, 45.0)
@@ -101,7 +103,7 @@ def test_subframe_1_on_either_side_of_the_rollover_dates_the_run_the_same():
     a = _channel(4, 500, 800.0, fs=fs, tow0=100800 - 1)
     # 12 s of lead: random bits to sync on, then the zeros the frame's parity continues from
     rng = np.random.default_rng(5)
-    lead = np.concatenate([rng.integers(0, 2, 500), np.zeros(100)]).astype(np.uint8)
+    lead = tuple(int(b) for b in np.concatenate([rng.integers(0, 2, 500), np.zeros(100)]))
     b = _channel(7, 1700, -1200.0, fs=fs, tow0=100800 + 1, wn=143, lead=lead)
     assert b[1].subframes[0].sf_id == 1 and b[1].subframes[0].tow_s == 0
     epochs = make_observables([a[0], b[0]], [a[1], b[1]])
