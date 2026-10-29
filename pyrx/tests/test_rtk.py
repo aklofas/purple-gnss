@@ -423,3 +423,33 @@ def test_zero_innovation_limit_means_no_limit():
     ephs = constellation()
     fix = _rtk(ephs, max_innovation=0.0).step(*_pair(rng, ephs, TOW))
     assert fix is not None and fix.nb == 10
+
+
+def test_fix_reports_the_float_state_and_the_ambiguities():
+    rng = np.random.default_rng(1)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    fixes = [rtk.step(*_pair(rng, ephs, TOW + 30.0 * k)) for k in range(10)]
+    fix = fixes[-1]
+    assert fix.status == "fix"
+    assert fix.float_position.shape == (3,) and fix.position_std.shape == (3,)
+    assert np.all(fix.position_std > 0)
+    assert np.linalg.norm(fix.float_position - fix.position) < 1.0
+    assert len(fix.ambiguities) == fix.nb >= 2
+    # the float estimates close in on the integers as the filter accumulates epochs
+    for a in fix.ambiguities:
+        assert a.ref != a.sat and a.signal in SIGNALS and a.std > 0
+        assert a.integer is not None and abs(a.value - a.integer) < min(0.5, 3 * a.std)
+    assert max(abs(a.value - a.integer) for a in fix.ambiguities) < max(
+        abs(a.value - a.integer) for a in fixes[0].ambiguities
+    )
+
+
+def test_float_epoch_has_no_integers():
+    rng = np.random.default_rng(1)
+    ephs = constellation()
+    rtk = _rtk(ephs, ratio_threshold=999.0)
+    fix = rtk.step(*_pair(rng, ephs, TOW))
+    assert fix.status == "float"
+    assert len(fix.ambiguities) == fix.nb >= 2
+    assert all(a.integer is None for a in fix.ambiguities)
