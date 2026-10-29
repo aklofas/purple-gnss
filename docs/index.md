@@ -18,6 +18,7 @@ series. It is written to be read in order.
 |---|---|---|
 | Learn how a GNSS fix works, from zero | [What a GNSS is](fundamentals/01-what-gnss-is.md) | The rest of the [fundamentals series](#the-fundamentals-series), in order |
 | Run the receiver on a recording | [`pyrx/README.md`](../pyrx/README.md) | The fundamentals page for whichever stage you are looking at |
+| See each stage work, with figures | [pyrx/notebooks](../pyrx/notebooks/README.md) | The fundamentals page of the stage you are looking at |
 | Look up a term you met in the code or a paper | [Glossary](fundamentals/glossary.md) | The page the glossary entry points to |
 | Go deeper than these pages | [Further reading](fundamentals/glossary.md#further-reading) | |
 

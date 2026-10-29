@@ -44,6 +44,7 @@ coordinates (`--base-xyz`); see
 | New to GNSS and want to understand the steps from satellite to fix | [`docs/fundamentals/`](docs/fundamentals/01-what-gnss-is.md), a series written for technical readers |
 | Running the receiver on a recording                                | [`pyrx/README.md`](pyrx/README.md), processing commands and recordings                               |
 | Looking up a term                                                  | [`docs/fundamentals/glossary.md`](docs/fundamentals/glossary.md)                                     |
+| Seeing each stage work, with figures                               | [`pyrx/notebooks/`](pyrx/notebooks/README.md), three executed notebooks from samples to an RTK fix   |
 
 ## License
 
