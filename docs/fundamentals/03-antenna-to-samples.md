@@ -86,6 +86,6 @@ For a receiver with several antennas, the other requirement is that every front-
 
 ---
 
-**In pyrx:** `samples.py` reads signed 8-bit real recordings, or interleaved signed 8-bit I and Q values with `--iq`; the sample rate and IF are given by `--fs` and `--f-if`. Its tests write small files of known bytes and check the samples read back, including the start offset, the duration and the sign of Q, which follows the Pocket SDR front-end's I - jQ convention. There is no front-end in software; the recordings come from a Pocket SDR front-end or from this project's hardware when it exists.
+**In pyrx:** `samples.py` reads signed 8-bit real recordings, or interleaved signed 8-bit I and Q values with `--iq`; the sample rate and IF are given by `--fs` and `--f-if`. Its tests write small files of known bytes and check the samples read back, including the start offset, the duration and the sign of Q, which follows the Pocket SDR front-end's I - jQ convention. There is no front-end in software; the recordings come from a Pocket SDR front-end or from this project's hardware when it exists. Section 1 of the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) looks at a real recording: its sample values, a few microseconds of it and its spectrum.
 
 Next: [Finding a satellite](04-acquisition.md).
