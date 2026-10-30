@@ -157,7 +157,7 @@ EVN, whose fabric clock can be as low as 34.9 MHz).
 | 0 | command: bit 7 = 1 write / 0 read, bit 6 = 1 auto-increment the word address / 0 fixed, bits 5:0 zero |
 | 1, 2 | 16-bit word address, high byte first |
 | write: 3.. | 32-bit data words, high byte first; each word is committed when its last bit arrives |
-| read: 3 | one dummy byte while the slave fetches the first word |
+| read: 3 | 8 dummy cycles (one byte on a single lane) while the slave fetches the first word |
 | read: 4.. | 32-bit data words, high byte first |
 
 Words keep coming for as long as CS is held low; the address advances by one per word in
@@ -176,9 +176,12 @@ while bit 24 of the current one shifts out, so a burst also reads the address af
 word (the same address in fixed mode); reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`, so read
 the pair as one two-word burst.
 
-The shape
-(command, address, dummy cycles, data, burst) is what the STM32 OCTOSPI does in indirect mode,
-so a driver written against this interface moves to quad SPI with only the lane count changing.
+The shape (command, address, dummy cycles, data, burst) is the STM32 OCTOSPI's indirect mode:
+instruction 8 bits, address 16 bits, 8 dummy cycles on reads and 0 on writes, DLR = 4n − 1 for
+n words, CKMODE 0, SSHIFT 0, DLYBYP 1, DEVSIZE large enough never to bind. Words go high byte
+first, so a little-endian MCU swaps the bytes of each word. The register access layer of a
+driver written against this interface is meant to carry over to a quad-SPI link unchanged; the
+dummy stays 8 cycles there, whatever the lane count.
 
 ## Closed-loop tracking
 
