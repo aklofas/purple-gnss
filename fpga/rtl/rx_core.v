@@ -112,7 +112,7 @@ module rx_core #(
     end
 
     // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
-    // MEAS_PERIOD valid samples (first at sample MEAS_PERIOD); all channels latch at once ----
+    // MEAS_PERIOD valid samples counted from the MEAS_PERIOD write; all channels latch at once ----
     reg [31:0] period_cnt;
     reg [47:0] meas_sample;
     wire periodic_hit = (meas_period != 32'd0) && (period_cnt >= meas_period);
@@ -122,8 +122,9 @@ module rx_core #(
             trig_pending <= 1'b0; period_cnt <= 32'd0; meas_sample <= 48'd0;
         end else begin
             if (wr_g && (g_off == A_MEAS_TRIG) && bus_wdata[0]) trig_pending <= 1'b1;
+            if ((wr_g && (g_off == A_MEAS_PERIOD)) || (meas_period == 32'd0)) period_cnt <= 32'd0;
+            else if (src_valid) period_cnt <= periodic_hit ? 32'd1 : period_cnt + 32'd1;  // the strobed sample counts
             if (src_valid) begin
-                period_cnt <= periodic_hit ? 32'd1 : period_cnt + 32'd1;  // the strobed sample counts
                 if (meas_strobe) begin
                     meas_sample  <= sample_cnt;
                     trig_pending <= 1'b0;
@@ -181,7 +182,7 @@ module rx_core #(
                     C_CODE_PHASE_FRAC: if (!ch_en[k]) begin
                         ch_code_frac[k] <= bus_wdata; ch_load[k] <= 1'b1;
                     end
-                    C_CODE_CHIP: if (!ch_en[k] && bus_wdata < 4 * CODE_LEN) begin  // valid index only
+                    C_CODE_CHIP: if (!ch_en[k] && bus_wdata < 4 * CODE_LEN) begin  // valid index
                         ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1;
                     end
                     C_SPACING_Q: ch_spacing[k] <= bus_wdata[1:0];
@@ -275,7 +276,8 @@ module rx_core #(
                     C_QL: bus_rdata <= sext(ch_ql[rk*ACC_W +: ACC_W]);
                     C_MEAS_CODE_PHASE_FRAC: bus_rdata <= ch_meas_frac[rk*32 +: 32];
                     C_MEAS_CODE_CHIP:
-                        bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_meas_chip[rk*(CODE_AW+2) +: CODE_AW+2]};
+                        bus_rdata <= {{(30-CODE_AW){1'b0}},
+                                      ch_meas_chip[rk*(CODE_AW+2) +: CODE_AW+2]};
                     C_MEAS_CARR_PHASE: bus_rdata <= ch_meas_carr[rk*32 +: 32];
                     C_MEAS_EPOCH: bus_rdata <= ch_meas_epoch[rk*32 +: 32];
                     C_MEAS_SAMPLE_LO: bus_rdata <= meas_sample[31:0];

@@ -308,6 +308,29 @@ async def code_write_while_enabled_is_ignored(dut):
 
 
 @cocotb.test()
+async def meas_period_written_mid_run_counts_from_the_write(dut):
+    # the period counter holds at 0 while the period is 0 and restarts on a MEAS_PERIOD write,
+    # so the first periodic strobe comes MEAS_PERIOD valid samples after the write
+    bus = await start(dut)
+    codes = to_sign_mag(signal(PRN, 1000.0, 0, 2.5))  # 20 000 samples
+    await set_up_channel(bus, 0, PRN, 1000.0)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 3000)
+    await bus.write(R.MEAS_PERIOD, 5000)
+    await ReadOnly()
+    at_write = int(dut.sample_cnt.value)
+    await ClockCycles(dut.clk, 4900)
+    assert (await read_measurement(bus, 0)).sample == 0  # nothing yet
+    await ClockCycles(dut.clk, 200)
+    first = await read_measurement(bus, 0)
+    assert first.sample == at_write + 5000, (first.sample, at_write)
+    await ClockCycles(dut.clk, len(codes))
+    assert (await read_measurement(bus, 0)).sample == at_write + 15_000
+
+
+@cocotb.test()
 async def code_chip_out_of_range_is_ignored(dut):
     # the quarter-chip index runs 0..4091; the register's 12 bits would hold 4092..4095, which
     # the channel could never wrap from, and anything above is a firmware error: all ignored

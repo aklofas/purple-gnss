@@ -18,6 +18,7 @@ CASES = [
     "code_write_while_enabled_is_ignored",
     "measurement_trigger_captures_all_channels_on_one_sample",
     "measurement_periodic",
+    "meas_period_written_mid_run_counts_from_the_write",
     "code_write_address_wraps_at_32_words",
 ]
 

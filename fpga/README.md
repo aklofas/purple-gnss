@@ -117,7 +117,7 @@ Global block at `0x0000`:
 | 0x06 | `DUMP_PENDING` | R | bit k = channel k has an unread dump |
 | 0x07 | `DUMP_CLEAR` | W | write bits to clear |
 | 0x08 | `MEAS_TRIG` | W | write 1: measurement strobe on the next valid sample |
-| 0x09 | `MEAS_PERIOD` | RW | valid samples between periodic strobes, first at sample `MEAS_PERIOD`; 0 = off; counted from reset, so set it before enabling |
+| 0x09 | `MEAS_PERIOD` | RW | valid samples between periodic strobes, counted from the write: the first strobe comes `MEAS_PERIOD` valid samples after it; 0 = off |
 | 0x0A | `N_CHANNELS` | R | |
 | 0x0B | `PLAYBACK_CTRL` | W | bit0 start, one-shot from sample 0 |
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
