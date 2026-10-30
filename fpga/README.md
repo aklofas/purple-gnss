@@ -131,8 +131,8 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 |---|---|---|---|
 | 0x00 | `CH_CTRL` | RW | bit0 enable |
 | 0x01, 0x02 | `CH_START_SAMPLE_LO/HI` | RW | placeholder, reads 0 |
-| 0x03 | `CARR_STEP` | RW | carrier NCO step, cycles per sample × 2^32; takes effect at the next dump; at once while disabled and in the eight clocks after enable |
-| 0x04 | `CODE_STEP` | RW | code NCO step, quarter chips per sample × 2^32; same timing |
+| 0x03 | `CARR_STEP` | RW | carrier NCO step, cycles per sample × 2^32; staged until `CODE_STEP` is written |
+| 0x04 | `CODE_STEP` | RW | code NCO step, quarter chips per sample × 2^32; its write commits both steps together, which take effect at the next dump, or at once while disabled and in the eight clocks after enable |
 | 0x05 | `CARR_PHASE` | RW | carrier NCO phase; written only while disabled |
 | 0x06 | `CODE_PHASE_FRAC` | RW | code NCO fraction; written only while disabled |
 | 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled; a value of 4092 or more is ignored |
