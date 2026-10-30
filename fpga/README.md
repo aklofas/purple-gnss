@@ -121,6 +121,7 @@ Global block at `0x0000`:
 | 0x0B | `PLAYBACK_CTRL` | W | bit0 start, one-shot from sample 0 |
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
 | 0x0D | `PB_DEPTH` | R | playback RAM size in samples |
+| 0x0E | `MEAS_SEQ` | R | measurement strobes since reset; read it before and after a channel's `MEAS_*` words and read again if it changed |
 | 0x100 | `PB_ADDR` | RW | playback word index; a `PB_DATA` write at or past the end (`PB_DEPTH` / 16 words) is dropped and leaves it there |
 | 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR`; burst it with a fixed address (command bit 6 = 0) |
 
@@ -157,8 +158,10 @@ unread. Read `DUMP_MISSED` first, then `EPOCH` and the sums, write `DUMP_CLEAR`,
 
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
-phases of different channels are comparable to the sample. A disabled channel, or one still in
-the eight clocks after its enable, latches its frozen state on every strobe. The carrier phase
+phases of different channels are comparable to the sample. A periodic strobe can land while
+the six words are being read, so read `MEAS_SEQ` before and after them and read again when it
+changed. A disabled channel, or one still in the eight clocks after its enable, latches its
+frozen state on every strobe. The carrier phase
 of an observable is the latched `MEAS_CARR_PHASE` less the IF phase at the latched sample
 (`MEAS_SAMPLE` × f_IF / f_sample, modulo one cycle): that gives every channel the origin pyrx
 uses, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`

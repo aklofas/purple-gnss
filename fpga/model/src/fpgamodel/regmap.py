@@ -25,6 +25,7 @@ N_CHANNELS = 0x0A
 PLAYBACK_CTRL = 0x0B
 PLAYBACK_LEN = 0x0C
 PB_DEPTH = 0x0D
+MEAS_SEQ = 0x0E  # measurement strobes since reset: read before and after the MEAS_* words
 PB_ADDR = 0x100
 PB_DATA = 0x101
 

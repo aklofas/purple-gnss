@@ -370,13 +370,45 @@ async def code_chip_out_of_range_is_ignored(dut):
 
 
 async def read_measurement(bus, k):
-    frac = await bus.read(R.ch(k, R.MEAS_CODE_PHASE_FRAC))
-    chip_q = await bus.read(R.ch(k, R.MEAS_CODE_CHIP))
-    carr = await bus.read(R.ch(k, R.MEAS_CARR_PHASE))
-    epoch = await bus.read(R.ch(k, R.MEAS_EPOCH))
-    lo = await bus.read(R.ch(k, R.MEAS_SAMPLE_LO))
-    hi = await bus.read(R.ch(k, R.MEAS_SAMPLE_HI))
-    return Measurement(carr, frac, chip_q, epoch, (hi << 32) | lo)
+    """The channel's latch as a Measurement, read again if a strobe landed during the read."""
+    while True:
+        seq = await bus.read(R.MEAS_SEQ)
+        frac = await bus.read(R.ch(k, R.MEAS_CODE_PHASE_FRAC))
+        chip_q = await bus.read(R.ch(k, R.MEAS_CODE_CHIP))
+        carr = await bus.read(R.ch(k, R.MEAS_CARR_PHASE))
+        epoch = await bus.read(R.ch(k, R.MEAS_EPOCH))
+        lo = await bus.read(R.ch(k, R.MEAS_SAMPLE_LO))
+        hi = await bus.read(R.ch(k, R.MEAS_SAMPLE_HI))
+        if await bus.read(R.MEAS_SEQ) == seq:
+            return Measurement(carr, frac, chip_q, epoch, (hi << 32) | lo)
+
+
+@cocotb.test()
+async def meas_seq_counts_strobes_and_guards_the_latch_read(dut):
+    # MEAS_SEQ counts every strobe, triggered or periodic, so a reader that sees it change
+    # across the six latch words knows the words straddle two strobes
+    bus = await start(dut)
+    codes = to_sign_mag(signal(PRN, 1000.0, 0, 2.5))  # 20 000 samples
+    await set_up_channel(bus, 0, PRN, 1000.0)
+    await load_playback(bus, codes)
+    assert await bus.read(R.MEAS_SEQ) == 0
+    await bus.write(R.MEAS_PERIOD, 5000)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 2000)
+    await bus.write(R.MEAS_TRIG, 1)
+    await ClockCycles(dut.clk, 10)
+    assert await bus.read(R.MEAS_SEQ) == 1
+    while int(dut.sample_cnt.value) < 4990:  # the first periodic strobe lands at sample 5000
+        await RisingEdge(dut.clk)
+    seq_before = await bus.read(R.MEAS_SEQ)
+    await ClockCycles(dut.clk, 20)
+    seq_after = await bus.read(R.MEAS_SEQ)
+    assert (seq_before, seq_after) == (1, 2)  # a read of the words across here must retry
+    await ClockCycles(dut.clk, len(codes))
+    assert await bus.read(R.MEAS_SEQ) == 4  # 5000, 10 000, 15 000 and the trigger
+    last = await read_measurement(bus, 0)
+    assert last.sample == 15_000
 
 
 @cocotb.test()
