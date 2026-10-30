@@ -1,8 +1,7 @@
-import numpy as np
 import pytest
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE, gps_ca
-from pyrx.samples import SampleFile, read_samples
+from pyrx.samples import ArraySamples, SampleFile, read_samples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
 from pyrx.tracking import track_l1ca
@@ -25,22 +24,6 @@ def test_tracker_steps_follow_doppler():
     assert code == round(4 * CA_CHIP_RATE * (1 + 1000.0 / L1_FREQ) / FS * 2**32)
 
 
-def test_pll_pulls_phase_toward_zero():
-    t = Tracker(FS, F_IF, doppler=0.0)
-    t.epoch = 1001  # past pull-in: Costas PLL
-    fd0 = t.doppler
-    t.update(Dump(1002, 0, 0, 1000, 300, 0, 0, 0))  # prompt leads: positive phase error
-    assert t.doppler > fd0
-
-
-def test_dll_speeds_the_code_when_early_wins():
-    t = Tracker(FS, F_IF, doppler=0.0)
-    base = t.steps()[1]
-    for k in range(1, 11):
-        t.update(Dump(k, 900, 0, 1000, 0, 700, 0, 0))  # early > late every epoch
-    assert t.steps()[1] > base
-
-
 def _synthetic(cn0, seed=0, duration=2.2, data_bits=True):
     """A data-modulated L1 C/A signal at 5 MHz (1.25 MHz IF), the smallest rate the quarter-chip
     code NCO allows; float samples for pyrx and 2-bit codes for the channel."""
@@ -56,6 +39,23 @@ def _track_synthetic(codes, doppler_seed, cn0_seed):
     ch.enabled = True
     track_model(ch, tracker, codes)
     return tracker
+
+
+def test_tracker_matches_pyrx_on_its_correlator_outputs():
+    # fed pyrx's own prompt, early and late sums epoch by epoch, the tracker's carrier loop
+    # must reproduce pyrx's Doppler exactly (the same arithmetic in the same order), and its
+    # C/N0 estimate, built without pyrx's noise tap, must agree with pyrx's to the dB
+    x, _ = _synthetic(40.0)
+    ref = track_l1ca(ArraySamples(x, FS_SYN), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 45.0)
+    assert ref.locked and len(ref.t) >= 2000
+    tracker = Tracker(FS_SYN, F_IF_SYN, DOPPLER_SYN + 5.0, 45.0)
+    for k in range(len(ref.t)):
+        prompt, early, late = ref.corr[k][:3]
+        sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
+        tracker.update(Dump(k + 1, *sums, 0))
+        assert tracker.doppler == ref.doppler[k], k
+    assert abs(tracker.cn0 - ref.cn0[-1]) < 1.0
+    assert tracker.locked
 
 
 @pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
@@ -102,19 +102,16 @@ def test_model_loop_tracks_like_pyrx(captures):
     assert ref.locked
     dopp_rms, code_max_chips = compare_with_pyrx(history, ref, FS, t_from=1.0)
     print(f"PRN {best.prn}: Doppler RMS {dopp_rms:.3f} Hz, code max {code_max_chips:.4f} chips")
-    assert dopp_rms < 1.0
-    assert code_max_chips < 0.25
-    assert np.isfinite(tracker.cn0) and tracker.cn0 > 40.0
+    # measured 0.41 Hz and 0.0006 chips; a doubled FLL gain gives 0.76 Hz and a dead DLL
+    # 0.0057 chips (the carrier arithmetic itself is pinned by the pyrx equality test)
+    assert dopp_rms < 0.5
+    assert code_max_chips < 0.002
+    assert abs(tracker.cn0 - ref.cn0[-1]) < 2.0
 
 
 def test_track_model_does_not_depend_on_block_size():
-    # at 8 MHz a period is 8000 samples, so a 12 000-sample block can hold two dumps; the
-    # feedback after each dump must still apply before the next one
-    from pyrx.codes import gps_ca
-    from pyrx.synth import synth_l1ca
-
-    from fpgamodel.quantize import code_bits, to_sign_mag
-
+    # a block may end anywhere in a period (3 000 samples at an 8 000-sample period) or hold
+    # several (50 000); the feedback after each dump must still apply before the next sample
     fs, f_if, doppler = 8e6, 2e6, 1200.0
     codes = to_sign_mag(synth_l1ca(7, fs, f_if, doppler, 0, 400_000, 45.0, iq=False).real)
     runs = []

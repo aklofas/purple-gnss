@@ -11,7 +11,7 @@ from pathlib import Path
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, First, RisingEdge
+from cocotb.triggers import ClockCycles, First, RisingEdge, Timer
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.samples import SampleFile, read_samples
@@ -74,9 +74,12 @@ async def closed_loop_rtl(dut):
 
     dumps, schedule = [], []
     while True:
-        await First(RisingEdge(dut.dump_irq), RisingEdge(dut.done))
-        if int(dut.done.value):
-            break
+        # wait on the levels, not the edges: playback can end while a dump is being served
+        if not int(dut.dump_irq.value) and not int(dut.done.value):
+            await First(RisingEdge(dut.dump_irq), RisingEdge(dut.done), Timer(5, unit="ms"))
+            assert int(dut.dump_irq.value) or int(dut.done.value), "no dump for 5 ms"
+        if not int(dut.dump_irq.value):
+            break  # done, and nothing pending
         d = await read_dump_retrying(spi, 0)
         steps = tracker.update(d)
         await spi.write_words(R.ch(0, R.CARR_STEP), list(steps))
@@ -102,14 +105,15 @@ async def closed_loop_rtl(dut):
                 history.append(Epoch(dump.sample, tracker_doppler(schedule[k]), m.dump_code_frac / 2**32))
             expected.append(dump)
             k += 1
-    assert_dumps_equal(dumps, expected[: len(dumps)], ignore_sample=True)
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
 
     ref = track_l1ca(SampleFile(path, FS, iq=False), F_IF, best.prn, best.code_offset, best.doppler,
                      best.cn0, duration=DURATION)
+    assert ref.locked
     dopp_rms, code_max = compare_with_pyrx(history, ref, FS, t_from=1.0)
     dut._log.info(f"PRN {best.prn}: Doppler RMS {dopp_rms:.3f} Hz, code max {code_max:.4f} chips")
-    assert dopp_rms < 1.0
-    assert code_max < 0.25
+    assert dopp_rms < 0.5  # the same bounds as the model loop test
+    assert code_max < 0.002
 
 
 def tracker_doppler(steps: tuple[int, int]) -> float:
