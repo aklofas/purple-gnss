@@ -2,15 +2,18 @@
 
 import os
 from pathlib import Path
+from typing import Protocol
 
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge, ValueChange
-from pyrx.codes import CA_CHIP_RATE
+from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 
+from fpgamodel import regmap as R
 from fpgamodel.channel import Dump, nco_step
+from fpgamodel.quantize import code_bits, pack_words
 
 RECORDING = "L1_20211226_082401_24MHz_I.bin"
 FS, F_IF = 24e6, 6.0e6
@@ -136,3 +139,110 @@ def assert_dumps_equal(rtl: list[Dump], model: list[Dump], ignore_sample: bool =
     assert len(rtl) == len(model), f"{len(rtl)} RTL dumps, {len(model)} model dumps"
     for a, b in zip(rtl, model, strict=True):
         assert key(a) == key(b), f"RTL {a}\nmodel {b}"
+
+
+# ---- register-bus access: the direct bus driver and helpers shared with the SPI master ----
+
+
+class RegAccess(Protocol):
+    dut: object
+
+    async def write(self, addr: int, data: int) -> None: ...
+
+    async def read(self, addr: int) -> int: ...
+
+
+class BusDriver:
+    """Drives rx_core's register bus directly: one write per clock, reads return the word
+    registered the cycle after bus_re."""
+
+    def __init__(self, dut):
+        self.dut = dut
+        dut.bus_addr.value = 0
+        dut.bus_wdata.value = 0
+        dut.bus_we.value = 0
+        dut.bus_re.value = 0
+
+    async def write(self, addr: int, data: int) -> None:
+        dut = self.dut
+        dut.bus_addr.value = addr
+        dut.bus_wdata.value = data & 0xFFFFFFFF
+        dut.bus_we.value = 1
+        await RisingEdge(dut.clk)
+        dut.bus_we.value = 0
+
+    async def read(self, addr: int) -> int:
+        dut = self.dut
+        dut.bus_addr.value = addr
+        dut.bus_re.value = 1
+        await RisingEdge(dut.clk)
+        dut.bus_re.value = 0
+        await ReadOnly()
+        value = dut.bus_rdata.value.to_unsigned()
+        await RisingEdge(dut.clk)
+        return value
+
+
+def signed32(v: int) -> int:
+    return v - (1 << 32) if v & (1 << 31) else v
+
+
+async def load_code(bus: RegAccess, k: int, prn: int) -> None:
+    await bus.write(R.ch(k, R.CODE_WR_ADDR), 0)
+    for word in code_bits(gps_ca(prn)):
+        await bus.write(R.ch(k, R.CODE_WR_DATA), int(word))
+
+
+async def load_playback(bus: RegAccess, codes: np.ndarray) -> None:
+    await bus.write(R.PB_ADDR, 0)
+    for word in pack_words(codes):
+        await bus.write(R.PB_DATA, int(word))
+
+
+async def configure_channel(bus: RegAccess, k: int, carr_step: int, code_step: int,
+                            carr_phase: int = 0, code_frac: int = 0, chip_q: int = 0,
+                            spacing_q: int = 1) -> None:
+    await bus.write(R.ch(k, R.CARR_STEP), carr_step)
+    await bus.write(R.ch(k, R.CODE_STEP), code_step)
+    await bus.write(R.ch(k, R.CARR_PHASE), carr_phase)
+    await bus.write(R.ch(k, R.CODE_PHASE_FRAC), code_frac)
+    await bus.write(R.ch(k, R.CODE_CHIP), chip_q)
+    await bus.write(R.ch(k, R.SPACING_Q), spacing_q)
+
+
+async def enable_channel(bus: RegAccess, k: int, on: bool = True) -> None:
+    """Enable after the channel's chip-neighbor refresh (eight clocks after the last code
+    or phase write; any SPI transaction is longer than that)."""
+    await ClockCycles(bus.dut.clk, 8)
+    await bus.write(R.ch(k, R.CH_CTRL), int(on))
+
+
+async def start_playback(bus: RegAccess, n_samples: int) -> None:
+    await bus.write(R.PLAYBACK_LEN, n_samples)
+    await bus.write(R.PLAYBACK_CTRL, 1)
+
+
+async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> Dump:
+    """The channel's holding registers as a Dump (sample = -1: the core does not know it)."""
+    epoch = await bus.read(R.ch(k, R.EPOCH))
+    sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
+    if clear:
+        await bus.write(R.DUMP_CLEAR, 1 << k)
+    return Dump(epoch, *sums, -1)
+
+
+async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) -> list[list[Dump]]:
+    """Read every dump of every channel until playback is done and nothing is pending."""
+    dumps: list[list[Dump]] = [[] for _ in range(n_channels)]
+    while True:
+        pending = await bus.read(R.DUMP_PENDING)
+        for k in range(n_channels):
+            if pending & (1 << k):
+                dumps[k].append(await read_dump(bus, k))
+        status = await bus.read(R.STATUS)
+        if status & R.STATUS_PB_DONE and not pending:
+            await ClockCycles(bus.dut.clk, 8)
+            if not await bus.read(R.DUMP_PENDING):
+                return dumps
+        else:
+            await ClockCycles(bus.dut.clk, poll_cycles)
