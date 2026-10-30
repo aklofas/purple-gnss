@@ -22,13 +22,14 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,209 | 1,281 | 19 | 138.9 MHz | 245 KB |
-| 12 | 15,905 | 9,124 | 30 | 105.2 MHz | 516 KB |
+| 1 | 2,454 | 1,502 | 19 | 140.0 MHz | 249 KB |
+| 12 | 18,734 | 10,885 | 30 | 97.7 MHz | 569 KB |
 
-The playback RAM takes 16 EBR of that. Each channel adds about 1,250 LUT4 and 700
-flip-flops, three times the correlator alone: the per-channel control registers (32-bit step,
-phase, code-address and miss-counter words) and the readback mux are most of it, and are the
-first thing to trim when channel count matters.
+The playback RAM takes 16 EBR of that. Each channel adds about 1,480 LUT4 and 850
+flip-flops, three to four times the correlator alone: the per-channel control and
+measurement registers (32-bit step, phase, code-address, miss-counter and latch words) and
+the readback mux are most of it, and are the first thing to trim when channel count matters.
+The fabric clock on the EVN is 37.5 MHz; the target design's is 38.4 MHz.
 
 ## Running the bench
 
@@ -47,6 +48,38 @@ The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects
 `WAVES=1` records traces) under `fpga/tb/sim_build/`. Each bench streams its samples from a
 hex file through a small Verilog wrapper, so simulation time is spent in the simulator, not in
 Python: the nine channel cases, including 200 ms of the recording, take about three minutes.
+
+## Sample encoding and channel arithmetic
+
+A sample is two bits, `{sign, mag}`: bit 1 set means negative, bit 0 set means magnitude 3,
+clear means magnitude 1, the MAX2771's 2-bit output. Samples count only while valid, so a
+channel fed from the playback RAM freezes when the RAM ends.
+
+Per sample, a channel (`rtl/channel.v`, `fpgamodel.channel.Channel`) does the following, all
+in integers; the model's `step` method is the definition and the cocotb benches hold the RTL to
+it exactly.
+
+1. The top three bits of the 32-bit carrier NCO select one of eight local-oscillator phases.
+   The oscillator is 3-level in each component: (cos, sin) runs through (2, 1), (1, 2),
+   (−1, 2), (−2, 1), (−2, −1), (−1, −2), (1, −2), (2, −1). The product of a ±1/±3 sample and
+   a ±1/±2 oscillator value is one of ±1, ±2, ±3, ±6: a lookup, no multiplier. The in-phase
+   mix is sample × cos, the quadrature mix is −sample × sin, the replica being exp(−j·phase)
+   as in `pyrx.correlator`.
+2. The code NCO counts quarter chips in a 32-bit fraction plus an index 0..4091. The prompt
+   chip is the code bit at index ÷ 4; early and late are the chips `SPACING_Q` quarter chips
+   ahead and behind (0.25 chip by default, pyrx's spacing; 0.5 chip as the alternative). A set
+   code bit is a chip of value −1 and negates the mix.
+3. Six accumulators, early/prompt/late × I/Q, 20 bits wide, wrap on overflow (a period of
+   38 400 samples at ±6 reaches 230 400, so they never do in use).
+4. The two NCOs advance by their step words. When the quarter-chip index wraps past 4091 the
+   six sums are dumped into the holding registers, the accumulators restart with the next
+   sample, the epoch counter increments, and the step words written since the last dump
+   take effect, so a step update never splits an integration.
+
+Step words are `round(f / f_sample × 2^32)`: the carrier's `f` is IF plus Doppler, the code's
+is four times the Doppler-scaled chip rate. The sample rate therefore has to exceed four times
+the chip rate, 4.092 MHz for L1 C/A. The cost of the 2-bit samples and 3-level oscillator
+against a float correlator is measured below.
 
 ## Register map
 
@@ -139,8 +172,11 @@ pull-in, against `pyrx.tracking.track_l1ca` from the same acquisition seed:
 | Loop around | Doppler, RMS difference | Code-period start, largest difference |
 |---|---|---|
 | the model (`fpga/model/tests/test_loop.py`) | 0.37 Hz | 0.0004 chips |
+| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.37 Hz | 0.0004 chips |
 
-Bounds: 1 Hz RMS and one quarter chip.
+Bounds: 1 Hz RMS and one quarter chip. The RTL run also replays the same samples and the same
+step schedule through the model and requires every dump to be equal: the closed loop is
+bit-exact too, which is why the two rows agree to the digit.
 
 ## Quantization loss
 
