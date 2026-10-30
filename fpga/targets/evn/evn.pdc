@@ -18,7 +18,20 @@ ldc_set_location -site {G13} [get_ports {led_n[2]}]
 ldc_set_location -site {F14} [get_ports {led_n[3]}]
 ldc_set_location -site {L16} [get_ports {led_n[4]}]
 ldc_set_location -site {G14} [get_ports btn_rst_n]
-ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {spi_sck spi_mosi spi_miso dump_irq led_n[0] led_n[1] led_n[2] led_n[3] led_n[4] btn_rst_n}]
+# One port per get_ports: nextpnr silently ignores a brace-grouped selector such as
+# [get_ports {a b}], and build.sh counts the pulls that reach the FASM against these lines.
+# SCK and MOSI are pulled down so they idle at mode 0's levels while the Nucleo is not driving
+# them; nothing drives the sample pins on the EVN, so they are held at a defined level too.
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=DOWN} [get_ports spi_sck]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=DOWN} [get_ports spi_mosi]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports spi_miso]
 ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=UP} [get_ports spi_cs_n]
-# nothing drives the sample pins on the EVN: hold them at a defined level
-ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=DOWN} [get_ports {sample_sign sample_mag}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports dump_irq]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=DOWN} [get_ports sample_sign]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=DOWN} [get_ports sample_mag]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {led_n[0]}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {led_n[1]}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {led_n[2]}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {led_n[3]}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {led_n[4]}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports btn_rst_n]

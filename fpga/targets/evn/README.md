@@ -12,9 +12,13 @@ openFPGALoader -b crosslinknx_evn build/n1/top.bit
 ```
 
 Yosys `synth_nexus`, nextpnr-nexus for `LIFCL-40-9BG400C` with `evn.pdc`, `prjoxide pack
---compress`. The script stops on any tool failure and refuses a FASM whose PLL section is
-short: nextpnr can abort while writing the PLL parameters and leave a truncated file that
-prjoxide packs without complaint. `report.py` prints the utilization and fmax line.
+--compress`. The script clears the output directory first and stops on any tool failure.
+nextpnr can abort while writing the PLL parameters and leave a truncated FASM that prjoxide
+packs without complaint, so the script also requires nextpnr's closing log line and the FASM's
+PLL and oscillator sections; and because nextpnr drops a port constraint whose selector matches
+nothing without a warning, it counts the pull-ups and pull-downs in the FASM against the ones
+`evn.pdc` asks for. `report.py` prints the utilization and the fabric clock's fmax; `report.txt`
+also records the source commit.
 
 Lint, with `lint_stubs.v` standing in for the two Lattice primitives and allowing their many
 unused ports and the registers that start from an initial value at configuration:
@@ -42,15 +46,16 @@ J18 is PMOD1 (bank 7, fixed 3.3 V). Standard PMOD numbering: 5 and 11 ground, 6 
 
 | J18 pin | Ball | Signal | Direction |
 |---|---|---|---|
-| 1 | E10 | SPI SCK | in |
-| 2 | E9 | SPI MOSI | in |
+| 1 | E10 | SPI SCK (pulled down) | in |
+| 2 | E9 | SPI MOSI (pulled down) | in |
 | 3 | E7 | SPI MISO | out |
 | 4 | E8 | SPI CS (active low, pulled up) | in |
 | 7 | E4 | DUMP_IRQ (high while any dump is unread) | out |
 | 5 | | GND | |
 
 J17 (PMOD0) pins 3 and 4 (D7, D8) are the live sample input `{sign, mag}`; nothing drives them
-on the EVN and `pin_valid` is tied high, so select the playback source before enabling.
+on the EVN, so they are pulled down, and `pin_valid` is tied high, so select the playback source
+before enabling.
 
 | LED | Ball | Meaning (lit = active) |
 |---|---|---|
