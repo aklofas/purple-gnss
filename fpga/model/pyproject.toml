@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpgamodel"
+version = "0.1.0"
+description = "Bit-true Python model of the FPGA tracking channel, the reference for its cocotb bench"
+requires-python = ">=3.12"
+license = "MIT OR Apache-2.0"
+dependencies = ["numpy", "pyrx"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I", "FURB", "PLW"]

@@ -11,3 +11,7 @@ __pycache__/
 
 # Project virtual environment
 .venv/
+
+# FPGA simulation and synthesis outputs
+fpga/tb/sim_build/
+fpga/targets/*/build/
