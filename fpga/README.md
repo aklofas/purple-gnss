@@ -37,24 +37,31 @@ The fabric clock on the EVN is 37.5 MHz; the target design's is 38.4 MHz.
 
 ## Running the bench
 
-From the repository root, with the project venv:
+From the repository root, in the virtual environment that holds `pyrx`, with Icarus Verilog on
+the path (Verilator too for lint and the closed-loop run):
 
 ```
 uv pip install --python .venv/bin/python -e 'fpga/model[dev]'
 .venv/bin/pytest fpga
 ```
 
-Install `pyrx` first (the repository's quick start): `fpgamodel` depends on it, and the name
-`pyrx` on PyPI is an unrelated package.
+or, with plain pip, `pip install -e 'fpga/model[dev]'` and then `pytest fpga`. Install `pyrx`
+first (the repository's quick start): `fpgamodel` depends on it, and the name `pyrx` on PyPI is
+an unrelated package.
 
 Tests on the recordings need `PYRX_CAPTURES` set to the directory holding them, exactly as the
-`pyrx` suite does; without it they skip. Lint: `verilator --lint-only -Wall fpga/rtl/*.v
---top-module rx_spi` is clean; the board top adds the Lattice primitives, see the target README.
+`pyrx` suite does; without it they skip (the SPI board sequence still runs on synthetic
+samples). The closed-loop RTL run is skipped unless `FPGA_SLOW=1` is set as well; run it with
+`PYRX_CAPTURES=… FPGA_SLOW=1 SIM=verilator .venv/bin/pytest fpga/tb/test_loop.py` (about 2
+minutes). Lint: `verilator --lint-only -Wall fpga/rtl/*.v --top-module rx_spi` is clean; the
+board top adds the Lattice primitives, see the target README.
 
 The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects Verilator,
-`WAVES=1` records traces) under `fpga/tb/sim_build/`. Each bench streams its samples from a
-hex file through a small Verilog wrapper, so simulation time is spent in the simulator, not in
-Python: the nine channel cases, including 200 ms of the recording, take about three minutes.
+`WAVES=1` records traces) under `fpga/tb/sim_build/`. The channel and closed-loop benches
+stream their samples from a hex file through a small Verilog wrapper, so simulation time is
+spent in the simulator, not in Python; the core and SPI benches load the playback RAM through
+register writes. The fifteen channel cases, including 200 ms of the recording, take about four
+minutes, the whole `fpga` run about five.
 
 ## Sample encoding and channel arithmetic
 
