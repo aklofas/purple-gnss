@@ -99,10 +99,17 @@ class Tracker:
 
 
 def track_model(ch: Channel, tracker: Tracker, codes: np.ndarray, block: int = 12_000) -> list[Epoch]:
-    """Close `tracker` around the model channel over `codes`; returns one Epoch per dump."""
+    """Close `tracker` around the model channel over `codes`; returns one Epoch per dump.
+
+    Each run stops at the first dump so its feedback is applied before any later sample,
+    whatever the block size."""
     history: list[Epoch] = []
-    for start in range(0, len(codes), block):
-        for dump in ch.run(codes[start : start + block]):
+    pos = 0
+    while pos < len(codes):
+        before = ch.sample_count
+        dumps = ch.run(codes[pos : pos + block], max_dumps=1)
+        pos += ch.sample_count - before
+        for dump in dumps:
             ch.set_steps(*tracker.update(dump))
             history.append(Epoch(dump.sample, tracker.doppler, ch.dump_code_frac / 2**32))
             if not tracker.locked:

@@ -220,3 +220,23 @@ async def enable_right_after_phase_load(dut):
     expected = model(doppler=doppler, phase=(0, 0, chip_q0)).run(codes[k0:])
     shifted = [Dump(d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample + k0) for d in expected]
     assert_dumps_equal(bench.dumps, shifted)
+
+
+@cocotb.test()
+async def code_len_1024_dumps(dut):
+    # built with CODE_LEN = 1024: the quarter-chip count 4096 needs one more bit than the index
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(np.zeros(32, dtype=np.uint32))
+    code_step = round(4096 / 20_000 * 2**32)  # one period per 20 000 samples
+    bench.set_steps(0, code_step)
+    await bench.load_phase(0, 0, 0)
+    await bench.set_enable(True)
+    codes = np.full(50_000, 0b01, dtype=np.uint8)
+    await run_all(bench, codes)
+    m = Channel(np.zeros(32, dtype=np.uint32), code_len=1024)
+    m.set_steps(0, code_step)
+    m.enabled = True
+    expected = m.run(codes)
+    assert len(expected) == 2
+    assert_dumps_equal(bench.dumps, expected)

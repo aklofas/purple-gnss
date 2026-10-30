@@ -200,3 +200,30 @@ def test_dump_code_frac_is_the_fraction_right_after_the_wrap():
     assert frac is not None
     assert ch_a.dump_code_frac == frac == ch_b.dump_code_frac
     assert ch_a.dump_code_frac != ch_a.code_acc  # the block ran on past the dump
+
+
+def test_run_can_stop_at_the_first_dump():
+    ch_a, codes = _aligned(n=72_000)
+    ref = _channel().run(codes)
+    first = ch_a.run(codes, max_dumps=1)
+    assert first == ref[:1]
+    assert ch_a.sample_count == ref[0].sample
+    rest = ch_a.run(codes[ch_a.sample_count :])
+    assert first + rest == ref
+
+
+def test_disabling_promotes_steps_written_while_enabled():
+    # the RTL copies the step inputs into the active NCO steps while disabled; steps written
+    # while enabled and then a disable before the next dump must do the same in the model
+    _, codes = _aligned(n=72_000)
+    ch = _channel()
+    ch.run(codes[:10_000])
+    ch.set_steps(*_steps(3000.0))  # pending until the next dump
+    ch.enabled = False
+    ch.enabled = True
+    ref = _channel()
+    ref.run(codes[:10_000])
+    ref.enabled = False
+    ref.set_steps(*_steps(3000.0))  # written while disabled: active at once
+    ref.enabled = True
+    assert ch.run(codes[10_000:]) == ref.run(codes[10_000:])

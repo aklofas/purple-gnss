@@ -38,7 +38,7 @@ The fabric clock on the EVN is 37.5 MHz; the target design's is 38.4 MHz.
 From the repository root, with the project venv:
 
 ```
-uv pip install --python .venv/bin/python -e fpga/model
+uv pip install --python .venv/bin/python -e 'fpga/model[dev]'
 .venv/bin/pytest fpga
 ```
 

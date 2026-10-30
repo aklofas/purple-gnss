@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 dependencies = ["numpy", "pyrx"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "cocotb>=2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
