@@ -11,6 +11,25 @@ fpga/
   targets/    one directory per board: top level, pin file, build script
 ```
 
+## Boards
+
+| Target | Board | Notes |
+|---|---|---|
+| [`targets/evn`](targets/evn/README.md) | Lattice LIFCL-40-EVN | SPI and sample pins on the PMOD headers, fabric clock from the internal oscillator, GPLL as a lock check |
+
+Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 31,680 LUT4,
+84 EBR):
+
+| `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
+|---|---|---|---|---|---|
+| 1 | 2,209 | 1,281 | 19 | 138.9 MHz | 245 KB |
+| 12 | 15,905 | 9,124 | 30 | 105.2 MHz | 516 KB |
+
+The playback RAM takes 16 EBR of that. Each channel adds about 1,250 LUT4 and 700
+flip-flops, three times the correlator alone: the per-channel control registers (32-bit step,
+phase, code-address and miss-counter words) and the readback mux are most of it, and are the
+first thing to trim when channel count matters.
+
 ## Running the bench
 
 From the repository root, with the project venv:
@@ -21,7 +40,8 @@ uv pip install --python .venv/bin/python -e fpga/model
 ```
 
 Tests on the recordings need `PYRX_CAPTURES` set to the directory holding them, exactly as the
-`pyrx` suite does; without it they skip.
+`pyrx` suite does; without it they skip. Lint: `verilator --lint-only -Wall fpga/rtl/*.v
+--top-module rx_spi` is clean; the board top adds the Lattice primitives, see the target README.
 
 The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects Verilator,
 `WAVES=1` records traces) under `fpga/tb/sim_build/`. Each bench streams its samples from a

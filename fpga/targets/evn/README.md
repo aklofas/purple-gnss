@@ -1,0 +1,77 @@
+# LIFCL-40-EVN target
+
+`top.v` wraps `rx_spi` for the Lattice CrossLink-NX evaluation board (FPGA-EB-02028): SPI and
+the dump interrupt on PMOD header J18, two sample pins on J17, five LEDs, SW2 as reset.
+
+## Build and load
+
+```
+./build.sh          # one channel: build/n1/top.bit, report.txt
+./build.sh 12       # twelve channels: build/n12/
+openFPGALoader -b crosslinknx_evn build/n1/top.bit
+```
+
+Yosys `synth_nexus`, nextpnr-nexus for `LIFCL-40-9BG400C` with `evn.pdc`, `prjoxide pack
+--compress`. The script stops on any tool failure and refuses a FASM whose PLL section is
+short: nextpnr can abort while writing the PLL parameters and leave a truncated file that
+prjoxide packs without complaint. `report.py` prints the utilization and fmax line.
+
+Lint, allowing the Lattice primitives' many unused ports and the registers that start
+from an initial value at configuration:
+
+```
+verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-PINMISSING -Wno-PINCONNECTEMPTY \
+    --top-module top ../../rtl/*.v top.v /opt/oss-cad-suite/share/yosys/nexus/cells_xtra.v
+```
+
+## Clocking
+
+The board's only fabric clock input is the 12 MHz oscillator on L13, below the GPLL's 18 MHz
+minimum reference (data sheet fIN), and the 125 and 200 MHz oscillators reach only the SERDES
+reference pins. The fabric therefore runs from the device's internal oscillator, 450 MHz / 12
+= 37.5 MHz nominal (a few percent accuracy; the receiver does not depend on the rate: NCO step
+words absorb it and SPI is asynchronous). A GPLL referenced from the same oscillator runs
+alongside, 37.5 MHz × 3 = 112.5 MHz on CLKOP with a 1125 MHz VCO, only to check that a
+bitstream from the open toolchain configures a PLL that locks. For a precise clock later,
+J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
+
+## Wiring to the Nucleo
+
+J18 is PMOD1 (bank 7, fixed 3.3 V). Standard PMOD numbering: 5 and 11 ground, 6 and 12 3.3 V.
+
+| J18 pin | Ball | Signal | Direction |
+|---|---|---|---|
+| 1 | E10 | SPI SCK | in |
+| 2 | E9 | SPI MOSI | in |
+| 3 | E7 | SPI MISO | out |
+| 4 | E8 | SPI CS (active low, pulled up) | in |
+| 7 | E4 | DUMP_IRQ (high while any dump is unread) | out |
+| 5 | | GND | |
+
+J17 (PMOD0) pins 3 and 4 (D7, D8) are the live sample input `{sign, mag}`; nothing drives them
+on the EVN and `pin_valid` is tied high, so select the playback source before enabling.
+
+| LED | Ball | Meaning (lit = active) |
+|---|---|---|
+| LED0 | E17 | PLL lock |
+| LED1 | F13 | fabric heartbeat, about 1.1 Hz |
+| LED2 | G13 | a dump is pending (held about 56 ms) |
+| LED3 | F14 | SPI chip select active (held about 56 ms) |
+| LED4 | L16 | PLL heartbeat, about 1.7 Hz |
+
+SW2 (G14) resets everything but the playback RAM contents.
+
+## First test on the board
+
+1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED0 (lock) on, LED1 and LED4 blinking.
+2. From the Nucleo's SPI master (mode 0, SCK ≤ 4.6 MHz at the 37.5 MHz fabric clock): read
+   `ID` (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.
+3. Write the PRN's 32 code words to `CODE_WR_ADDR`/`CODE_WR_DATA`, then the recording's 2-bit
+   samples 16 per word to `PB_ADDR`/`PB_DATA` (3 ms of the 24 MHz recording is 4500 words),
+   then `CARR_STEP`, `CODE_STEP`, `CARR_PHASE`, `CODE_PHASE_FRAC`, `CODE_CHIP` from the same
+   acquisition result the bench used (`fpgamodel.compare.start_phase`,
+   `fpgamodel.channel.nco_step`), `CH_CTRL` = 1, `CTRL` = 5 (enable, playback source),
+   `PLAYBACK_LEN`, `PLAYBACK_CTRL` = 1.
+4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` and `IE..QL`, write `DUMP_CLEAR`.
+5. Compare each dump with `fpgamodel.channel.Channel.run` on the same samples: they are equal.
+   `fpga/tb/cocotb_spi.py::monday_sequence_over_spi` is this exact sequence in simulation.
