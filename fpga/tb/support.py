@@ -1,6 +1,7 @@
 """Shared pieces of the cocotb benches (imported inside the simulator process)."""
 
 import os
+import random
 from pathlib import Path
 from typing import Protocol
 
@@ -274,30 +275,37 @@ class SpiMaster:
     """Bit-banged SPI master (mode 0, MSB first) for rx_spi, satisfying RegAccess.
 
     Transaction: command byte (bit7 write, bit6 auto-increment), two address bytes, then
-    32-bit words; a read has one dummy byte before its data. `sck_period_cycles` fabric
-    clocks per SCK period; 8 is the documented limit.
+    32-bit words; a read has one dummy byte before its data. The master is asynchronous to
+    the fabric clock, as the board's is: every transaction starts at a random offset from
+    the clock (seeded by cocotb) and the default period, 82.6 ns, is not a multiple of it,
+    just under the fabric/8 limit at the bench's 10 ns clock.
     """
 
-    def __init__(self, dut, sck_period_cycles: int = 8):
+    def __init__(self, dut, sck_period_ns: float = 82.6):
         self.dut = dut
-        self.half = sck_period_cycles // 2
-        self.half_ns = self.half * CLK_NS
+        self.half_ns = sck_period_ns / 2
         dut.spi_sck.value = 0
         dut.spi_mosi.value = 0
         dut.spi_cs_n.value = 1
 
+    async def _bit(self, bit: int) -> int:
+        dut = self.dut
+        dut.spi_mosi.value = bit
+        await Timer(self.half_ns, unit="ns")
+        inp = int(dut.spi_miso.value)
+        dut.spi_sck.value = 1
+        await Timer(self.half_ns, unit="ns")
+        dut.spi_sck.value = 0
+        return inp
+
     async def _byte(self, out: int) -> int:
-        dut, inp = self.dut, 0
+        inp = 0
         for i in range(8):
-            dut.spi_mosi.value = (out >> (7 - i)) & 1
-            await Timer(self.half_ns, unit="ns")
-            inp = (inp << 1) | int(dut.spi_miso.value)
-            dut.spi_sck.value = 1
-            await Timer(self.half_ns, unit="ns")
-            dut.spi_sck.value = 0
+            inp = (inp << 1) | await self._bit((out >> (7 - i)) & 1)
         return inp
 
     async def _begin(self, command: int, addr: int) -> None:
+        await Timer(random.randint(1, 1000 * CLK_NS - 1), unit="ps")  # any phase of the fabric clock
         self.dut.spi_cs_n.value = 0
         await Timer(self.half_ns, unit="ns")
         await self._byte(command)
@@ -335,9 +343,68 @@ class SpiMaster:
     async def read(self, addr: int) -> int:
         return (await self.read_words(addr, 1))[0]
 
+    # ---- malformed transactions ----
     async def abort_mid_word(self, addr: int, data: int) -> None:
         """A write cut short by CS after two data bytes."""
         await self._begin(0xC0, addr)
         await self._byte(data >> 24)
         await self._byte((data >> 16) & 0xFF)
         await self._end()
+
+    async def abort_in_header(self, addr: int) -> None:
+        """A write whose CS rises after the command byte and the first address byte."""
+        await Timer(random.randint(1, 1000 * CLK_NS - 1), unit="ps")
+        self.dut.spi_cs_n.value = 0
+        await Timer(self.half_ns, unit="ns")
+        await self._byte(0xC0)
+        await self._byte(addr >> 8)
+        await self._end()
+
+    async def read_words_aborted(self, addr: int, n_full: int, extra_bytes: int) -> list[int]:
+        """A read burst cut short by CS `extra_bytes` into word n_full + 1."""
+        await self._begin(0x40, addr)
+        await self._byte(0)
+        words = []
+        for _ in range(n_full):
+            v = 0
+            for _ in range(4):
+                v = (v << 8) | await self._byte(0)
+            words.append(v)
+        for _ in range(extra_bytes):
+            await self._byte(0)
+        await self._end()
+        return words
+
+    async def write_words_cs_glitch(self, addr: int, words, glitch_clocks: int) -> None:
+        """An auto-increment write burst with CS pulsed high for `glitch_clocks` fabric clocks
+        after the first word; the slave then parses the following bytes as a new header."""
+        await self._begin(0xC0, addr)
+        for shift in (24, 16, 8, 0):
+            await self._byte((int(words[0]) >> shift) & 0xFF)
+        await Timer(self.half_ns, unit="ns")
+        self.dut.spi_cs_n.value = 1
+        await Timer(glitch_clocks * CLK_NS, unit="ns")
+        self.dut.spi_cs_n.value = 0
+        await Timer(self.half_ns, unit="ns")
+        for w in words[1:]:
+            for shift in (24, 16, 8, 0):
+                await self._byte((int(w) >> shift) & 0xFF)
+        await self._end()
+
+    async def write_with_cs_hold(self, addr: int, data: int, hold_clocks: int) -> None:
+        """A single-word write whose last SCK rise comes right after a fabric clock edge and
+        whose CS rises `hold_clocks` fabric clocks after that rise (0: in the same clock)."""
+        dut = self.dut
+        await self._begin(0x80, addr)
+        for i in range(31):
+            await self._bit((data >> (31 - i)) & 1)
+        dut.spi_mosi.value = data & 1
+        await Timer(self.half_ns, unit="ns")
+        await RisingEdge(dut.clk)
+        dut.spi_sck.value = 1
+        if hold_clocks:
+            await ClockCycles(dut.clk, hold_clocks)
+        dut.spi_cs_n.value = 1
+        dut.spi_sck.value = 0
+        await Timer(4 * self.half_ns, unit="ns")
+        await RisingEdge(dut.clk)
