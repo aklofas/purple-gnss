@@ -21,7 +21,7 @@ def build(toplevel: str, sources: list[Path], parameters: dict | None = None) ->
     key = (toplevel, tuple(str(s) for s in sources), tuple(sorted(parameters.items())))
     if key not in _built:
         digest = hashlib.sha1(repr(key).encode()).hexdigest()[:8]
-        build_dir = TB / "sim_build" / f"{toplevel}-{digest}"
+        build_dir = TB / "sim_build" / f"{toplevel}-{SIM}-{digest}"
         runner = get_runner(SIM)
         runner.build(
             sources=list(sources),
