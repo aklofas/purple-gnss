@@ -100,9 +100,8 @@ against a float correlator is measured below.
 `rx_core` exposes everything on a 16-bit word-address, 32-bit data bus (`fpgamodel.regmap`
 holds the same constants). A write lands on the clock where `bus_we` is high; a read returns
 its word the clock after `bus_re`. Unmapped addresses read zero and ignore writes. Reads have
-no side effects, with one exception: reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`. Because
-the SPI slave fetches one word past every read, read that pair as one two-word burst, and no
-register will ever snapshot or clear on a read.
+no side effects: the SPI slave fetches one word past every read, so no register snapshots,
+latches or clears on a read; anything that needs a snapshot takes it on a write.
 
 Global block at `0x0000`:
 
@@ -112,8 +111,8 @@ Global block at `0x0000`:
 | 0x01 | `VERSION` | R | bits 15:0 = `0x0100`; bit 16 = measurement latch implemented; bit 17 = `CH_START_SAMPLE` implemented |
 | 0x02 | `CTRL` | RW | bit0 global enable, bit1 soft reset (self-clearing, resets everything but the RAM contents: playback samples and code chips), bit2 source (0 pins, 1 playback) |
 | 0x03 | `STATUS` | R | bit0 pll_lock, bit1 playback running, bit2 playback done |
-| 0x04 | `SAMPLE_CNT_LO` | R | valid samples since reset, counted while `CTRL` bit 0 is set; reading it latches `SAMPLE_CNT_HI` |
-| 0x05 | `SAMPLE_CNT_HI` | R | bits 15:0, as latched by the last `SAMPLE_CNT_LO` read |
+| 0x04 | `SAMPLE_CNT_LO` | R | valid samples since reset, counted while `CTRL` bit 0 is set; live |
+| 0x05 | `SAMPLE_CNT_HI` | R | bits 47:32 of the same count, live: for a coherent 48-bit value use `MEAS_SAMPLE_LO/HI` after a `MEAS_TRIG`, or read `LO`, `HI`, `LO` and retry when `LO` wrapped |
 | 0x06 | `DUMP_PENDING` | R | bit k = channel k has an unread dump |
 | 0x07 | `DUMP_CLEAR` | W | write bits to clear |
 | 0x08 | `MEAS_TRIG` | W | write 1: measurement strobe on the next valid sample |
@@ -207,8 +206,7 @@ so give it its own line rather than sharing it with another slave. The eighth it
 that turnaround (the next bit must be on MISO before the master's next rise), not from the
 pulse widths. A read fetches the next word once the 24th bit of the current one has been
 clocked out, as its low byte begins, so a burst also reads the address after its last word
-(the same address in fixed mode); reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`, so read the
-pair as one two-word burst.
+(the same address in fixed mode), which is why no register reacts to a read.
 
 The shape (command, address, dummy cycles, data, burst) is the STM32 OCTOSPI's indirect mode:
 instruction 8 bits, address 16 bits, 8 dummy cycles on reads and 0 on writes, DLR = 4n − 1 for

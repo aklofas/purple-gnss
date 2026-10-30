@@ -12,7 +12,7 @@ CASES = [
     "cs_hold_boundary",
     "aborted_header_and_read_leave_no_trace",
     "cs_glitch_restarts_the_framing",
-    "status_read_relatches_sample_count_high_word",
+    "sample_count_words_are_live",
     "board_sequence_over_spi",
     pytest.param("board_sequence_over_spi_recording", marks=needs_captures),
 ]

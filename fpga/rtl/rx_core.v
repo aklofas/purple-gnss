@@ -104,11 +104,9 @@ module rx_core #(
     wire       src_valid  = g_enable && (source ? pb_valid : pin_valid);
     wire [1:0] src_sample = source ? pb_sample : pin_sample;
     reg [47:0] sample_cnt;
-    reg [15:0] cnt_hi_latch;
     always @(posedge clk) begin
         if (rst_i) sample_cnt <= 48'd0;
         else if (src_valid) sample_cnt <= sample_cnt + 48'd1;
-        if (bus_re && glob && (g_off == A_SAMPLE_CNT_LO)) cnt_hi_latch <= sample_cnt[47:32];
     end
 
     // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
@@ -247,7 +245,7 @@ module rx_core #(
                     A_CTRL: bus_rdata <= {29'd0, source, 1'b0, g_enable};
                     A_STATUS: bus_rdata <= {29'd0, pb_done, pb_running, pll_lock};
                     A_SAMPLE_CNT_LO: bus_rdata <= sample_cnt[31:0];
-                    A_SAMPLE_CNT_HI: bus_rdata <= {16'd0, cnt_hi_latch};
+                    A_SAMPLE_CNT_HI: bus_rdata <= {16'd0, sample_cnt[47:32]};
                     A_DUMP_PENDING: bus_rdata <= {{(32-N_CHANNELS){1'b0}}, pending_vec};
                     A_MEAS_PERIOD: bus_rdata <= meas_period;
                     A_N_CHANNELS: bus_rdata <= N_CHANNELS;
