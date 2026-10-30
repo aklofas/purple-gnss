@@ -132,13 +132,15 @@ def compare_with_pyrx(history: list[Epoch], ref, fs: float, t_from: float) -> tu
         t_dump = e.sample / fs
         if t_dump < t_from:
             continue
-        j = int(np.argmin(np.abs(ref.t - t_dump)))
-        if abs(ref.t[j] - t_dump) > CA_PERIOD:
+        j = int(np.argmin(np.abs(ref.t - t_dump)))  # the pyrx window starting at this dump
+        if j == 0 or abs(ref.t[j] - t_dump) > CA_PERIOD:
             continue
-        chip_rate = CA_CHIP_RATE * (1.0 + ref.doppler[j] / L1_FREQ)
+        # ref.doppler[j] is set after window j; the Doppler in force during it, like the one
+        # this dump's update set for the channel's next period, is ref.doppler[j - 1]
+        chip_rate = CA_CHIP_RATE * (1.0 + ref.doppler[j - 1] / L1_FREQ)
         t_model = code_start_time(e, fs, chip_rate)
         dt = (t_model - ref_start[j] + 0.5 * CA_PERIOD) % CA_PERIOD - 0.5 * CA_PERIOD
-        dopp.append(e.doppler - ref.doppler[j])
+        dopp.append(e.doppler - ref.doppler[j - 1])
         code.append(abs(dt) * chip_rate)
     if not dopp:
         raise ValueError("no epochs to compare")
