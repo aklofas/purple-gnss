@@ -1,10 +1,11 @@
 """Post-correlation SNR of the model and of pyrx's float correlator on the same samples.
 
 The loss of the hardware arithmetic (2-bit samples, 3-level LO) is measured as the ratio
-of two SNRs computed the same way: the prompt power on the tracked PRN over the mean
-prompt power on PRNs that are not in the signal, summed over `n_ms` one-period windows
-with a fixed NCO. The ratio is independent of the correlators' gains; several absent PRNs
-keep the noise estimate's scatter well under 0.1 dB.
+of two SNRs computed the same way: the prompt power on the tracked PRN, less the noise
+power, over the mean prompt power on PRNs that are not in the signal (the noise power),
+summed over `n_ms` sample-aligned 1 ms windows with a fixed NCO. The ratio is independent
+of the correlators' gains; with eight absent PRNs the noise estimate scatters by about
+0.1 dB.
 """
 
 from math import log10
@@ -72,7 +73,8 @@ def prompt_snr_model(codes, fs, f_if, doppler, code_offset_s, prn, wrong_prns, n
 
 
 def _ratio(power, prn, wrong_prns) -> float:
-    return power[prn] / (sum(power[w] for w in wrong_prns) / len(wrong_prns))
+    noise = sum(power[w] for w in wrong_prns) / len(wrong_prns)
+    return power[prn] / noise - 1.0  # the tracked PRN's power holds signal plus noise
 
 
 def loss_db(snr_ref: float, snr_model: float) -> float:
