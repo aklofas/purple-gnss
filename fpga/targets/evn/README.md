@@ -68,15 +68,26 @@ clearing it and quadruples the LED4 rate.
 ## Wiring to the Nucleo
 
 J18 is PMOD1 (bank 7, fixed 3.3 V). Standard PMOD numbering: 5 and 11 ground, 6 and 12 3.3 V.
+The board test drives it from the NUCLEO-H723ZG's OCTOSPI1 in single-line indirect mode, the
+peripheral the later quad-SPI link uses, so the register driver written for the board test
+carries over. Every solder bridge on the Nucleo stays at its default (SB59 and SB63 route NCS
+and CLK to CN10).
 
-| J18 pin | Ball | Signal | Direction |
-|---|---|---|---|
-| 1 | E10 | SPI SCK (pulled down) | in |
-| 2 | E9 | SPI MOSI (pulled down) | in |
-| 3 | E7 | SPI MISO | out |
-| 4 | E8 | SPI CS (active low, pulled up) | in |
-| 7 | E4 | DUMP_IRQ (high while any dump is unread) | out |
-| 5 | | GND | |
+| J18 pin | Ball | Signal | Direction | Nucleo CN10 pin | STM32 pin | OCTOSPI1 signal |
+|---|---|---|---|---|---|---|
+| 1 | E10 | SPI SCK (pulled down) | in | 15 | PB2 | CLK |
+| 2 | E9 | SPI MOSI (pulled down) | in | 23 | PD11 | IO0 |
+| 3 | E7 | SPI MISO | out | 21 | PD12 | IO1 |
+| 4 | E8 | SPI CS (active low, pulled up) | in | 13 | PG6 | NCS |
+| 7 | E4 | DUMP_IRQ (high while any dump is unread) | out | any free GPIO | | |
+| 5 | | GND | | 17 | GND | |
+
+Join the grounds; do not join the two boards' 3.3 V supplies. The fallback, if the OCTOSPI does
+not come up, is SPI1 on the CN7 Arduino header (SCK D13 / PA5, MISO D12 / PA6, MOSI D11 / PB5
+or PA7 by SB33/SB35, CS D10 / PD14 as a GPIO). Its HAL driver releases SCK and MOSI between
+calls and can shorten the last clock pulse when it disables the peripheral (ES0491 2.21.5), so
+with it send each transaction as one call and check on a logic analyzer that the last SCK high
+time and the CS hold after it are both at least two fabric clocks (57 ns at 34.9 MHz).
 
 J17 (PMOD0) pins 3 and 4 (D7, D8) are the live sample input `{sign, mag}`; nothing drives them
 on the EVN, so they are pulled down, and `pin_valid` is tied high, so select the playback source
