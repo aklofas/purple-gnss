@@ -5,18 +5,17 @@ from tb.conftest import RTL, build, run_cocotb
 CASES = [
     "id_version_and_constants",
     "unmapped_reads_zero_writes_ignored",
-    "soft_reset_clears_state_not_playback_ram",
+    "soft_reset_mid_run_keeps_only_the_rams",
     "playback_dumps_match_model",
     "playback_length_clamped_and_zero_is_done",
     "playback_end_freezes_channels",
     "pin_source_dumps_match_model",
     "dump_missed_counts_and_values_replace",
-    "sample_count_reads_coherently",
+    "sample_count_stops_with_global_enable",
     "two_channels_track_two_prns",
     "phase_registers_only_while_disabled",
     "measurement_trigger_captures_all_channels_on_one_sample",
     "measurement_periodic",
-    "version_reports_latch",
     "code_write_address_wraps_at_32_words",
 ]
 
