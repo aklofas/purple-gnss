@@ -136,6 +136,7 @@ module rx_core #(
     localparam KW = (N_CHANNELS > 1) ? $clog2(N_CHANNELS) : 1;
     reg        ch_en        [0:N_CHANNELS-1];
     reg [31:0] ch_carr_step [0:N_CHANNELS-1];
+    reg [31:0] ch_carr_stage [0:N_CHANNELS-1];  // CARR_STEP waits here until CODE_STEP commits both
     reg [31:0] ch_code_step [0:N_CHANNELS-1];
     reg [31:0] ch_carr_ph   [0:N_CHANNELS-1];
     reg [31:0] ch_code_frac [0:N_CHANNELS-1];
@@ -168,13 +169,16 @@ module rx_core #(
             ch_code_we[k] <= 1'b0;
             if (rst_i) begin
                 ch_en[k] <= 1'b0; ch_carr_step[k] <= 32'd0; ch_code_step[k] <= 32'd0;
+                ch_carr_stage[k] <= 32'd0;
                 ch_carr_ph[k] <= 32'd0; ch_code_frac[k] <= 32'd0; ch_chip_q[k] <= {(CODE_AW+2){1'b0}};
                 ch_spacing[k] <= 2'd1; ch_code_addr[k] <= {(CODE_AW-5){1'b0}};
             end else if (sel) begin
                 case (ch_off)
                     C_CH_CTRL: ch_en[k] <= bus_wdata[0];
-                    C_CARR_STEP: ch_carr_step[k] <= bus_wdata;
-                    C_CODE_STEP: ch_code_step[k] <= bus_wdata;
+                    C_CARR_STEP: ch_carr_stage[k] <= bus_wdata;
+                    C_CODE_STEP: begin  // the pair lands together, as the model's set_steps
+                        ch_carr_step[k] <= ch_carr_stage[k]; ch_code_step[k] <= bus_wdata;
+                    end
                     C_CARR_PHASE: if (!ch_en[k]) begin
                         ch_carr_ph[k] <= bus_wdata; ch_load[k] <= 1'b1;
                     end

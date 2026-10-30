@@ -15,6 +15,7 @@ CASES = [
     "sample_count_stops_with_global_enable",
     "two_channels_track_two_prns",
     "phase_registers_only_while_disabled",
+    "step_pair_commits_on_the_code_step_write",
     "code_chip_out_of_range_is_ignored",
     "code_write_while_enabled_is_ignored",
     "measurement_trigger_captures_all_channels_on_one_sample",

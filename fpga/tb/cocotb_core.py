@@ -27,6 +27,7 @@ from tb.support import (
     load_code,
     load_playback,
     read_dump,
+    read_dump_retrying,
     start_playback,
 )
 
@@ -354,6 +355,35 @@ async def playback_write_past_the_end_is_dropped(dut):
     await RisingEdge(dut.clk)
     assert int(dut.pb.mem[0].value) == 0x1111_1111
     assert int(dut.pb.mem[words - 1].value) == 0x2222_2222
+
+
+@cocotb.test()
+async def step_pair_commits_on_the_code_step_write(dut):
+    # a CARR_STEP written alone changes nothing; the CODE_STEP write lands both at once, so
+    # a dump between the two writes never runs a new carrier step with the old code step
+    bus = await start(dut)
+    codes = to_sign_mag(signal(PRN, 1000.0, 0, 12))
+    await set_up_channel(bus, 0, PRN, 1000.0)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    carr_new, code_new = steps(3000.0)
+    dumps = []
+    while len(dumps) < 12:
+        if await bus.read(R.DUMP_PENDING) & 1:
+            dumps.append(await read_dump_retrying(bus, 0))
+            if len(dumps) == 4:
+                await bus.write(R.ch(0, R.CARR_STEP), carr_new)  # alone: nothing changes
+            if len(dumps) == 7:
+                await bus.write(R.ch(0, R.CODE_STEP), code_new)  # both land, from dump 8 on
+        else:
+            await ClockCycles(dut.clk, 20)
+    m = model(PRN, 1000.0)
+    expected = m.run(codes, max_dumps=7)
+    m.set_steps(carr_new, code_new)
+    expected += m.run(codes[m.sample_count :])
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
+    assert await bus.read(R.ch(0, R.DUMP_MISSED)) == 0
 
 
 @cocotb.test()
