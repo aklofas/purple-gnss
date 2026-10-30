@@ -29,12 +29,12 @@ from tb.support import (
 )
 
 
-async def start(dut, sck_period_cycles=8) -> SpiMaster:
+async def start(dut, sck_period_ns: float = 82.6) -> SpiMaster:
     cocotb.start_soon(Clock(dut.clk, CLK_NS, unit="ns").start())
     dut.pin_valid.value = 0
     dut.pin_sample.value = 0
     dut.pll_lock.value = 1
-    spi = SpiMaster(dut, sck_period_cycles)
+    spi = SpiMaster(dut, sck_period_ns)
     dut.rst.value = 1
     await ClockCycles(dut.clk, 4)
     dut.rst.value = 0
@@ -67,6 +67,7 @@ async def burst_auto_increment_write_and_read(dut):
     # PB_ADDR, then one PB_DATA word, then unmapped addresses that swallow the rest
     await spi.write_words(R.PB_ADDR, [7] + words)
     assert await spi.read(R.PB_ADDR) == 8
+    assert int(dut.core.pb.mem[7].value) == words[0]
     await spi.write_words(R.ch(0, R.CODE_WR_ADDR), [3])
     await spi.write_words(R.ch(0, R.CODE_WR_DATA), words[:2], increment=False)
     assert await spi.read(R.ch(0, R.CODE_WR_ADDR)) == 5
@@ -94,12 +95,67 @@ async def aborted_word_is_not_written(dut):
 
 @cocotb.test()
 async def sck_at_fabric_over_8(dut):
-    spi = await start(dut, sck_period_cycles=8)
+    spi = await start(dut, sck_period_ns=8 * CLK_NS)  # the documented limit, exactly
     words = [0xDEADBEEF, 0x01234567, 0x89ABCDEF]
     await spi.write_words(R.ch(0, R.CARR_STEP), words)
     assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == words
-    slow = SpiMaster(dut, 32)
+    slow = SpiMaster(dut, sck_period_ns=32 * CLK_NS)
     assert await slow.read_words(R.ch(0, R.CARR_STEP), 3) == words
+
+
+@cocotb.test()
+async def cs_hold_boundary(dut):
+    # the word is lost only when CS rises in the same fabric clock as the last SCK rise
+    spi = await start(dut)
+    for hold_clocks, landed in ((0, False), (1, True), (2, True)):
+        await spi.write(R.ch(0, R.CARR_STEP), 0)
+        await spi.write_with_cs_hold(R.ch(0, R.CARR_STEP), 0xA5C3F00F, hold_clocks)
+        value = await spi.read(R.ch(0, R.CARR_STEP))
+        assert value == (0xA5C3F00F if landed else 0), (hold_clocks, hex(value))
+        assert await spi.read(R.ID) == R.ID_VALUE
+
+
+@cocotb.test()
+async def aborted_header_and_read_leave_no_trace(dut):
+    spi = await start(dut)
+    await spi.write_words(R.ch(0, R.CARR_STEP), [11, 22, 33])
+    await spi.abort_in_header(R.ch(0, R.CARR_STEP))
+    assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == [11, 22, 33]
+    assert await spi.read_words_aborted(R.ch(0, R.CARR_STEP), 2, 3) == [11, 22]
+    assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == [11, 22, 33]
+    assert await spi.read(R.ID) == R.ID_VALUE
+
+
+@cocotb.test()
+async def cs_glitch_restarts_the_framing(dut):
+    # CS high for three fabric clocks inside a burst ends it: the word before the glitch is
+    # written, the bytes after it are taken as a new header (here a read: nothing lands)
+    spi = await start(dut)
+    await spi.write_words_cs_glitch(R.ch(0, R.CARR_STEP), [0xA5A5A5A5, 0x00123456, 0x789ABCDE], 3)
+    assert await spi.read(R.ch(0, R.CARR_STEP)) == 0xA5A5A5A5
+    assert await spi.read(R.ch(0, R.CODE_STEP)) == 0
+    assert await spi.read(R.ID) == R.ID_VALUE
+
+
+@cocotb.test()
+async def status_read_relatches_sample_count_high_word(dut):
+    # every read fetches the word after its last one, so a STATUS read fetches SAMPLE_CNT_LO
+    # and re-latches SAMPLE_CNT_HI: read the pair as one burst, never LO, STATUS, HI
+    spi = await start(dut)
+    codes = np.zeros(60_000, dtype=np.uint8)
+    await spi.write(R.PB_ADDR, 0)
+    await spi.write_words(R.PB_DATA, pack_words(codes), increment=False)
+    await spi.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(spi, len(codes))
+    await ClockCycles(dut.clk, 10)
+    dut.core.sample_cnt.value = 2**32 - 600  # crosses the word boundary during the reads
+    lo = await spi.read(R.SAMPLE_CNT_LO)
+    assert lo > 2**32 - 600
+    assert await spi.read(R.SAMPLE_CNT_HI) == 0  # latched with LO: coherent
+    await spi.read(R.STATUS)
+    assert await spi.read(R.SAMPLE_CNT_HI) == 1  # re-latched by the read-ahead, LO unread
+    lo, hi = await spi.read_words(R.SAMPLE_CNT_LO, 2)
+    assert hi == 1 and lo < 10_000
 
 
 async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, codes) -> None:
@@ -107,6 +163,8 @@ async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, co
     chip_q, frac = start_phase(code_offset_s, 1.023e6 * (1 + doppler / 1575.42e6))
     carr_step, code_step = channel_steps(doppler)
 
+    assert await spi.read(R.ID) == R.ID_VALUE
+    assert await spi.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
     await load_code(spi, 0, prn)
     await spi.write(R.PB_ADDR, 0)
     await spi.write_words(R.PB_DATA, pack_words(codes), increment=False)
