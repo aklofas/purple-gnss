@@ -24,7 +24,6 @@ from tb.support import (
     collect_dumps,
     configure_channel,
     enable_channel,
-    load_code,
     start_playback,
 )
 
@@ -165,9 +164,15 @@ async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, co
 
     assert await spi.read(R.ID) == R.ID_VALUE
     assert await spi.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
-    await load_code(spi, 0, prn)
+    words = [int(w) for w in code_bits(gps_ca(prn))]
+    await spi.write(R.ch(0, R.CODE_WR_ADDR), 0)
+    await spi.write_words(R.ch(0, R.CODE_WR_DATA), words[:16], increment=False)
+    assert await spi.read(R.ch(0, R.CODE_WR_ADDR)) == 16
+    await spi.write_words(R.ch(0, R.CODE_WR_DATA), words[16:], increment=False)
+    packed = pack_words(codes)
     await spi.write(R.PB_ADDR, 0)
-    await spi.write_words(R.PB_DATA, pack_words(codes), increment=False)
+    await spi.write_words(R.PB_DATA, packed, increment=False)
+    assert await spi.read(R.PB_ADDR) == len(packed)
     await configure_channel(spi, 0, carr_step, code_step, 0, frac, chip_q)
     await enable_channel(spi, 0)
     await spi.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)

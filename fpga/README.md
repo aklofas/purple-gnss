@@ -61,7 +61,7 @@ The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects
 stream their samples from a hex file through a small Verilog wrapper, so simulation time is
 spent in the simulator, not in Python; the core and SPI benches load the playback RAM through
 register writes. The fifteen channel cases, including 200 ms of the recording, take about four
-minutes, the whole `fpga` run about five.
+minutes, the whole `fpga` run about five and a half.
 
 ## Sample encoding and channel arithmetic
 
@@ -200,10 +200,12 @@ per transaction. SCK at an eighth of the fabric clock with equal high and low ti
 of these; the limits matter for a master that stretches, truncates or releases its clock
 between calls. MISO takes its next bit within a few fabric clocks after each SCK rise, to be
 sampled on the following rise, and is driven low while CS is high (it is never high impedance),
-so give it its own line rather than sharing it with another slave. A read fetches the next word
-while bit 24 of the current one shifts out, so a burst also reads the address after its last
-word (the same address in fixed mode); reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`, so read
-the pair as one two-word burst.
+so give it its own line rather than sharing it with another slave. The eighth itself comes from
+that turnaround (the next bit must be on MISO before the master's next rise), not from the
+pulse widths. A read fetches the next word once the 24th bit of the current one has been
+clocked out, as its low byte begins, so a burst also reads the address after its last word
+(the same address in fixed mode); reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`, so read the
+pair as one two-word burst.
 
 The shape (command, address, dummy cycles, data, burst) is the STM32 OCTOSPI's indirect mode:
 instruction 8 bits, address 16 bits, 8 dummy cycles on reads and 0 on writes, DLR = 4n − 1 for
