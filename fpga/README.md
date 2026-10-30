@@ -141,6 +141,12 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
 | 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | the measurement latch: the channel's code NCO fraction, quarter-chip index, carrier NCO phase and dump count as they stood before the strobed sample, and that sample's count (48 bits, the same in every channel) |
 
+A write to any of `CARR_PHASE`, `CODE_PHASE_FRAC` or `CODE_CHIP` on a disabled channel loads all
+three into the NCOs, so write all three; they read back as written, and the live phase is read
+through the measurement latch. A phase load leaves the six running sums alone, so on a channel
+that has run before, the first dump after it carries the earlier partial period: discard that
+dump.
+
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
 phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
