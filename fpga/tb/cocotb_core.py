@@ -125,8 +125,7 @@ async def soft_reset_mid_run_keeps_only_the_rams(dut):
     await ClockCycles(dut.clk, 4)
     zeroed = (R.CTRL, R.PLAYBACK_LEN, R.MEAS_PERIOD, R.DUMP_PENDING, R.SAMPLE_CNT_LO)
     zeroed += (R.SAMPLE_CNT_HI, R.PB_ADDR)
-    zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CARR_STEP, R.CODE_STEP, R.CARR_PHASE))
-    zeroed += tuple(R.ch(0, off) for off in (R.CODE_PHASE_FRAC, R.CODE_CHIP, R.CODE_WR_ADDR))
+    zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CODE_WR_ADDR))
     zeroed += tuple(R.ch(0, off) for off in (R.EPOCH, R.DUMP_MISSED, R.IE, R.QE, R.IP, R.QP, R.IL))
     zeroed += tuple(R.ch(0, off) for off in (R.QL, R.MEAS_CODE_PHASE_FRAC, R.MEAS_CODE_CHIP))
     zeroed += tuple(R.ch(0, off) for off in (R.MEAS_CARR_PHASE, R.MEAS_EPOCH, R.MEAS_SAMPLE_LO))
@@ -281,23 +280,38 @@ async def last_channel_tracks_like_the_first(dut):
     assert all(dumps[k] == [] for k in range(1, n - 1))
 
 
+async def latch_after_strobe(bus, k):
+    """Strobe the latch with three live pin samples and return channel k's latched phase
+    (carrier phase, code fraction, quarter-chip index): the only way the write-only phase
+    registers are read, and the right one, since it shows what the NCOs hold."""
+    dut = bus.dut
+    await bus.write(R.CTRL, R.CTRL_ENABLE)  # the pins as the source
+    await bus.write(R.MEAS_TRIG, 1)
+    dut.pin_valid.value = 1
+    await ClockCycles(dut.clk, 3)
+    dut.pin_valid.value = 0
+    await bus.write(R.CTRL, 0)
+    m = await read_measurement(bus, k)
+    return (m.carr_phase, m.code_frac, m.chip_q)
+
+
 @cocotb.test()
 async def phase_registers_only_while_disabled(dut):
+    # the phase words have no readback; the latch shows what landed in the NCOs: a write to
+    # any one of them on a disabled channel reloads all three, writes while enabled are dropped
     bus = await start(dut)
     await bus.write(R.ch(0, R.CARR_PHASE), 0x11111111)
     await bus.write(R.ch(0, R.CODE_PHASE_FRAC), 0x22222222)
     await bus.write(R.ch(0, R.CODE_CHIP), 4091)
-    assert await bus.read(R.ch(0, R.CARR_PHASE)) == 0x11111111
-    assert await bus.read(R.ch(0, R.CODE_CHIP)) == 4091
-    await enable_channel(bus, 0)
+    assert await bus.read(R.ch(0, R.CARR_PHASE)) == 0  # write-only
+    assert await latch_after_strobe(bus, 0) == (0x11111111, 0x22222222, 4091)
+    await enable_channel(bus, 0)  # with step words of 0 the NCOs stand still
     await bus.write(R.ch(0, R.CARR_PHASE), 0x33333333)
     await bus.write(R.ch(0, R.CODE_CHIP), 5)
-    assert await bus.read(R.ch(0, R.CARR_PHASE)) == 0x11111111
-    assert await bus.read(R.ch(0, R.CODE_PHASE_FRAC)) == 0x22222222
-    assert await bus.read(R.ch(0, R.CODE_CHIP)) == 4091
+    assert await latch_after_strobe(bus, 0) == (0x11111111, 0x22222222, 4091)
     await enable_channel(bus, 0, False)
     await bus.write(R.ch(0, R.CODE_CHIP), 5)
-    assert await bus.read(R.ch(0, R.CODE_CHIP)) == 5
+    assert await latch_after_strobe(bus, 0) == (0x11111111, 0x22222222, 5)
 
 
 @cocotb.test()
@@ -394,9 +408,9 @@ async def code_chip_out_of_range_is_ignored(dut):
     await bus.write(R.ch(0, R.CODE_CHIP), 4091)
     for value in (4092, 4095, 4096, 0xFFFF_FFFF):
         await bus.write(R.ch(0, R.CODE_CHIP), value)
-        assert await bus.read(R.ch(0, R.CODE_CHIP)) == 4091, value
+        assert (await latch_after_strobe(bus, 0))[2] == 4091, value
     await bus.write(R.ch(0, R.CODE_CHIP), 0)
-    assert await bus.read(R.ch(0, R.CODE_CHIP)) == 0
+    assert (await latch_after_strobe(bus, 0))[2] == 0
 
 
 async def read_measurement(bus, k):

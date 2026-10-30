@@ -53,10 +53,10 @@ async def read_id_and_version(dut):
 @cocotb.test()
 async def write_then_read_register(dut):
     spi = await start(dut)
-    await spi.write(R.ch(0, R.CARR_STEP), 0xA5C3F00F)
-    assert await spi.read(R.ch(0, R.CARR_STEP)) == 0xA5C3F00F
-    await spi.write(R.ch(0, R.CODE_STEP), 1)
-    assert await spi.read(R.ch(0, R.CODE_STEP)) == 1
+    await spi.write(R.MEAS_PERIOD, 0xA5C3F00F)
+    assert await spi.read(R.MEAS_PERIOD) == 0xA5C3F00F
+    await spi.write(R.PLAYBACK_LEN, 1)
+    assert await spi.read(R.PLAYBACK_LEN) == 1
 
 
 @cocotb.test()
@@ -70,36 +70,38 @@ async def burst_auto_increment_write_and_read(dut):
     await spi.write_words(R.ch(0, R.CODE_WR_ADDR), [3])
     await spi.write_words(R.ch(0, R.CODE_WR_DATA), words[:2], increment=False)
     assert await spi.read(R.ch(0, R.CODE_WR_ADDR)) == 5
-    await spi.write_words(R.ch(0, R.CARR_STEP), [10, 20, 30, 40, 50, 60])  # CARR_STEP..SPACING_Q
-    assert await spi.read_words(R.ch(0, R.CARR_STEP), 6) == [10, 20, 30, 40, 50, 60 & 3]
+    # MEAS_PERIOD, N_CHANNELS (read-only), PLAYBACK_CTRL (bit 0 clear: no start), PLAYBACK_LEN
+    await spi.write_words(R.MEAS_PERIOD, [10, 20, 30, 40])
+    assert await spi.read_words(R.MEAS_PERIOD, 4) == [10, 1, 0, 40]
 
 
 @cocotb.test()
 async def fixed_address_mode(dut):
     spi = await start(dut)
-    await spi.write_words(R.ch(0, R.CARR_STEP), [1, 2, 3], increment=False)
-    assert await spi.read(R.ch(0, R.CARR_STEP)) == 3
-    assert await spi.read(R.ch(0, R.CODE_STEP)) == 0
+    await spi.write_words(R.MEAS_PERIOD, [1, 2, 3], increment=False)
+    assert await spi.read(R.MEAS_PERIOD) == 3
+    assert await spi.read(R.PLAYBACK_LEN) == 0
     assert await spi.read_words(R.ID, 3, increment=False) == [R.ID_VALUE] * 3
 
 
 @cocotb.test()
 async def aborted_word_is_not_written(dut):
     spi = await start(dut)
-    await spi.write(R.ch(0, R.CARR_STEP), 0x12345678)
-    await spi.abort_mid_word(R.ch(0, R.CARR_STEP), 0xFFFFFFFF)
-    assert await spi.read(R.ch(0, R.CARR_STEP)) == 0x12345678
+    await spi.write(R.MEAS_PERIOD, 0x12345678)
+    await spi.abort_mid_word(R.MEAS_PERIOD, 0xFFFFFFFF)
+    assert await spi.read(R.MEAS_PERIOD) == 0x12345678
     assert await spi.read(R.ID) == R.ID_VALUE
 
 
 @cocotb.test()
 async def sck_at_fabric_over_8(dut):
     spi = await start(dut, sck_period_ns=8 * CLK_NS)  # the documented limit, exactly
-    words = [0xDEADBEEF, 0x01234567, 0x89ABCDEF]
-    await spi.write_words(R.ch(0, R.CARR_STEP), words)
-    assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == words
+    words = [0xDEADBEEF, 0x01234567, 0x89ABCDEE, 0x0F0F0F0F]  # the third lands on PLAYBACK_CTRL
+    back = [0xDEADBEEF, 1, 0, 0x0F0F0F0F]
+    await spi.write_words(R.MEAS_PERIOD, words)
+    assert await spi.read_words(R.MEAS_PERIOD, 4) == back
     slow = SpiMaster(dut, sck_period_ns=32 * CLK_NS)
-    assert await slow.read_words(R.ch(0, R.CARR_STEP), 3) == words
+    assert await slow.read_words(R.MEAS_PERIOD, 4) == back
 
 
 @cocotb.test()
@@ -107,9 +109,9 @@ async def cs_hold_boundary(dut):
     # the word is lost only when CS rises in the same fabric clock as the last SCK rise
     spi = await start(dut)
     for hold_clocks, landed in ((0, False), (1, True), (2, True)):
-        await spi.write(R.ch(0, R.CARR_STEP), 0)
-        await spi.write_with_cs_hold(R.ch(0, R.CARR_STEP), 0xA5C3F00F, hold_clocks)
-        value = await spi.read(R.ch(0, R.CARR_STEP))
+        await spi.write(R.MEAS_PERIOD, 0)
+        await spi.write_with_cs_hold(R.MEAS_PERIOD, 0xA5C3F00F, hold_clocks)
+        value = await spi.read(R.MEAS_PERIOD)
         assert value == (0xA5C3F00F if landed else 0), (hold_clocks, hex(value))
         assert await spi.read(R.ID) == R.ID_VALUE
 
@@ -117,11 +119,11 @@ async def cs_hold_boundary(dut):
 @cocotb.test()
 async def aborted_header_and_read_leave_no_trace(dut):
     spi = await start(dut)
-    await spi.write_words(R.ch(0, R.CARR_STEP), [11, 22, 33])
-    await spi.abort_in_header(R.ch(0, R.CARR_STEP))
-    assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == [11, 22, 33]
-    assert await spi.read_words_aborted(R.ch(0, R.CARR_STEP), 2, 3) == [11, 22]
-    assert await spi.read_words(R.ch(0, R.CARR_STEP), 3) == [11, 22, 33]
+    await spi.write_words(R.MEAS_PERIOD, [11, 22, 34, 44])
+    await spi.abort_in_header(R.MEAS_PERIOD)
+    assert await spi.read_words(R.MEAS_PERIOD, 4) == [11, 1, 0, 44]
+    assert await spi.read_words_aborted(R.MEAS_PERIOD, 2, 3) == [11, 1]
+    assert await spi.read_words(R.MEAS_PERIOD, 4) == [11, 1, 0, 44]
     assert await spi.read(R.ID) == R.ID_VALUE
 
 
@@ -130,9 +132,9 @@ async def cs_glitch_restarts_the_framing(dut):
     # CS high for three fabric clocks inside a burst ends it: the word before the glitch is
     # written, the bytes after it are taken as a new header (here a read: nothing lands)
     spi = await start(dut)
-    await spi.write_words_cs_glitch(R.ch(0, R.CARR_STEP), [0xA5A5A5A5, 0x00123456, 0x789ABCDE], 3)
-    assert await spi.read(R.ch(0, R.CARR_STEP)) == 0xA5A5A5A5
-    assert await spi.read(R.ch(0, R.CODE_STEP)) == 0
+    await spi.write_words_cs_glitch(R.MEAS_PERIOD, [0xA5A5A5A5, 0x00123456, 0x789ABCDE], 3)
+    assert await spi.read(R.MEAS_PERIOD) == 0xA5A5A5A5
+    assert await spi.read(R.PLAYBACK_LEN) == 0
     assert await spi.read(R.ID) == R.ID_VALUE
 
 
