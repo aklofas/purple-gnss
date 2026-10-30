@@ -28,7 +28,7 @@ module rx_core #(
 );
     localparam PB_AW = $clog2(PB_DEPTH / 16);
     localparam [31:0] ID_VALUE = 32'h50474E53;
-    localparam [31:0] VERSION  = 32'h00000100;
+    localparam [31:0] VERSION  = 32'h00010100;  // 1.0, measurement latch present
 
     // register offsets (fpgamodel.regmap)
     localparam [11:0] A_ID = 12'h000, A_VERSION = 12'h001, A_CTRL = 12'h002, A_STATUS = 12'h003,
@@ -40,7 +40,8 @@ module rx_core #(
                      C_CODE_STEP = 8'h04, C_CARR_PHASE = 8'h05, C_CODE_FRAC = 8'h06, C_CODE_CHIP = 8'h07,
                      C_SPACING = 8'h08, C_CODE_WR_ADDR = 8'h09, C_CODE_WR_DATA = 8'h0A, C_EPOCH = 8'h0B,
                      C_MISSED = 8'h0C, C_IE = 8'h10, C_QE = 8'h11, C_IP = 8'h12, C_QP = 8'h13,
-                     C_IL = 8'h14, C_QL = 8'h15;
+                     C_IL = 8'h14, C_QL = 8'h15, C_MEAS_FRAC = 8'h18, C_MEAS_CHIP = 8'h19,
+                     C_MEAS_CARR = 8'h1A, C_MEAS_EPOCH = 8'h1B, C_MEAS_LO = 8'h1C, C_MEAS_HI = 8'h1D;
 
     // ---- decode ----------------------------------------------------------------------
     wire        glob     = bus_addr[15:12] == 4'h0;
@@ -57,6 +58,7 @@ module rx_core #(
     wire rst_i = rst | soft_rst;
     reg g_enable, source;
     reg [31:0] meas_period, pb_len, pb_addr;
+    reg trig_pending;
     reg pb_start, pb_we;
     reg [31:0] pb_wdata;
     reg [PB_AW-1:0] pb_waddr;
@@ -81,7 +83,6 @@ module rx_core #(
                     pb_we <= 1'b1; pb_wdata <= bus_wdata; pb_waddr <= pb_addr[PB_AW-1:0];
                     pb_addr <= pb_addr + 32'd1;
                 end
-                A_MEAS_TRIG:   ;  // measurement latch not built yet
                 default: ;
             endcase
         end
@@ -105,6 +106,27 @@ module rx_core #(
         if (bus_re && glob && (g_off == A_CNT_LO)) cnt_hi_latch <= sample_cnt[47:32];
     end
 
+    // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
+    // MEAS_PERIOD valid samples (first at sample MEAS_PERIOD); all channels latch at once ----
+    reg [31:0] period_cnt;
+    reg [47:0] meas_sample;
+    wire periodic_hit = (meas_period != 32'd0) && (period_cnt >= meas_period);
+    wire meas_strobe  = src_valid && (trig_pending || periodic_hit);
+    always @(posedge clk) begin
+        if (rst_i) begin
+            trig_pending <= 1'b0; period_cnt <= 32'd0; meas_sample <= 48'd0;
+        end else begin
+            if (wr_g && (g_off == A_MEAS_TRIG) && bus_wdata[0]) trig_pending <= 1'b1;
+            if (src_valid) begin
+                period_cnt <= periodic_hit ? 32'd1 : period_cnt + 32'd1;  // the strobed sample counts
+                if (meas_strobe) begin
+                    meas_sample  <= sample_cnt;
+                    trig_pending <= 1'b0;
+                end
+            end
+        end
+    end
+
     // ---- channels ------------------------------------------------------------------------
     reg        ch_en        [0:N_CHANNELS-1];
     reg [31:0] ch_carr_step [0:N_CHANNELS-1];
@@ -122,7 +144,8 @@ module rx_core #(
     reg [31:0] missed       [0:N_CHANNELS-1];
 
     wire [N_CHANNELS-1:0]       ch_dump;
-    wire [32*N_CHANNELS-1:0]    ch_epoch;
+    wire [32*N_CHANNELS-1:0]    ch_epoch, ch_meas_carr, ch_meas_frac, ch_meas_epoch;
+    wire [(CODE_AW+2)*N_CHANNELS-1:0] ch_meas_chip;
     wire [ACC_W*N_CHANNELS-1:0] ch_ie, ch_qe, ch_ip, ch_qp, ch_il, ch_ql;
     reg  [N_CHANNELS-1:0]       pending_vec;
 
@@ -176,10 +199,9 @@ module rx_core #(
             .load_phase(ch_load[k]), .carr_phase_in(ch_carr_ph[k]), .code_frac_in(ch_code_frac[k]),
             .chip_q_in(ch_chip_q[k]),
             .code_we(ch_code_we[k]), .code_waddr(ch_code_waddr[k]), .code_wdata(ch_code_wdata[k]),
-            .meas_strobe(1'b0),
-            /* verilator lint_off PINCONNECTEMPTY */
-            .meas_carr_phase(), .meas_code_frac(), .meas_epoch(), .meas_chip_q(),
-            /* verilator lint_on PINCONNECTEMPTY */
+            .meas_strobe(meas_strobe),
+            .meas_carr_phase(ch_meas_carr[k*32 +: 32]), .meas_code_frac(ch_meas_frac[k*32 +: 32]),
+            .meas_epoch(ch_meas_epoch[k*32 +: 32]), .meas_chip_q(ch_meas_chip[k*(CODE_AW+2) +: CODE_AW+2]),
             .dump(ch_dump[k]),
             .ie(ch_ie[k*ACC_W +: ACC_W]), .qe(ch_qe[k*ACC_W +: ACC_W]),
             .ip(ch_ip[k*ACC_W +: ACC_W]), .qp(ch_qp[k*ACC_W +: ACC_W]),
@@ -235,7 +257,13 @@ module rx_core #(
                     C_QP:           bus_rdata <= sext(ch_qp[rk*ACC_W +: ACC_W]);
                     C_IL:           bus_rdata <= sext(ch_il[rk*ACC_W +: ACC_W]);
                     C_QL:           bus_rdata <= sext(ch_ql[rk*ACC_W +: ACC_W]);
-                    default: ;   // CH_START_SAMPLE and MEAS_* read zero until built
+                    C_MEAS_FRAC:    bus_rdata <= ch_meas_frac[rk*32 +: 32];
+                    C_MEAS_CHIP:    bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_meas_chip[rk*(CODE_AW+2) +: CODE_AW+2]};
+                    C_MEAS_CARR:    bus_rdata <= ch_meas_carr[rk*32 +: 32];
+                    C_MEAS_EPOCH:   bus_rdata <= ch_meas_epoch[rk*32 +: 32];
+                    C_MEAS_LO:      bus_rdata <= meas_sample[31:0];
+                    C_MEAS_HI:      bus_rdata <= {16'd0, meas_sample[47:32]};
+                    default: ;   // CH_START_SAMPLE reads zero until built
                 endcase
             end
         end

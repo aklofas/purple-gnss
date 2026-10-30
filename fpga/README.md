@@ -66,8 +66,8 @@ Global block at `0x0000`:
 | 0x05 | `SAMPLE_CNT_HI` | R | bits 15:0, as latched by the last `SAMPLE_CNT_LO` read |
 | 0x06 | `DUMP_PENDING` | R | bit k = channel k has an unread dump |
 | 0x07 | `DUMP_CLEAR` | W | write bits to clear |
-| 0x08 | `MEAS_TRIG` | W | write 1: strobe on the next valid sample (not built yet) |
-| 0x09 | `MEAS_PERIOD` | RW | samples between periodic strobes, 0 = off (not built yet) |
+| 0x08 | `MEAS_TRIG` | W | write 1: measurement strobe on the next valid sample |
+| 0x09 | `MEAS_PERIOD` | RW | valid samples between periodic strobes, first at sample `MEAS_PERIOD`; 0 = off |
 | 0x0A | `N_CHANNELS` | R | |
 | 0x0B | `PLAYBACK_CTRL` | W | bit0 start, one-shot from sample 0 |
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
@@ -92,7 +92,12 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x0B | `EPOCH` | R | dumps so far |
 | 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set |
 | 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
-| 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | zero until the measurement latch is built |
+| 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | the measurement latch: the channel's code NCO fraction, quarter-chip index, carrier NCO phase and dump count as they stood before the strobed sample, and that sample's count (48 bits, the same in every channel) |
+
+The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
+every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
+phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
+returns the same five numbers for the model.
 
 Two timing rules for whoever drives the bus: enable a channel at least eight clocks after its
 last code or phase write (the channel refreshes the chips around its code phase while

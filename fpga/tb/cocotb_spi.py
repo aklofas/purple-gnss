@@ -46,8 +46,9 @@ async def start(dut, sck_period_cycles=8) -> SpiMaster:
 async def read_id_and_version(dut):
     spi = await start(dut)
     assert await spi.read(R.ID) == R.ID_VALUE
-    assert await spi.read(R.VERSION) == R.VERSION_BASE
-    assert await spi.read_words(R.ID, 2) == [R.ID_VALUE, R.VERSION_BASE]
+    version = R.VERSION_BASE | R.VERSION_LATCH
+    assert await spi.read(R.VERSION) == version
+    assert await spi.read_words(R.ID, 2) == [R.ID_VALUE, version]
 
 
 @cocotb.test()

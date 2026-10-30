@@ -14,7 +14,7 @@ from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
 
 from fpgamodel import regmap as R
-from fpgamodel.channel import Channel, nco_step
+from fpgamodel.channel import Channel, Measurement, nco_step
 from fpgamodel.compare import start_phase
 from fpgamodel.quantize import code_bits, to_sign_mag
 from tb.support import (
@@ -90,7 +90,7 @@ async def run_playback(bus, codes):
 async def id_version_and_constants(dut):
     bus = await start(dut)
     assert await bus.read(R.ID) == R.ID_VALUE
-    assert await bus.read(R.VERSION) == R.VERSION_BASE
+    assert await bus.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
     assert await bus.read(R.N_CHANNELS) == N_CHANNELS
     assert await bus.read(R.PB_DEPTH) == PB_DEPTH
     assert await bus.read(R.STATUS) == R.STATUS_PLL_LOCK
@@ -263,3 +263,63 @@ async def phase_registers_only_while_disabled(dut):
     await enable_channel(bus, 0, False)
     await bus.write(R.ch(0, R.CODE_CHIP), 5)
     assert await bus.read(R.ch(0, R.CODE_CHIP)) == 5
+
+
+async def read_measurement(bus, k):
+    frac = await bus.read(R.ch(k, R.MEAS_CODE_PHASE_FRAC))
+    chip_q = await bus.read(R.ch(k, R.MEAS_CODE_CHIP))
+    carr = await bus.read(R.ch(k, R.MEAS_CARR_PHASE))
+    epoch = await bus.read(R.ch(k, R.MEAS_EPOCH))
+    lo = await bus.read(R.ch(k, R.MEAS_SAMPLE_LO))
+    hi = await bus.read(R.ch(k, R.MEAS_SAMPLE_HI))
+    return Measurement(carr, frac, chip_q, epoch, (hi << 32) | lo)
+
+
+@cocotb.test()
+async def measurement_trigger_captures_all_channels_on_one_sample(dut):
+    bus = await start(dut)
+    x = signal(7, 1000.0, 0, 8, seed=1) + signal(12, -2500.0, 1500, 8, seed=2)
+    codes = to_sign_mag(x)
+    await set_up_channel(bus, 0, 7, 1000.0)
+    await set_up_channel(bus, 1, 12, -2500.0, 1500)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 20_000)
+    await bus.write(R.MEAS_TRIG, 1)
+    await ClockCycles(dut.clk, len(codes))
+    m0 = await read_measurement(bus, 0)
+    m1 = await read_measurement(bus, 1)
+    assert m0.sample == m1.sample
+    assert 19_990 <= m0.sample <= 20_100  # the next valid sample after the trigger write
+    for k, (prn, doppler, offset) in enumerate(((7, 1000.0, 0), (12, -2500.0, 1500))):
+        mdl = model(prn, doppler, offset)
+        mdl.run(codes[: m0.sample])
+        assert (m0, m1)[k] == mdl.measurement()
+
+
+@cocotb.test()
+async def measurement_periodic(dut):
+    bus = await start(dut)
+    codes = to_sign_mag(signal(PRN, 1000.0, 0, 2.5))  # 20 000 samples
+    await set_up_channel(bus, 0, PRN, 1000.0)
+    await load_playback(bus, codes)
+    await bus.write(R.MEAS_PERIOD, 5000)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 7000)
+    first = await read_measurement(bus, 0)
+    assert first.sample == 5000
+    await ClockCycles(dut.clk, len(codes))
+    last = await read_measurement(bus, 0)
+    assert last.sample == 15_000
+    mdl = model(PRN, 1000.0)
+    mdl.run(codes[:15_000])
+    assert last == mdl.measurement()
+    assert last.epoch == mdl.epoch >= 1
+
+
+@cocotb.test()
+async def version_reports_latch(dut):
+    bus = await start(dut)
+    assert await bus.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
