@@ -32,18 +32,21 @@ module rx_core #(
     localparam [31:0] ID_VALUE = 32'h50474E53;
     localparam [31:0] VERSION  = 32'h00010100;  // 1.0, measurement latch present
 
-    // register offsets (fpgamodel.regmap)
+    // register offsets, named as in fpgamodel.regmap (the bench checks the two agree)
     localparam [11:0] A_ID = 12'h000, A_VERSION = 12'h001, A_CTRL = 12'h002, A_STATUS = 12'h003,
-                      A_CNT_LO = 12'h004, A_CNT_HI = 12'h005, A_PENDING = 12'h006, A_CLEAR = 12'h007,
-                      A_MEAS_TRIG = 12'h008, A_MEAS_PERIOD = 12'h009, A_NCH = 12'h00A,
-                      A_PB_CTRL = 12'h00B, A_PB_LEN = 12'h00C, A_PB_DEPTH = 12'h00D,
-                      A_PB_ADDR = 12'h100, A_PB_DATA = 12'h101;
-    localparam [7:0] C_CTRL = 8'h00, C_START_LO = 8'h01, C_START_HI = 8'h02, C_CARR_STEP = 8'h03,
-                     C_CODE_STEP = 8'h04, C_CARR_PHASE = 8'h05, C_CODE_FRAC = 8'h06, C_CODE_CHIP = 8'h07,
-                     C_SPACING = 8'h08, C_CODE_WR_ADDR = 8'h09, C_CODE_WR_DATA = 8'h0A, C_EPOCH = 8'h0B,
-                     C_MISSED = 8'h0C, C_IE = 8'h10, C_QE = 8'h11, C_IP = 8'h12, C_QP = 8'h13,
-                     C_IL = 8'h14, C_QL = 8'h15, C_MEAS_FRAC = 8'h18, C_MEAS_CHIP = 8'h19,
-                     C_MEAS_CARR = 8'h1A, C_MEAS_EPOCH = 8'h1B, C_MEAS_LO = 8'h1C, C_MEAS_HI = 8'h1D;
+                      A_SAMPLE_CNT_LO = 12'h004, A_SAMPLE_CNT_HI = 12'h005,
+                      A_DUMP_PENDING = 12'h006, A_DUMP_CLEAR = 12'h007, A_MEAS_TRIG = 12'h008,
+                      A_MEAS_PERIOD = 12'h009, A_N_CHANNELS = 12'h00A, A_PLAYBACK_CTRL = 12'h00B,
+                      A_PLAYBACK_LEN = 12'h00C, A_PB_DEPTH = 12'h00D, A_PB_ADDR = 12'h100,
+                      A_PB_DATA = 12'h101;
+    localparam [7:0] C_CH_CTRL = 8'h00, C_CH_START_SAMPLE_LO = 8'h01, C_CH_START_SAMPLE_HI = 8'h02,
+                     C_CARR_STEP = 8'h03, C_CODE_STEP = 8'h04, C_CARR_PHASE = 8'h05,
+                     C_CODE_PHASE_FRAC = 8'h06, C_CODE_CHIP = 8'h07, C_SPACING_Q = 8'h08,
+                     C_CODE_WR_ADDR = 8'h09, C_CODE_WR_DATA = 8'h0A, C_EPOCH = 8'h0B,
+                     C_DUMP_MISSED = 8'h0C, C_IE = 8'h10, C_QE = 8'h11, C_IP = 8'h12, C_QP = 8'h13,
+                     C_IL = 8'h14, C_QL = 8'h15, C_MEAS_CODE_PHASE_FRAC = 8'h18,
+                     C_MEAS_CODE_CHIP = 8'h19, C_MEAS_CARR_PHASE = 8'h1A, C_MEAS_EPOCH = 8'h1B,
+                     C_MEAS_SAMPLE_LO = 8'h1C, C_MEAS_SAMPLE_HI = 8'h1D;
 
     // ---- decode ----------------------------------------------------------------------
     wire        glob     = bus_addr[15:12] == 4'h0;
@@ -76,12 +79,12 @@ module rx_core #(
             meas_period <= 32'd0; pb_len <= 32'd0; pb_addr <= 32'd0;
         end else if (wr_g) begin
             case (g_off)
-                A_CTRL:        begin g_enable <= bus_wdata[0]; source <= bus_wdata[2]; end
+                A_CTRL: begin g_enable <= bus_wdata[0]; source <= bus_wdata[2]; end
                 A_MEAS_PERIOD: meas_period <= bus_wdata;
-                A_PB_CTRL:     pb_start <= bus_wdata[0];
-                A_PB_LEN:      pb_len <= bus_wdata;
-                A_PB_ADDR:     pb_addr <= bus_wdata;
-                A_PB_DATA:     begin
+                A_PLAYBACK_CTRL: pb_start <= bus_wdata[0];
+                A_PLAYBACK_LEN: pb_len <= bus_wdata;
+                A_PB_ADDR: pb_addr <= bus_wdata;
+                A_PB_DATA: begin
                     pb_we <= 1'b1; pb_wdata <= bus_wdata; pb_waddr <= pb_addr[PB_AW-1:0];
                     pb_addr <= pb_addr + 32'd1;
                 end
@@ -105,7 +108,7 @@ module rx_core #(
     always @(posedge clk) begin
         if (rst_i) sample_cnt <= 48'd0;
         else if (src_valid) sample_cnt <= sample_cnt + 48'd1;
-        if (bus_re && glob && (g_off == A_CNT_LO)) cnt_hi_latch <= sample_cnt[47:32];
+        if (bus_re && glob && (g_off == A_SAMPLE_CNT_LO)) cnt_hi_latch <= sample_cnt[47:32];
     end
 
     // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
@@ -169,14 +172,21 @@ module rx_core #(
                 ch_spacing[k] <= 2'd1; ch_code_addr[k] <= {(CODE_AW-5){1'b0}};
             end else if (sel) begin
                 case (ch_off)
-                    C_CTRL:      ch_en[k] <= bus_wdata[0];
+                    C_CH_CTRL: ch_en[k] <= bus_wdata[0];
                     C_CARR_STEP: ch_carr_step[k] <= bus_wdata;
                     C_CODE_STEP: ch_code_step[k] <= bus_wdata;
-                    C_CARR_PHASE: if (!ch_en[k]) begin ch_carr_ph[k] <= bus_wdata; ch_load[k] <= 1'b1; end
-                    C_CODE_FRAC:  if (!ch_en[k]) begin ch_code_frac[k] <= bus_wdata; ch_load[k] <= 1'b1; end
-                    C_CODE_CHIP:  if (!ch_en[k]) begin ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1; end
-                    C_SPACING:   ch_spacing[k] <= bus_wdata[1:0];
-                    C_START_LO, C_START_HI: ;  // placeholders until a live sample source exists
+                    C_CARR_PHASE: if (!ch_en[k]) begin
+                        ch_carr_ph[k] <= bus_wdata; ch_load[k] <= 1'b1;
+                    end
+                    C_CODE_PHASE_FRAC: if (!ch_en[k]) begin
+                        ch_code_frac[k] <= bus_wdata; ch_load[k] <= 1'b1;
+                    end
+                    C_CODE_CHIP: if (!ch_en[k]) begin
+                        ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1;
+                    end
+                    C_SPACING_Q: ch_spacing[k] <= bus_wdata[1:0];
+                    // placeholders until a live sample source exists
+                    C_CH_START_SAMPLE_LO, C_CH_START_SAMPLE_HI: ;
                     C_CODE_WR_ADDR: ch_code_addr[k] <= bus_wdata[CODE_AW-6:0];
                     C_CODE_WR_DATA: begin
                         ch_code_we[k] <= 1'b1;
@@ -194,7 +204,7 @@ module rx_core #(
             else if (ch_dump[k]) begin
                 pending[k] <= 1'b1;
                 if (pending[k]) missed[k] <= missed[k] + 16'd1;
-            end else if (wr_g && (g_off == A_CLEAR) && bus_wdata[k]) pending[k] <= 1'b0;
+            end else if (wr_g && (g_off == A_DUMP_CLEAR) && bus_wdata[k]) pending[k] <= 1'b0;
         end
         always @* pending_vec[k] = pending[k];
 
@@ -231,44 +241,45 @@ module rx_core #(
             bus_rdata <= 32'd0;
             if (glob) begin
                 case (g_off)
-                    A_ID:          bus_rdata <= ID_VALUE;
-                    A_VERSION:     bus_rdata <= VERSION;
-                    A_CTRL:        bus_rdata <= {29'd0, source, 1'b0, g_enable};
-                    A_STATUS:      bus_rdata <= {29'd0, pb_done, pb_running, pll_lock};
-                    A_CNT_LO:      bus_rdata <= sample_cnt[31:0];
-                    A_CNT_HI:      bus_rdata <= {16'd0, cnt_hi_latch};
-                    A_PENDING:     bus_rdata <= {{(32-N_CHANNELS){1'b0}}, pending_vec};
+                    A_ID: bus_rdata <= ID_VALUE;
+                    A_VERSION: bus_rdata <= VERSION;
+                    A_CTRL: bus_rdata <= {29'd0, source, 1'b0, g_enable};
+                    A_STATUS: bus_rdata <= {29'd0, pb_done, pb_running, pll_lock};
+                    A_SAMPLE_CNT_LO: bus_rdata <= sample_cnt[31:0];
+                    A_SAMPLE_CNT_HI: bus_rdata <= {16'd0, cnt_hi_latch};
+                    A_DUMP_PENDING: bus_rdata <= {{(32-N_CHANNELS){1'b0}}, pending_vec};
                     A_MEAS_PERIOD: bus_rdata <= meas_period;
-                    A_NCH:         bus_rdata <= N_CHANNELS;
-                    A_PB_LEN:      bus_rdata <= pb_len;
-                    A_PB_DEPTH:    bus_rdata <= PB_DEPTH;
-                    A_PB_ADDR:     bus_rdata <= pb_addr;
+                    A_N_CHANNELS: bus_rdata <= N_CHANNELS;
+                    A_PLAYBACK_LEN: bus_rdata <= pb_len;
+                    A_PB_DEPTH: bus_rdata <= PB_DEPTH;
+                    A_PB_ADDR: bus_rdata <= pb_addr;
                     default: ;
                 endcase
             end else if (ch_valid) begin
                 case (ch_off)
-                    C_CTRL:         bus_rdata <= {31'd0, ch_en[rk]};
-                    C_CARR_STEP:    bus_rdata <= ch_carr_step[rk];
-                    C_CODE_STEP:    bus_rdata <= ch_code_step[rk];
-                    C_CARR_PHASE:   bus_rdata <= ch_carr_ph[rk];
-                    C_CODE_FRAC:    bus_rdata <= ch_code_frac[rk];
-                    C_CODE_CHIP:    bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_chip_q[rk]};
-                    C_SPACING:      bus_rdata <= {30'd0, ch_spacing[rk]};
+                    C_CH_CTRL: bus_rdata <= {31'd0, ch_en[rk]};
+                    C_CARR_STEP: bus_rdata <= ch_carr_step[rk];
+                    C_CODE_STEP: bus_rdata <= ch_code_step[rk];
+                    C_CARR_PHASE: bus_rdata <= ch_carr_ph[rk];
+                    C_CODE_PHASE_FRAC: bus_rdata <= ch_code_frac[rk];
+                    C_CODE_CHIP: bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_chip_q[rk]};
+                    C_SPACING_Q: bus_rdata <= {30'd0, ch_spacing[rk]};
                     C_CODE_WR_ADDR: bus_rdata <= {{(37-CODE_AW){1'b0}}, ch_code_addr[rk]};
-                    C_EPOCH:        bus_rdata <= ch_epoch[rk*32 +: 32];
-                    C_MISSED:       bus_rdata <= {16'd0, missed[rk]};
-                    C_IE:           bus_rdata <= sext(ch_ie[rk*ACC_W +: ACC_W]);
-                    C_QE:           bus_rdata <= sext(ch_qe[rk*ACC_W +: ACC_W]);
-                    C_IP:           bus_rdata <= sext(ch_ip[rk*ACC_W +: ACC_W]);
-                    C_QP:           bus_rdata <= sext(ch_qp[rk*ACC_W +: ACC_W]);
-                    C_IL:           bus_rdata <= sext(ch_il[rk*ACC_W +: ACC_W]);
-                    C_QL:           bus_rdata <= sext(ch_ql[rk*ACC_W +: ACC_W]);
-                    C_MEAS_FRAC:    bus_rdata <= ch_meas_frac[rk*32 +: 32];
-                    C_MEAS_CHIP:    bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_meas_chip[rk*(CODE_AW+2) +: CODE_AW+2]};
-                    C_MEAS_CARR:    bus_rdata <= ch_meas_carr[rk*32 +: 32];
-                    C_MEAS_EPOCH:   bus_rdata <= ch_meas_epoch[rk*32 +: 32];
-                    C_MEAS_LO:      bus_rdata <= meas_sample[31:0];
-                    C_MEAS_HI:      bus_rdata <= {16'd0, meas_sample[47:32]};
+                    C_EPOCH: bus_rdata <= ch_epoch[rk*32 +: 32];
+                    C_DUMP_MISSED: bus_rdata <= {16'd0, missed[rk]};
+                    C_IE: bus_rdata <= sext(ch_ie[rk*ACC_W +: ACC_W]);
+                    C_QE: bus_rdata <= sext(ch_qe[rk*ACC_W +: ACC_W]);
+                    C_IP: bus_rdata <= sext(ch_ip[rk*ACC_W +: ACC_W]);
+                    C_QP: bus_rdata <= sext(ch_qp[rk*ACC_W +: ACC_W]);
+                    C_IL: bus_rdata <= sext(ch_il[rk*ACC_W +: ACC_W]);
+                    C_QL: bus_rdata <= sext(ch_ql[rk*ACC_W +: ACC_W]);
+                    C_MEAS_CODE_PHASE_FRAC: bus_rdata <= ch_meas_frac[rk*32 +: 32];
+                    C_MEAS_CODE_CHIP:
+                        bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_meas_chip[rk*(CODE_AW+2) +: CODE_AW+2]};
+                    C_MEAS_CARR_PHASE: bus_rdata <= ch_meas_carr[rk*32 +: 32];
+                    C_MEAS_EPOCH: bus_rdata <= ch_meas_epoch[rk*32 +: 32];
+                    C_MEAS_SAMPLE_LO: bus_rdata <= meas_sample[31:0];
+                    C_MEAS_SAMPLE_HI: bus_rdata <= {16'd0, meas_sample[47:32]};
                     default: ;   // CH_START_SAMPLE reads zero until built
                 endcase
             end

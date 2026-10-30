@@ -1,6 +1,8 @@
-"""Register map of the FPGA receiver core, shared by the model, the bench and the firmware.
+"""Register map of the FPGA receiver core, the bench's and the firmware's view of rx_core.v.
 
-Word addresses. The global block starts at 0, channel k at CH_BASE + k * CH_STRIDE.
+Word addresses. The global block starts at 0, channel k at CH_BASE + k * CH_STRIDE. The
+bench checks rx_core.v's offsets against these constants name for name; the model itself
+does not use them.
 """
 
 ID_VALUE = 0x50474E53  # "PGNS"
