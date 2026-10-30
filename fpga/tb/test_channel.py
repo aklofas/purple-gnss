@@ -14,6 +14,7 @@ CASES = [
     "recording_200ms",
     "enable_right_after_phase_load",
     "disable_for_one_and_two_clocks",
+    "random_code_high_rate_half_chip",
 ]
 
 
@@ -27,6 +28,7 @@ def test_channel(channel_build, case):
     run_cocotb(channel_build, "tb_channel", "tb.cocotb_channel", case)
 
 
-def test_channel_code_len_1024():
+@pytest.mark.parametrize("case", ["code_len_1024_dumps", "random_code_high_rate_half_chip_1024"])
+def test_channel_code_len_1024(case):
     runner = build("tb_channel", [RTL / "channel.v", TB / "tb_channel.v"], {"CODE_LEN": 1024, "CODE_AW": 10})
-    run_cocotb(runner, "tb_channel", "tb.cocotb_channel", "code_len_1024_dumps")
+    run_cocotb(runner, "tb_channel", "tb.cocotb_channel", case)

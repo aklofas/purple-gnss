@@ -222,6 +222,41 @@ async def enable_right_after_phase_load(dut):
     assert_dumps_equal(bench.dumps, shifted)
 
 
+async def _random_code_high_rate(dut, code_len: int) -> None:
+    # a random code at a code step of 0.99 (the NCO ticks on 99 % of the samples) and
+    # half-chip spacing: the next chip is needed three clocks after its prefetch is issued
+    rng = np.random.default_rng(code_len)
+    words = rng.integers(0, 2**32, size=32, dtype=np.uint64)
+    codes = rng.integers(0, 4, size=60_000, dtype=np.uint8)
+    carr_step, code_step = round(0.3 * 2**32), round(0.99 * 2**32)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(words)
+    dut.spacing_q.value = 2
+    bench.set_steps(carr_step, code_step)
+    await bench.load_phase(0, 0, 0)
+    await bench.set_enable(True)
+    await run_all(bench, codes)
+    m = Channel(words, code_len=code_len)
+    m.spacing_q = 2
+    m.set_steps(carr_step, code_step)
+    m.enabled = True
+    expected = m.run(codes)
+    assert len(expected) >= 14
+    assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def random_code_high_rate_half_chip(dut):
+    await _random_code_high_rate(dut, 1023)
+
+
+@cocotb.test()
+async def random_code_high_rate_half_chip_1024(dut):
+    # built with CODE_LEN = 1024
+    await _random_code_high_rate(dut, 1024)
+
+
 @cocotb.test()
 async def code_len_1024_dumps(dut):
     # built with CODE_LEN = 1024: the quarter-chip count 4096 needs one more bit than the index
