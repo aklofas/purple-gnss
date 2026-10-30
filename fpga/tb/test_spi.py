@@ -9,7 +9,7 @@ CASES = [
     "fixed_address_mode",
     "aborted_word_is_not_written",
     "sck_at_fabric_over_8",
-    "monday_sequence_over_spi",
+    "board_sequence_over_spi",
 ]
 
 
