@@ -113,7 +113,7 @@ Global block at `0x0000`:
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
 | 0x0D | `PB_DEPTH` | R | playback RAM size in samples |
 | 0x100 | `PB_ADDR` | RW | playback word index |
-| 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR` |
+| 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR`; burst it with a fixed address (command bit 6 = 0) |
 
 Channel k at `0x1000 + k·0x100` (up to 16 channels):
 
@@ -128,7 +128,7 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled |
 | 0x08 | `SPACING_Q` | RW | early/late offset in quarter chips, 1 or 2 (reset 1; 0 and 3 act as 1) |
 | 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31, wraps |
-| 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments |
+| 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments; burst it with a fixed address (command bit 6 = 0) |
 | 0x0B | `EPOCH` | R | dumps so far |
 | 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set (16 bits) |
 | 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
