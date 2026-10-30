@@ -108,4 +108,4 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `PLAYBACK_LEN`, `PLAYBACK_CTRL` = 1.
 4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` and `IE..QL`, write `DUMP_CLEAR`.
 5. Compare each dump with `fpgamodel.channel.Channel.run` on the same samples: they are equal.
-   `fpga/tb/cocotb_spi.py::monday_sequence_over_spi` is this exact sequence in simulation.
+   `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this exact sequence in simulation.

@@ -103,7 +103,7 @@ async def sck_at_fabric_over_8(dut):
 
 
 @cocotb.test()
-async def monday_sequence_over_spi(dut):
+async def board_sequence_over_spi(dut):
     spi = await start(dut)
     n_ms = 3
     if captures_dir() is not None:
