@@ -135,13 +135,14 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `CARR_STEP`, `CODE_STEP`, `CARR_PHASE` = 0, `CODE_PHASE_FRAC`, `CODE_CHIP` (0x1003 to
    0x1007); `CH_CTRL` (0x1000) = 1; `CTRL` = 5 (enable, playback source); `PLAYBACK_LEN` =
    72000 (samples); and `PLAYBACK_CTRL` = 1 last, since playback runs from that write.
-4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `DUMP_MISSED` (0x100C), `EPOCH` (0x100B) and
-   the signed 32-bit sums `IE..QL` (0x1010 to 0x1015), write `DUMP_CLEAR` = 1, then read
-   `DUMP_MISSED` again: if it changed, a dump landed during the read, so discard what was
-   read and read again at once. Playback runs one sample per fabric clock, so a dump arrives
+4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` (0x100B) and the signed 32-bit sums
+   `IE..QL` (0x1010 to 0x1015), write `DUMP_CLEAR` = 1, then read `EPOCH` again: if it
+   changed, a dump landed during the read, so discard what was read and read again at
+   once. Playback runs one sample per fabric clock, so a dump arrives
    about every 0.64 ms. When `STATUS` bit 2 (done) is set and nothing
    is pending, `DUMP_MISSED` (0x100C) must read 0 and `SAMPLE_CNT_LO` 72000 (a new run does
-   not clear the count: soft-reset first if the pins source was ever enabled).
+   not clear the count: soft-reset first if anything ran before, a previous playback run or
+   the pins source).
 5. Run `fpgamodel.channel.Channel` on the same code words and 2-bit samples with the same steps and phase
    (`set_steps`, `set_phase(0, CODE_PHASE_FRAC, CODE_CHIP)`, `enabled = True`, `run`): the
    board returns as many dumps as the model, and each dump's epoch and six sums equal the

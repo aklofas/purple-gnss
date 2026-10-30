@@ -131,7 +131,7 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x00 | `CH_CTRL` | RW | bit0 enable |
 | 0x01, 0x02 | `CH_START_SAMPLE_LO/HI` | RW | placeholder, reads 0 |
 | 0x03 | `CARR_STEP` | W | carrier NCO step, cycles per sample × 2^32; staged until `CODE_STEP` is written |
-| 0x04 | `CODE_STEP` | W | code NCO step, quarter chips per sample × 2^32; its write commits both steps together, which take effect at the next dump, or at once while disabled and in the eight clocks after enable |
+| 0x04 | `CODE_STEP` | W | code NCO step, quarter chips per sample × 2^32; its write commits both steps together, which take effect at the next dump, or at once while disabled and in the seven clocks after the enable is written |
 | 0x05 | `CARR_PHASE` | W | carrier NCO phase; written only while disabled |
 | 0x06 | `CODE_PHASE_FRAC` | W | code NCO fraction; written only while disabled |
 | 0x07 | `CODE_CHIP` | W | quarter-chip index 0..4091 of the prompt tap; written only while disabled; a value of 4092 or more is ignored |
@@ -152,9 +152,9 @@ dump.
 
 A dump that lands while the previous one is being read replaces the holding registers at once,
 so a read can mix two periods, and a `DUMP_CLEAR` after it would acknowledge the new dump
-unread. Read `DUMP_MISSED` first, then `EPOCH` and the sums, write `DUMP_CLEAR`, then read
-`DUMP_MISSED` again: if it changed, discard what was read and read again at once (the bench's
-`read_dump` is the reference).
+unread. Read `EPOCH` first, then the sums, write `DUMP_CLEAR`, then read `EPOCH` again: it
+changes on the same clock as the sums, so if it changed, discard what was read and read again
+at once (the bench's `read_dump` is the reference).
 
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
@@ -167,7 +167,7 @@ of an observable is the latched `MEAS_CARR_PHASE` less the IF phase at the latch
 uses, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`
 returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the
 channel's own count of the samples it processed while enabled, which equals `MEAS_SAMPLE` only
-for a channel enabled before the first valid sample.
+for a channel whose enable was in effect before the first valid sample and never dropped since.
 
 Three things to know when driving the bus. A channel's enable takes effect eight clocks after
 it is written (the channel spends them re-reading the chips around its code phase, so a phase
@@ -205,9 +205,9 @@ per transaction. SCK at an eighth of the fabric clock with equal high and low ti
 of these; the limits matter for a master that stretches, truncates or releases its clock
 between calls. MISO takes its next bit within a few fabric clocks after each SCK rise, to be
 sampled on the following rise, and is driven low while CS is high (it is never high impedance),
-so give it its own line rather than sharing it with another slave. The eighth itself comes from
-that turnaround (the next bit must be on MISO before the master's next rise), not from the
-pulse widths. A read fetches the next word once the 24th bit of the current one has been
+so give it its own line rather than sharing it with another slave. That turnaround, about
+three fabric clocks before the master's next rise can sample the bit, is the binding limit,
+and the eighth keeps margin over it. A read fetches the next word once the 24th bit of the current one has been
 clocked out, as its low byte begins, so a burst also reads the address after its last word
 (the same address in fixed mode), which is why no register reacts to a read.
 
