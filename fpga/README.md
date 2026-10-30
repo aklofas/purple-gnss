@@ -122,7 +122,7 @@ Global block at `0x0000`:
 | 0x0B | `PLAYBACK_CTRL` | W | bit0 start, one-shot from sample 0 |
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
 | 0x0D | `PB_DEPTH` | R | playback RAM size in samples |
-| 0x100 | `PB_ADDR` | RW | playback word index |
+| 0x100 | `PB_ADDR` | RW | playback word index; a `PB_DATA` write at or past the end (`PB_DEPTH` / 16 words) is dropped and leaves it there |
 | 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR`; burst it with a fixed address (command bit 6 = 0) |
 
 Channel k at `0x1000 + k·0x100` (up to 16 channels):

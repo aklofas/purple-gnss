@@ -8,6 +8,7 @@ CASES = [
     "soft_reset_mid_run_keeps_only_the_rams",
     "playback_dumps_match_model",
     "playback_length_clamped_and_zero_is_done",
+    "playback_write_past_the_end_is_dropped",
     "playback_end_freezes_channels",
     "pin_source_dumps_match_model",
     "dump_missed_counts_and_values_replace",
