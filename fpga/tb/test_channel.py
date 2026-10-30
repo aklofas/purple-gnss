@@ -31,5 +31,5 @@ def test_channel(channel_build, case):
 
 @pytest.mark.parametrize("case", ["code_len_1024_dumps", "random_code_high_rate_half_chip_1024"])
 def test_channel_code_len_1024(case):
-    runner = build("tb_channel", [RTL / "channel.v", TB / "tb_channel.v"], {"CODE_LEN": 1024, "CODE_AW": 10})
+    runner = build("tb_channel", [RTL / "channel.v", TB / "tb_channel.v"], {"CODE_LEN": 1024})
     run_cocotb(runner, "tb_channel", "tb.cocotb_channel", case)

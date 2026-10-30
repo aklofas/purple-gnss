@@ -12,7 +12,7 @@
 module rx_core #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
-    parameter CODE_AW    = 10,
+    parameter CODE_AW    = $clog2(CODE_LEN),  // derived
     parameter ACC_W      = 20,
     parameter PB_DEPTH   = 147456
 ) (
@@ -84,7 +84,7 @@ module rx_core #(
                 A_PLAYBACK_CTRL: pb_start <= bus_wdata[0];
                 A_PLAYBACK_LEN: pb_len <= bus_wdata;
                 A_PB_ADDR: pb_addr <= bus_wdata;
-                A_PB_DATA: if (pb_addr < PB_DEPTH / 16) begin  // past the RAM: dropped, pointer held
+                A_PB_DATA: if (pb_addr < PB_DEPTH / 16) begin  // past the RAM: dropped
                     pb_we <= 1'b1; pb_wdata <= bus_wdata; pb_waddr <= pb_addr[PB_AW-1:0];
                     pb_addr <= pb_addr + 32'd1;
                 end
@@ -123,7 +123,7 @@ module rx_core #(
         end else begin
             if (wr_g && (g_off == A_MEAS_TRIG) && bus_wdata[0]) trig_pending <= 1'b1;
             if ((wr_g && (g_off == A_MEAS_PERIOD)) || (meas_period == 32'd0)) period_cnt <= 32'd0;
-            else if (src_valid) period_cnt <= periodic_hit ? 32'd1 : period_cnt + 32'd1;  // strobed one counts
+            else if (src_valid) period_cnt <= periodic_hit ? 32'd1 : period_cnt + 32'd1;
             if (src_valid) begin
                 if (meas_strobe) begin
                     meas_sample  <= sample_cnt;

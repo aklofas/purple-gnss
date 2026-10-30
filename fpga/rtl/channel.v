@@ -25,7 +25,7 @@
 // wrapper's DUMP_LATENCY).
 module channel #(
     parameter CODE_LEN = 1023,
-    parameter CODE_AW  = 10,
+    parameter CODE_AW  = $clog2(CODE_LEN),  // derived: the chip index width
     parameter ACC_W    = 20
 ) (
     input  wire        clk,
@@ -232,7 +232,7 @@ module channel #(
                 ie <= n_ie; qe <= n_qe; ip <= n_ip; qp <= n_qp; il <= n_il; ql <= n_ql;
                 a_ie <= 0; a_qe <= 0; a_ip <= 0; a_qp <= 0; a_il <= 0; a_ql <= 0;
                 dump  <= 1'b1;
-                epoch <= epoch + 32'd1;
+                epoch <= epoch0;  // counted at the wrap, two clocks ahead of this dump
             end else begin
                 a_ie <= n_ie; a_qe <= n_qe; a_ip <= n_ip; a_qp <= n_qp; a_il <= n_il; a_ql <= n_ql;
             end

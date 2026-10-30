@@ -22,12 +22,12 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,415 | 1,465 | 19 | 141.6 MHz | 248 KB |
-| 12 | 16,241 | 10,012 | 30 | 94.7 MHz | 538 KB |
+| 1 | 2,428 | 1,465 | 19 | 144.8 MHz | 247 KB |
+| 12 | 15,868 | 10,012 | 30 | 80.2 MHz | 531 KB |
 
 The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
 so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
-in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,260 LUT4 and 780
+in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,220 LUT4 and 780
 flip-flops, three times the correlator alone: the per-channel control and measurement
 registers (32-bit step, phase and latch words) and the readback mux are most of it. Holding
 the phase words only in the channel's NCOs and reading them back from there, and a single
