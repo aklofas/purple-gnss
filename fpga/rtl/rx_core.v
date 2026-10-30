@@ -263,11 +263,8 @@ module rx_core #(
             end else if (ch_valid) begin
                 case (ch_off)
                     C_CH_CTRL: bus_rdata <= {31'd0, ch_en[rk]};
-                    C_CARR_STEP: bus_rdata <= ch_carr_step[rk];
-                    C_CODE_STEP: bus_rdata <= ch_code_step[rk];
-                    C_CARR_PHASE: bus_rdata <= ch_carr_ph[rk];
-                    C_CODE_PHASE_FRAC: bus_rdata <= ch_code_frac[rk];
-                    C_CODE_CHIP: bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_chip_q[rk]};
+                    // the step and phase words are write-only: the live phase is read through
+                    // the measurement latch, and their readback was a third of the channel's mux
                     C_SPACING_Q: bus_rdata <= {30'd0, ch_spacing[rk]};
                     C_CODE_WR_ADDR: bus_rdata <= {{(37-CODE_AW){1'b0}}, ch_code_addr[rk]};
                     C_EPOCH: bus_rdata <= ch_epoch[rk*32 +: 32];
