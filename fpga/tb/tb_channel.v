@@ -33,9 +33,12 @@ module tb_channel #(
     input  wire        code_we,
     input  wire [CODE_AW-6:0] code_waddr,
     input  wire [31:0] code_wdata,
+    input  wire        meas_strobe,
     output wire        dump,
     output wire signed [ACC_W-1:0] ie, qe, ip, qp, il, ql,
-    output wire [31:0] epoch
+    output wire [31:0] epoch,
+    output wire [31:0] meas_carr_phase, meas_code_frac, meas_epoch,
+    output wire [CODE_AW+1:0] meas_chip_q
 );
     reg [1:0] mem [0:MAX_SAMPLES-1];
     always @(posedge load) $readmemh("samples.hex", mem);
@@ -75,8 +78,9 @@ module tb_channel #(
         .load_phase(load_phase), .carr_phase_in(carr_phase_in), .code_frac_in(code_frac_in),
         .chip_q_in(chip_q_in),
         .code_we(code_we), .code_waddr(code_waddr), .code_wdata(code_wdata),
-        .meas_strobe(1'b0),
+        .meas_strobe(meas_strobe),
         .dump(dump), .ie(ie), .qe(qe), .ip(ip), .qp(qp), .il(il), .ql(ql), .epoch(epoch),
-        .meas_carr_phase(), .meas_code_frac(), .meas_epoch(), .meas_chip_q()
+        .meas_carr_phase(meas_carr_phase), .meas_code_frac(meas_code_frac),
+        .meas_epoch(meas_epoch), .meas_chip_q(meas_chip_q)
     );
 endmodule

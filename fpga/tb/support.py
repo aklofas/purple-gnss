@@ -50,7 +50,7 @@ class ChannelBench:
         cocotb.start_soon(Clock(dut.clk, CLK_NS, unit="ns").start())
         for name in ("load", "n_samples", "gap", "stream_en", "pause_en", "pause_at", "enable",
                      "carr_step", "code_step", "load_phase", "carr_phase_in", "code_frac_in",
-                     "chip_q_in", "code_we", "code_waddr", "code_wdata"):
+                     "chip_q_in", "code_we", "code_waddr", "code_wdata", "meas_strobe"):
             getattr(dut, name).value = 0
         dut.spacing_q.value = 1
         dut.rst.value = 1
@@ -130,6 +130,29 @@ class ChannelBench:
         if not int(dut.done.value):
             await RisingEdge(dut.done)
         await ClockCycles(dut.clk, 8)  # drain the pipeline
+
+    async def strobe(self) -> None:
+        """Raise meas_strobe for one clock: with the sample presented on that edge, if any."""
+        self.dut.meas_strobe.value = 1
+        await RisingEdge(self.dut.clk)
+        self.dut.meas_strobe.value = 0
+
+    async def strobe_with_sample(self, k: int) -> None:
+        """Strobe with sample k (pausing the stream before it, then releasing it)."""
+        await self.pause_at(k)
+        self.dut.meas_strobe.value = 1
+        self.resume()
+        await RisingEdge(self.dut.clk)
+        self.dut.meas_strobe.value = 0
+
+    async def latched(self) -> tuple[int, int, int, int]:
+        """(carrier phase, code fraction, quarter-chip index, epoch) held by the latch."""
+        dut = self.dut
+        await ReadOnly()
+        values = (dut.meas_carr_phase, dut.meas_code_frac, dut.meas_chip_q, dut.meas_epoch)
+        latched = tuple(int(v.value) for v in values)
+        await Timer(1, unit="ns")  # leave the read-only phase without passing another edge
+        return latched
 
 
 def assert_dumps_equal(rtl: list[Dump], model: list[Dump], ignore_sample: bool = False) -> None:

@@ -14,6 +14,7 @@ CASES = [
     "recording_200ms",
     "enable_right_after_phase_load",
     "disable_for_one_and_two_clocks",
+    "measurement_latch_at_load_guard_and_wrap",
     "random_code_high_rate_half_chip",
 ]
 

@@ -6,7 +6,7 @@ from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import gps_ca
 from pyrx.samples import read_samples
 
-from fpgamodel.channel import Channel, Dump, synthetic_codes
+from fpgamodel.channel import Channel, Dump, Measurement, synthetic_codes
 from fpgamodel.compare import start_phase
 from fpgamodel.quantize import code_bits, to_sign_mag
 from tb.support import (
@@ -216,10 +216,64 @@ async def enable_right_after_phase_load(dut):
     probe = model(doppler=doppler, phase=(0, 0, chip_q0))
     s1 = probe.run(codes)[0].sample  # samples from the start to the first wrap: NCO only
     k0 = bench.dumps[0].sample - s1
-    assert 5000 <= k0 <= 5000 + 12, k0  # the channel started within a few clocks of enable
+    assert k0 == 5009, k0  # the eight-clock guard, then the first sample it accepts
     expected = model(doppler=doppler, phase=(0, 0, chip_q0)).run(codes[k0:])
     shifted = [Dump(d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample + k0) for d in expected]
     assert_dumps_equal(bench.dumps, shifted)
+
+
+def _latch_of(m: Measurement) -> tuple[int, int, int, int]:
+    return (m.carr_phase, m.code_frac, m.chip_q, m.epoch)
+
+
+@cocotb.test()
+async def measurement_latch_at_load_guard_and_wrap(dut):
+    # the latch holds the channel's state before the strobed sample: a disabled channel
+    # gives its loaded phase (a strobe in the load's own clock still sees the old one), the
+    # enable guard gives the same frozen state, the wrap sample the state before the wrap,
+    # and the sample after it the wrapped index with the new epoch
+    doppler, phase = 1000.0, (0x1234_5678, 0x9ABC_DEF0, 2000)
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 72_000, 45.0)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(code_bits(gps_ca(PRN)))
+    bench.set_steps(*channel_steps(doppler))
+    await bench.load_samples(codes)
+    bench.stream()
+    m = Channel(code_bits(gps_ca(PRN)))
+    m.set_steps(*channel_steps(doppler))
+
+    dut.carr_phase_in.value, dut.code_frac_in.value, dut.chip_q_in.value = phase
+    dut.load_phase.value = 1
+    await bench.strobe()  # the load lands on this edge: the latch still sees the reset state
+    dut.load_phase.value = 0
+    assert await bench.latched() == (0, 0, 0, 0)
+    await bench.strobe()
+    m.set_phase(*phase)
+    assert await bench.latched() == _latch_of(m.measurement())
+
+    await bench.pause_at(5000)
+    bench.resume()
+    await cocotb.triggers.RisingEdge(dut.clk)  # sample 5000 goes in, the channel disabled
+    dut.enable.value = 1  # the same timing as enable_right_after_phase_load
+    await cocotb.triggers.ClockCycles(dut.clk, 3)  # inside the eight-clock guard
+    await bench.strobe()
+    assert await bench.latched() == _latch_of(m.measurement())
+    await cocotb.triggers.ClockCycles(dut.clk, 10)  # the guard runs out
+
+    m.enabled = True
+    probe = Channel(code_bits(gps_ca(PRN)))
+    probe.set_steps(*channel_steps(doppler))
+    probe.set_phase(*phase)
+    probe.enabled = True
+    k0 = 5009  # the first sample the channel accepts (enable_right_after_phase_load)
+    wraps = [k0 + d.sample - 1 for d in probe.run(codes[k0:])[:2]]  # the samples that wrap
+    for k in (wraps[0], wraps[0] + 1, wraps[1] + 1):
+        await bench.strobe_with_sample(k)
+        m.run(codes[k0 + m.sample_count : k])  # up to the strobed sample
+        assert await bench.latched() == _latch_of(m.measurement()), k
+    assert m.epoch == 2
+    await bench.finish()
 
 
 async def _random_code_high_rate(dut, code_len: int) -> None:
