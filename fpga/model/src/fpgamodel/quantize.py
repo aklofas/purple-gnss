@@ -18,11 +18,20 @@ def to_sign_mag(x: np.ndarray, threshold: float | None = None) -> np.ndarray:
     """
     x = np.asarray(x, dtype=np.float64)
     if threshold is None:
-        two_bit = np.isin(np.unique(x), (-3.0, -1.0, 1.0, 3.0)).all()
-        threshold = 2.0 if two_bit else float(x.std())
+        threshold = 2.0 if _holds_only_two_bit_values(x) else float(x.std())
     sign = (x < 0).astype(np.uint8)
     mag = (np.abs(x) >= threshold).astype(np.uint8)
     return (sign << 1) | mag
+
+
+def _holds_only_two_bit_values(x: np.ndarray, block: int = 1 << 20) -> bool:
+    """True when every sample is one of -3, -1, 1, 3; checked a block at a time so a long
+    recording costs no input-sized temporary."""
+    for start in range(0, len(x), block):
+        a = np.abs(x[start : start + block])
+        if not ((a == 1.0) | (a == 3.0)).all():
+            return False
+    return len(x) > 0
 
 
 def values(codes: np.ndarray) -> np.ndarray:

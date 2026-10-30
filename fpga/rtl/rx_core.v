@@ -12,7 +12,7 @@
 module rx_core #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
-    parameter CODE_AW    = $clog2(CODE_LEN),  // derived
+    parameter CODE_AW    = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,
     parameter ACC_W      = 20,
     parameter PB_DEPTH   = 147456
 ) (
@@ -30,7 +30,7 @@ module rx_core #(
 );
     localparam PB_AW = $clog2(PB_DEPTH / 16);
     localparam [31:0] ID_VALUE = 32'h50474E53;
-    localparam [31:0] VERSION  = 32'h00010100;  // 1.0, measurement latch present
+    localparam [31:0] VERSION  = 32'h00010200;  // map 2.0, measurement latch present
 
     // register offsets, named as in fpgamodel.regmap (the bench checks the two agree)
     localparam [11:0] A_ID = 12'h000, A_VERSION = 12'h001, A_CTRL = 12'h002, A_STATUS = 12'h003,

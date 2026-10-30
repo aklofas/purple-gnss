@@ -26,7 +26,8 @@
 // wrapper's DUMP_LATENCY).
 module channel #(
     parameter CODE_LEN = 1023,
-    parameter CODE_AW  = $clog2(CODE_LEN),  // derived: the chip index width
+    parameter CODE_AW  = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,  // chip index width, at least
+                                                                         // one 32-chip word's worth
     parameter ACC_W    = 20
 ) (
     input  wire        clk,

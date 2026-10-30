@@ -52,3 +52,11 @@ def test_lo_loss_on_recording(captures):
     loss = loss_db(snr_ref, snr_model)
     print(f"PRN {best.prn} at {best.cn0:.1f} dB-Hz: LO loss on the recording {loss:.2f} dB")
     assert 0.0 <= loss <= 0.8
+
+
+def test_a_prn_below_the_noise_is_rejected():
+    from fpgamodel.compare import _ratio
+
+    with pytest.raises(ValueError):
+        _ratio({5: 0.9, 6: 1.0, 7: 1.0}, 5, [6, 7])
+    assert _ratio({5: 3.0, 6: 1.0, 7: 1.0}, 5, [6, 7]) == pytest.approx(2.0)

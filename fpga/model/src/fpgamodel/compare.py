@@ -3,9 +3,11 @@
 The loss of the hardware arithmetic (2-bit samples, 3-level LO) is measured as the ratio
 of two SNRs computed the same way: the prompt power on the tracked PRN, less the noise
 power, over the mean prompt power on PRNs that are not in the signal (the noise power),
-summed over `n_ms` sample-aligned 1 ms windows with a fixed NCO. The ratio is independent
-of the correlators' gains; with eight absent PRNs the noise estimate scatters by about
-0.1 dB.
+summed over `n_ms` windows of one code period with a fixed NCO. The ratio is independent of
+the correlators' gains; with eight absent PRNs the noise estimate scatters by about 0.1 dB.
+pyrx's windows are sample-aligned 1 ms blocks and the model's are its dumps (the first partial
+for a nonzero code offset): a misalignment of up to one code period, measured at 0.03 dB or
+less on the recording.
 """
 
 from math import log10
@@ -74,7 +76,10 @@ def prompt_snr_model(codes, fs, f_if, doppler, code_offset_s, prn, wrong_prns, n
 
 def _ratio(power, prn, wrong_prns) -> float:
     noise = sum(power[w] for w in wrong_prns) / len(wrong_prns)
-    return power[prn] / noise - 1.0  # the tracked PRN's power holds signal plus noise
+    snr = power[prn] / noise - 1.0  # the tracked PRN's power holds signal plus noise
+    if not noise > 0.0 or not snr > 0.0:
+        raise ValueError(f"PRN {prn} is not above the noise of PRNs {wrong_prns}: SNR {snr:.3g}")
+    return snr
 
 
 def loss_db(snr_ref: float, snr_model: float) -> float:
