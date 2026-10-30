@@ -27,7 +27,7 @@ from tb.support import (
     load_code,
     load_playback,
     read_dump,
-    read_dump_retrying,
+    read_dumps_now,
     start_playback,
 )
 
@@ -103,7 +103,7 @@ async def id_version_and_constants(dut):
 @cocotb.test()
 async def unmapped_reads_zero_writes_ignored(dut):
     bus = await start(dut)
-    for addr in (0x0FFF, 0x0E, 0x102, R.ch(N_CHANNELS, 0), R.ch(0, 0xFF), R.ch(0, 0x16), 0x2000, 0xFFFF):
+    for addr in (0x0FFF, 0x0F, 0x102, R.ch(N_CHANNELS, 0), R.ch(0, 0xFF), R.ch(0, 0x16), 0x2000, 0xFFFF):
         await bus.write(addr, 0xDEADBEEF)
         assert await bus.read(addr) == 0, hex(addr)
     assert await bus.read(R.ID) == R.ID_VALUE  # nothing hung
@@ -124,7 +124,7 @@ async def soft_reset_mid_run_keeps_only_the_rams(dut):
     await bus.write(R.CTRL, R.CTRL_RESET)
     await ClockCycles(dut.clk, 4)
     zeroed = (R.CTRL, R.PLAYBACK_LEN, R.MEAS_PERIOD, R.DUMP_PENDING, R.SAMPLE_CNT_LO)
-    zeroed += (R.SAMPLE_CNT_HI, R.PB_ADDR)
+    zeroed += (R.SAMPLE_CNT_HI, R.PB_ADDR, R.MEAS_SEQ)
     zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CODE_WR_ADDR))
     zeroed += tuple(R.ch(0, off) for off in (R.EPOCH, R.DUMP_MISSED, R.IE, R.QE, R.IP, R.QP, R.IL))
     zeroed += tuple(R.ch(0, off) for off in (R.QL, R.MEAS_CODE_PHASE_FRAC, R.MEAS_CODE_CHIP))
@@ -208,8 +208,9 @@ async def pin_source_dumps_match_model(dut):
     assert pending == 0b01  # the last dump still waits; earlier ones were missed on purpose
     assert await bus.read(R.SAMPLE_CNT_LO) == len(codes)
     expected = model(PRN, -1500.0, 777).run(codes)
-    latest = await read_dump(bus, 0)
+    latest, again = await read_dump(bus, 0)
     assert_dumps_equal([latest], expected[-1:], ignore_sample=True)
+    assert not again
     assert await bus.read(R.ch(0, R.DUMP_MISSED)) == len(expected) - 1
 
 
@@ -226,7 +227,7 @@ async def dump_missed_counts_and_values_replace(dut):
     assert len(expected) >= 3
     assert await bus.read(R.ch(0, R.DUMP_MISSED)) == len(expected) - 1
     assert await bus.read(R.DUMP_PENDING) == 0b01
-    assert_dumps_equal([await read_dump(bus, 0)], expected[-1:], ignore_sample=True)
+    assert_dumps_equal([(await read_dump(bus, 0))[0]], expected[-1:], ignore_sample=True)
     assert await bus.read(R.DUMP_PENDING) == 0
 
 
@@ -385,7 +386,7 @@ async def step_pair_commits_on_the_code_step_write(dut):
     dumps = []
     while len(dumps) < 12:
         if await bus.read(R.DUMP_PENDING) & 1:
-            dumps.append(await read_dump_retrying(bus, 0))
+            dumps.extend(await read_dumps_now(bus, 0))
             if len(dumps) == 4:
                 await bus.write(R.ch(0, R.CARR_STEP), carr_new)  # alone: nothing changes
             if len(dumps) == 7:
