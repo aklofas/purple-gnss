@@ -227,3 +227,12 @@ def test_disabling_promotes_steps_written_while_enabled():
     ref.set_steps(*_steps(3000.0))  # written while disabled: active at once
     ref.enabled = True
     assert ch.run(codes[10_000:]) == ref.run(codes[10_000:])
+
+
+def test_set_phase_rejects_a_quarter_chip_index_past_the_code():
+    ch = Channel(code_bits(gps_ca(7)))
+    ch.set_phase(0, 0, 4091)
+    with pytest.raises(ValueError):
+        ch.set_phase(0, 0, 4092)
+    with pytest.raises(ValueError):
+        ch.set_phase(0, 0, -1)

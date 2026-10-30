@@ -13,6 +13,7 @@ CASES = [
     "spacing_q_half_chip",
     "recording_200ms",
     "enable_right_after_phase_load",
+    "disable_for_one_and_two_clocks",
 ]
 
 

@@ -60,7 +60,7 @@ on the EVN and `pin_valid` is tied high, so select the playback source before en
 | LED3 | F14 | SPI chip select active (held about 56 ms) |
 | LED4 | L16 | PLL heartbeat, about 1.7 Hz |
 
-SW2 (G14) resets everything but the playback RAM contents.
+SW2 (G14) resets everything but the RAM contents (playback samples and code chips).
 
 ## First test on the board
 

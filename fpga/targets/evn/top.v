@@ -67,13 +67,15 @@ module top #(
     );
     reg [25:0] pll_hb = 26'd0;
     always @(posedge pll_clkop) pll_hb <= pll_hb + 26'd1;
+    reg [1:0] lock_q = 2'b00;  // LOCK into the fabric clock domain
+    always @(posedge clk) lock_q <= {lock_q[0], pll_lock};
 
     // ---- receiver ----------------------------------------------------------------------------
     rx_spi #(.N_CHANNELS(N_CHANNELS)) rx (
         .clk(clk), .rst(rst),
         .spi_sck(spi_sck), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n), .spi_miso(spi_miso),
         .pin_valid(1'b1), .pin_sample({sample_sign, sample_mag}),
-        .pll_lock(pll_lock), .dump_irq(dump_irq)
+        .pll_lock(lock_q[1]), .dump_irq(dump_irq)
     );
 
     // ---- LEDs -----------------------------------------------------------------------------------
@@ -89,5 +91,5 @@ module top #(
         else if (spi_hold != 21'd0) spi_hold <= spi_hold - 21'd1;
     end
 
-    assign led_n = ~{pll_hb[25], spi_hold != 21'd0, dump_hold != 21'd0, hb[24], pll_lock};
+    assign led_n = ~{pll_hb[25], spi_hold != 21'd0, dump_hold != 21'd0, hb[24], lock_q[1]};
 endmodule

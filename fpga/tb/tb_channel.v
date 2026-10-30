@@ -8,7 +8,7 @@ module tb_channel #(
     parameter CODE_AW = 10,
     parameter ACC_W = 20,
     parameter MAX_SAMPLES = 5_000_000,
-    parameter DUMP_LATENCY = 2
+    parameter DUMP_LATENCY = 2   // clock edges from the one taking the wrap sample to dump high
 ) (
     input  wire        clk,
     input  wire        rst,

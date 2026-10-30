@@ -114,9 +114,11 @@ class Channel:
         """Set the NCO accumulators directly; only while disabled."""
         if self.enabled:
             raise ValueError("phase can only be set while the channel is disabled")
+        if not 0 <= chip_q < self.n_q:
+            raise ValueError(f"quarter-chip index {chip_q} outside 0..{self.n_q - 1}")
         self.carr_acc = carr_phase & MASK32
         self.code_acc = code_frac & MASK32
-        self.chip_q = chip_q % self.n_q
+        self.chip_q = chip_q
 
     def measurement(self) -> Measurement:
         return Measurement(self.carr_acc, self.code_acc, self.chip_q, self.epoch, self.sample_count)

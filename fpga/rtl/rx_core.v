@@ -7,6 +7,8 @@
 // Bus: a write lands on the clock edge where bus_we is high; a read presents bus_rdata on
 // the edge after bus_re. Unmapped addresses read zero and ignore writes. Up to 16 channels
 // at 0x1000 + k * 0x100.
+// A soft reset clears every register and counter but leaves the RAM contents (playback
+// samples and code chips) in place.
 module rx_core #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
@@ -128,6 +130,7 @@ module rx_core #(
     end
 
     // ---- channels ------------------------------------------------------------------------
+    localparam KW = (N_CHANNELS > 1) ? $clog2(N_CHANNELS) : 1;
     reg        ch_en        [0:N_CHANNELS-1];
     reg [31:0] ch_carr_step [0:N_CHANNELS-1];
     reg [31:0] ch_code_step [0:N_CHANNELS-1];
@@ -135,13 +138,18 @@ module rx_core #(
     reg [31:0] ch_code_frac [0:N_CHANNELS-1];
     reg [CODE_AW+1:0] ch_chip_q [0:N_CHANNELS-1];
     reg [1:0]  ch_spacing   [0:N_CHANNELS-1];
-    reg [31:0] ch_code_addr [0:N_CHANNELS-1];
+    reg [CODE_AW-6:0] ch_code_addr [0:N_CHANNELS-1];  // wraps at the code's word count
     reg        ch_load      [0:N_CHANNELS-1];
     reg        ch_code_we   [0:N_CHANNELS-1];
-    reg [31:0] ch_code_wdata[0:N_CHANNELS-1];
-    reg [CODE_AW-6:0] ch_code_waddr [0:N_CHANNELS-1];
     reg        pending      [0:N_CHANNELS-1];
-    reg [31:0] missed       [0:N_CHANNELS-1];
+    reg [15:0] missed       [0:N_CHANNELS-1];
+    // one write lands per clock, so the code word and its address are shared by all channels
+    reg [31:0] code_wdata_r;
+    reg [CODE_AW-6:0] code_waddr_r;
+    always @(posedge clk) if (wr_c && (ch_off == C_CODE_WR_DATA)) begin
+        code_wdata_r <= bus_wdata;
+        code_waddr_r <= ch_code_addr[ch_k[KW-1:0]];
+    end
 
     wire [N_CHANNELS-1:0]       ch_dump;
     wire [32*N_CHANNELS-1:0]    ch_epoch, ch_meas_carr, ch_meas_frac, ch_meas_epoch;
@@ -158,7 +166,7 @@ module rx_core #(
             if (rst_i) begin
                 ch_en[k] <= 1'b0; ch_carr_step[k] <= 32'd0; ch_code_step[k] <= 32'd0;
                 ch_carr_ph[k] <= 32'd0; ch_code_frac[k] <= 32'd0; ch_chip_q[k] <= {(CODE_AW+2){1'b0}};
-                ch_spacing[k] <= 2'd1; ch_code_addr[k] <= 32'd0;
+                ch_spacing[k] <= 2'd1; ch_code_addr[k] <= {(CODE_AW-5){1'b0}};
             end else if (sel) begin
                 case (ch_off)
                     C_CTRL:      ch_en[k] <= bus_wdata[0];
@@ -169,11 +177,10 @@ module rx_core #(
                     C_CODE_CHIP:  if (!ch_en[k]) begin ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1; end
                     C_SPACING:   ch_spacing[k] <= bus_wdata[1:0];
                     C_START_LO, C_START_HI: ;  // placeholders until a live sample source exists
-                    C_CODE_WR_ADDR: ch_code_addr[k] <= bus_wdata;
+                    C_CODE_WR_ADDR: ch_code_addr[k] <= bus_wdata[CODE_AW-6:0];
                     C_CODE_WR_DATA: begin
-                        ch_code_we[k] <= 1'b1; ch_code_wdata[k] <= bus_wdata;
-                        ch_code_waddr[k] <= ch_code_addr[k][CODE_AW-6:0];
-                        ch_code_addr[k] <= ch_code_addr[k] + 32'd1;
+                        ch_code_we[k] <= 1'b1;
+                        ch_code_addr[k] <= ch_code_addr[k] + {{(CODE_AW-6){1'b0}}, 1'b1};
                     end
                     default: ;
                 endcase
@@ -183,10 +190,10 @@ module rx_core #(
         // a dump sets the pending bit (and counts a miss if it was still set); the clear
         // register clears it; a dump in the same clock as a clear wins
         always @(posedge clk) begin
-            if (rst_i) begin pending[k] <= 1'b0; missed[k] <= 32'd0; end
+            if (rst_i) begin pending[k] <= 1'b0; missed[k] <= 16'd0; end
             else if (ch_dump[k]) begin
                 pending[k] <= 1'b1;
-                if (pending[k]) missed[k] <= missed[k] + 32'd1;
+                if (pending[k]) missed[k] <= missed[k] + 16'd1;
             end else if (wr_g && (g_off == A_CLEAR) && bus_wdata[k]) pending[k] <= 1'b0;
         end
         always @* pending_vec[k] = pending[k];
@@ -198,7 +205,7 @@ module rx_core #(
             .carr_step(ch_carr_step[k]), .code_step(ch_code_step[k]), .spacing_q(ch_spacing[k]),
             .load_phase(ch_load[k]), .carr_phase_in(ch_carr_ph[k]), .code_frac_in(ch_code_frac[k]),
             .chip_q_in(ch_chip_q[k]),
-            .code_we(ch_code_we[k]), .code_waddr(ch_code_waddr[k]), .code_wdata(ch_code_wdata[k]),
+            .code_we(ch_code_we[k]), .code_waddr(code_waddr_r), .code_wdata(code_wdata_r),
             .meas_strobe(meas_strobe),
             .meas_carr_phase(ch_meas_carr[k*32 +: 32]), .meas_code_frac(ch_meas_frac[k*32 +: 32]),
             .meas_epoch(ch_meas_epoch[k*32 +: 32]), .meas_chip_q(ch_meas_chip[k*(CODE_AW+2) +: CODE_AW+2]),
@@ -217,7 +224,6 @@ module rx_core #(
         input [ACC_W-1:0] v;
         sext = {{(32-ACC_W){v[ACC_W-1]}}, v};
     endfunction
-    localparam KW = (N_CHANNELS > 1) ? $clog2(N_CHANNELS) : 1;
     wire [KW-1:0] rk = ch_valid ? ch_k[KW-1:0] : {KW{1'b0}};
 
     always @(posedge clk) begin
@@ -248,9 +254,9 @@ module rx_core #(
                     C_CODE_FRAC:    bus_rdata <= ch_code_frac[rk];
                     C_CODE_CHIP:    bus_rdata <= {{(30-CODE_AW){1'b0}}, ch_chip_q[rk]};
                     C_SPACING:      bus_rdata <= {30'd0, ch_spacing[rk]};
-                    C_CODE_WR_ADDR: bus_rdata <= ch_code_addr[rk];
+                    C_CODE_WR_ADDR: bus_rdata <= {{(37-CODE_AW){1'b0}}, ch_code_addr[rk]};
                     C_EPOCH:        bus_rdata <= ch_epoch[rk*32 +: 32];
-                    C_MISSED:       bus_rdata <= missed[rk];
+                    C_MISSED:       bus_rdata <= {16'd0, missed[rk]};
                     C_IE:           bus_rdata <= sext(ch_ie[rk*ACC_W +: ACC_W]);
                     C_QE:           bus_rdata <= sext(ch_qe[rk*ACC_W +: ACC_W]);
                     C_IP:           bus_rdata <= sext(ch_ip[rk*ACC_W +: ACC_W]);

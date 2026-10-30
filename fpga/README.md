@@ -22,15 +22,17 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,441 | 1,506 | 19 | 143.7 MHz | 249 KB |
-| 12 | 17,244 | 10,933 | 30 | 99.2 MHz | 549 KB |
+| 1 | 2,415 | 1,465 | 19 | 141.6 MHz | 248 KB |
+| 12 | 16,241 | 10,012 | 30 | 94.7 MHz | 538 KB |
 
 The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
 so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
-in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,350 LUT4 and 860
-flip-flops, three times the correlator alone: the per-channel control and
-measurement registers (32-bit step, phase, code-address, miss-counter and latch words) and
-the readback mux are most of it, and are the first thing to trim when channel count matters.
+in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,260 LUT4 and 780
+flip-flops, three times the correlator alone: the per-channel control and measurement
+registers (32-bit step, phase and latch words) and the readback mux are most of it. Holding
+the phase words only in the channel's NCOs and reading them back from there, and a single
+readback register file indexed by channel, are the remaining trims when channel count
+matters.
 The fabric clock on the EVN is 37.5 MHz; the target design's is 38.4 MHz.
 
 ## Running the bench
@@ -98,7 +100,7 @@ Global block at `0x0000`:
 |---|---|---|---|
 | 0x00 | `ID` | R | `0x50474E53` |
 | 0x01 | `VERSION` | R | bits 15:0 = `0x0100`; bit 16 = measurement latch implemented; bit 17 = `CH_START_SAMPLE` implemented |
-| 0x02 | `CTRL` | RW | bit0 global enable, bit1 soft reset (self-clearing, resets everything but the playback RAM), bit2 source (0 pins, 1 playback) |
+| 0x02 | `CTRL` | RW | bit0 global enable, bit1 soft reset (self-clearing, resets everything but the RAM contents: playback samples and code chips), bit2 source (0 pins, 1 playback) |
 | 0x03 | `STATUS` | R | bit0 pll_lock, bit1 playback running, bit2 playback done |
 | 0x04 | `SAMPLE_CNT_LO` | R | valid samples since enable; reading it latches `SAMPLE_CNT_HI` |
 | 0x05 | `SAMPLE_CNT_HI` | R | bits 15:0, as latched by the last `SAMPLE_CNT_LO` read |
@@ -125,10 +127,10 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x06 | `CODE_PHASE_FRAC` | RW | code NCO fraction; written only while disabled |
 | 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled |
 | 0x08 | `SPACING_Q` | RW | early/late offset in quarter chips, 1 or 2 (reset 1; 0 and 3 act as 1) |
-| 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31 |
+| 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31, wraps |
 | 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments |
 | 0x0B | `EPOCH` | R | dumps so far |
-| 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set |
+| 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set (16 bits) |
 | 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
 | 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | the measurement latch: the channel's code NCO fraction, quarter-chip index, carrier NCO phase and dump count as they stood before the strobed sample, and that sample's count (48 bits, the same in every channel) |
 
