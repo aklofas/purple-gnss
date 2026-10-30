@@ -420,7 +420,8 @@ class SpiMaster:
         dut.spi_sck.value = 1
         if hold_clocks:
             await ClockCycles(dut.clk, hold_clocks)
-        dut.spi_cs_n.value = 1
+        dut.spi_cs_n.value = 1  # SCK stays high past it: one timestep keeps only a last deposit
+        await Timer(self.half_ns, unit="ns")
         dut.spi_sck.value = 0
-        await Timer(4 * self.half_ns, unit="ns")
+        await Timer(round(3 * self.half_ns * 1000), unit="ps")
         await RisingEdge(dut.clk)
