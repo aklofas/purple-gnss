@@ -245,13 +245,29 @@ async def start_playback(bus: RegAccess, n_samples: int) -> None:
     await bus.write(R.PLAYBACK_CTRL, 1)
 
 
-async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> Dump:
-    """The channel's holding registers as a Dump (sample = -1: the core does not know it)."""
+async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> Dump | None:
+    """The channel's holding registers as a Dump (sample = -1: the core does not know it).
+
+    A dump that lands during the read replaces the registers at once, so the sums could mix
+    two periods, and the clear would acknowledge the new dump unread. DUMP_MISSED counts such
+    a dump: it is read first and again after the clear, and on a change the result is None
+    and the caller reads again at once (the registers then hold the new dump, already
+    cleared)."""
+    missed = await bus.read(R.ch(k, R.DUMP_MISSED))
     epoch = await bus.read(R.ch(k, R.EPOCH))
     sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
     if clear:
         await bus.write(R.DUMP_CLEAR, 1 << k)
+    if await bus.read(R.ch(k, R.DUMP_MISSED)) != missed:
+        return None
     return Dump(epoch, *sums, -1)
+
+
+async def read_dump_retrying(bus: RegAccess, k: int) -> Dump:
+    """`read_dump`, read again whenever a dump landed during the read."""
+    while (dump := await read_dump(bus, k)) is None:
+        pass
+    return dump
 
 
 async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) -> list[list[Dump]]:
@@ -261,7 +277,7 @@ async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) 
         pending = await bus.read(R.DUMP_PENDING)
         for k in range(n_channels):
             if pending & (1 << k):
-                dumps[k].append(await read_dump(bus, k))
+                dumps[k].append(await read_dump_retrying(bus, k))
         status = await bus.read(R.STATUS)
         if status & R.STATUS_PB_DONE and not pending:
             await ClockCycles(bus.dut.clk, 8)

@@ -34,7 +34,7 @@ from tb.support import (
     configure_channel,
     enable_channel,
     load_code,
-    read_dump,
+    read_dump_retrying,
 )
 
 DURATION = 3.0
@@ -77,7 +77,7 @@ async def closed_loop_rtl(dut):
         await First(RisingEdge(dut.dump_irq), RisingEdge(dut.done))
         if int(dut.done.value):
             break
-        d = await read_dump(spi, 0)
+        d = await read_dump_retrying(spi, 0)
         steps = tracker.update(d)
         await spi.write_words(R.ch(0, R.CARR_STEP), list(steps))
         dumps.append(d)

@@ -150,6 +150,12 @@ through the measurement latch. A phase load leaves the six running sums alone, s
 that has run before, the first dump after it carries the earlier partial period: discard that
 dump.
 
+A dump that lands while the previous one is being read replaces the holding registers at once,
+so a read can mix two periods, and a `DUMP_CLEAR` after it would acknowledge the new dump
+unread. Read `DUMP_MISSED` first, then `EPOCH` and the sums, write `DUMP_CLEAR`, then read
+`DUMP_MISSED` again: if it changed, discard what was read and read again at once (the bench's
+`read_dump` is the reference).
+
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
 phases of different channels are comparable to the sample. A disabled channel, or one still in
