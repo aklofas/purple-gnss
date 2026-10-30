@@ -181,7 +181,7 @@ module rx_core #(
                     C_CODE_PHASE_FRAC: if (!ch_en[k]) begin
                         ch_code_frac[k] <= bus_wdata; ch_load[k] <= 1'b1;
                     end
-                    C_CODE_CHIP: if (!ch_en[k]) begin
+                    C_CODE_CHIP: if (!ch_en[k] && bus_wdata < 4 * CODE_LEN) begin  // a valid index only
                         ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1;
                     end
                     C_SPACING_Q: ch_spacing[k] <= bus_wdata[1:0];

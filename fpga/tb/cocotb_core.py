@@ -293,6 +293,19 @@ async def phase_registers_only_while_disabled(dut):
     assert await bus.read(R.ch(0, R.CODE_CHIP)) == 5
 
 
+@cocotb.test()
+async def code_chip_out_of_range_is_ignored(dut):
+    # the quarter-chip index runs 0..4091; the register's 12 bits would hold 4092..4095, which
+    # the channel could never wrap from, and anything above is a firmware error: all ignored
+    bus = await start(dut)
+    await bus.write(R.ch(0, R.CODE_CHIP), 4091)
+    for value in (4092, 4095, 4096, 0xFFFF_FFFF):
+        await bus.write(R.ch(0, R.CODE_CHIP), value)
+        assert await bus.read(R.ch(0, R.CODE_CHIP)) == 4091, value
+    await bus.write(R.ch(0, R.CODE_CHIP), 0)
+    assert await bus.read(R.ch(0, R.CODE_CHIP)) == 0
+
+
 async def read_measurement(bus, k):
     frac = await bus.read(R.ch(k, R.MEAS_CODE_PHASE_FRAC))
     chip_q = await bus.read(R.ch(k, R.MEAS_CODE_CHIP))

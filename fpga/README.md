@@ -132,7 +132,7 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x04 | `CODE_STEP` | RW | code NCO step, quarter chips per sample × 2^32; same timing |
 | 0x05 | `CARR_PHASE` | RW | carrier NCO phase; written only while disabled |
 | 0x06 | `CODE_PHASE_FRAC` | RW | code NCO fraction; written only while disabled |
-| 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled |
+| 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled; a value of 4092 or more is ignored |
 | 0x08 | `SPACING_Q` | RW | early/late offset in quarter chips, 1 or 2 (reset 1; 0 and 3 act as 1) |
 | 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31, wraps |
 | 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments; burst it with a fixed address (command bit 6 = 0) |
