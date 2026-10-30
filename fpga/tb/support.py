@@ -7,7 +7,7 @@ from typing import Protocol
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge, ValueChange
+from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge, Timer, ValueChange
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 
@@ -246,3 +246,76 @@ async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) 
                 return dumps
         else:
             await ClockCycles(bus.dut.clk, poll_cycles)
+
+
+class SpiMaster:
+    """Bit-banged SPI master (mode 0, MSB first) for rx_spi, satisfying RegAccess.
+
+    Transaction: command byte (bit7 write, bit6 auto-increment), two address bytes, then
+    32-bit words; a read has one dummy byte before its data. `sck_period_cycles` fabric
+    clocks per SCK period; 8 is the documented limit.
+    """
+
+    def __init__(self, dut, sck_period_cycles: int = 8):
+        self.dut = dut
+        self.half = sck_period_cycles // 2
+        self.half_ns = self.half * CLK_NS
+        dut.spi_sck.value = 0
+        dut.spi_mosi.value = 0
+        dut.spi_cs_n.value = 1
+
+    async def _byte(self, out: int) -> int:
+        dut, inp = self.dut, 0
+        for i in range(8):
+            dut.spi_mosi.value = (out >> (7 - i)) & 1
+            await Timer(self.half_ns, unit="ns")
+            inp = (inp << 1) | int(dut.spi_miso.value)
+            dut.spi_sck.value = 1
+            await Timer(self.half_ns, unit="ns")
+            dut.spi_sck.value = 0
+        return inp
+
+    async def _begin(self, command: int, addr: int) -> None:
+        self.dut.spi_cs_n.value = 0
+        await Timer(self.half_ns, unit="ns")
+        await self._byte(command)
+        await self._byte(addr >> 8)
+        await self._byte(addr & 0xFF)
+
+    async def _end(self) -> None:
+        await Timer(self.half_ns, unit="ns")
+        self.dut.spi_cs_n.value = 1
+        await Timer(4 * self.half_ns, unit="ns")
+        await RisingEdge(self.dut.clk)
+
+    async def write_words(self, addr: int, words, increment: bool = True) -> None:
+        await self._begin(0x80 | (0x40 if increment else 0), addr)
+        for w in words:
+            for shift in (24, 16, 8, 0):
+                await self._byte((int(w) >> shift) & 0xFF)
+        await self._end()
+
+    async def read_words(self, addr: int, n: int, increment: bool = True) -> list[int]:
+        await self._begin(0x40 if increment else 0, addr)
+        await self._byte(0)  # dummy
+        words = []
+        for _ in range(n):
+            v = 0
+            for _ in range(4):
+                v = (v << 8) | await self._byte(0)
+            words.append(v)
+        await self._end()
+        return words
+
+    async def write(self, addr: int, data: int) -> None:
+        await self.write_words(addr, [data])
+
+    async def read(self, addr: int) -> int:
+        return (await self.read_words(addr, 1))[0]
+
+    async def abort_mid_word(self, addr: int, data: int) -> None:
+        """A write cut short by CS after two data bytes."""
+        await self._begin(0xC0, addr)
+        await self._byte(data >> 24)
+        await self._byte((data >> 16) & 0xFF)
+        await self._end()
