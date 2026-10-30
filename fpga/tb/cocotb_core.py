@@ -294,6 +294,20 @@ async def phase_registers_only_while_disabled(dut):
 
 
 @cocotb.test()
+async def code_write_while_enabled_is_ignored(dut):
+    # the channel refreshes its cached chips only while disabled, so a code write to an
+    # enabled channel is dropped: the word pointer stays and the old code keeps tracking
+    bus = await start(dut)
+    codes = to_sign_mag(signal(PRN, 1000.0, 0, 4))
+    await set_up_channel(bus, 0, PRN, 1000.0)
+    for _ in range(2):
+        await bus.write(R.ch(0, R.CODE_WR_DATA), 0xFFFF_FFFF)
+    assert await bus.read(R.ch(0, R.CODE_WR_ADDR)) == 0
+    dumps = await run_playback(bus, codes)
+    assert_dumps_equal(dumps[0], model(PRN, 1000.0).run(codes), ignore_sample=True)
+
+
+@cocotb.test()
 async def code_chip_out_of_range_is_ignored(dut):
     # the quarter-chip index runs 0..4091; the register's 12 bits would hold 4092..4095, which
     # the channel could never wrap from, and anything above is a firmware error: all ignored
