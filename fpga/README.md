@@ -139,11 +139,15 @@ every `MEAS_PERIOD` samples, captures every channel's state on the same sample, 
 phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
 returns the same five numbers for the model.
 
-Two things to know when driving the bus: a channel's enable takes effect eight clocks after it
-is written (the channel spends them re-reading the chips around its code phase, so a phase or
-code write followed at once by enable is still exact), and the sample rate must exceed four
-times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per
-sample.
+Three things to know when driving the bus. A channel's enable takes effect eight clocks after
+it is written (the channel spends them re-reading the chips around its code phase, so a phase
+or code write followed at once by enable is still exact). The sample rate must exceed four
+times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per sample.
+And playback runs from the clock `PLAYBACK_CTRL` is written, whatever the global enable, the
+source and the channels are doing, so write it last: code and samples, steps and phases,
+`CH_CTRL`, `CTRL` (enable and the playback source), then `PLAYBACK_CTRL`. A channel enabled or
+a source selected after the start misses samples and nothing flags it, and `PLAYBACK_CTRL`
+written while a run is in progress is unsupported.
 
 ## SPI transaction
 
