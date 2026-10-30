@@ -9,11 +9,11 @@
 This project is early and pre-release. The hardware is in design. What exists
 today is the reference receiver, and its interfaces will change:
 
-| Part                                   | Status                                                                                                                                | Start here                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A samples to RINEX, and RINEX to a standalone or RTK fix; each stage checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
-| **`fpga`**, tracking channel RTL       | In simulation: an L1 C/A tracking channel, bit-exact against its Python model, with a register bus and SPI slave; builds for the EVN  | [`fpga/README.md`](fpga/README.md) |
-| **Hardware**                           | In design                                                                                                                             |                                    |
+| Part                                   | Status                                                                                                                                                      | Start here                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A samples to RINEX, and RINEX to a standalone or RTK fix; each stage checked against Pocket SDR and RTKLIB                       | [`pyrx/README.md`](pyrx/README.md) |
+| **`fpga`**, tracking channel RTL       | In simulation: an L1 C/A tracking channel, bit-exact against its Python model, with a register bus and SPI slave; builds for the Lattice LIFCL-40-EVN board | [`fpga/README.md`](fpga/README.md) |
+| **Hardware**                           | In design                                                                                                                                                   |                                    |
 
 ## Quick start
 
