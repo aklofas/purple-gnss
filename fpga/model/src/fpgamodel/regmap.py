@@ -11,7 +11,7 @@ VERSION_START_SAMPLE = 1 << 17  # CH_START_SAMPLE implemented
 # global block
 ID = 0x00
 VERSION = 0x01
-CTRL = 0x02  # bit0 enable, bit1 soft reset, bit2 source (0 pins, 1 playback)
+CTRL = 0x02  # bit0 enable, bit1 soft reset (keeps RAM contents), bit2 source (0 pins, 1 playback)
 STATUS = 0x03  # bit0 pll_lock, bit1 playback running, bit2 playback done
 SAMPLE_CNT_LO = 0x04
 SAMPLE_CNT_HI = 0x05

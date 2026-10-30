@@ -240,3 +240,29 @@ async def code_len_1024_dumps(dut):
     expected = m.run(codes)
     assert len(expected) == 2
     assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def disable_for_one_and_two_clocks(dut):
+    # a disable of a clock or two drops that sample and the eight that follow (the enable
+    # guard), nothing else: the dumps equal the model with exactly those samples removed
+    doppler = 1000.0
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 72_000, 45.0)
+    bench = await setup(dut, doppler=doppler)
+    await bench.load_samples(codes)
+    bench.stream()
+    gaps = ((20_000, 1), (40_000, 2))
+    for k, low_clocks in gaps:
+        await bench.pause_at(k)
+        dut.enable.value = 0
+        bench.resume()
+        await bench.pause_at(k + low_clocks)
+        dut.enable.value = 1
+        bench.resume()
+    await bench.finish()
+    skipped = [(k, low_clocks + 8) for k, low_clocks in gaps]
+    kept = np.concatenate([codes[:20_000], codes[20_000 + skipped[0][1] : 40_000],
+                           codes[40_000 + skipped[1][1] :]])
+    expected = model(doppler=doppler).run(kept)
+    assert_dumps_equal(bench.dumps, expected, ignore_sample=True)
+    assert len(bench.dumps) >= 2

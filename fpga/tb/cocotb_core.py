@@ -323,3 +323,13 @@ async def measurement_periodic(dut):
 async def version_reports_latch(dut):
     bus = await start(dut)
     assert await bus.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
+
+
+@cocotb.test()
+async def code_write_address_wraps_at_32_words(dut):
+    bus = await start(dut)
+    await bus.write(R.ch(0, R.CODE_WR_ADDR), 31)
+    await bus.write(R.ch(0, R.CODE_WR_DATA), 0xFFFFFFFF)
+    assert await bus.read(R.ch(0, R.CODE_WR_ADDR)) == 0
+    await bus.write(R.ch(0, R.CODE_WR_ADDR), 33)
+    assert await bus.read(R.ch(0, R.CODE_WR_ADDR)) == 1

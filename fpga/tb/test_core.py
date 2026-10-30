@@ -17,6 +17,7 @@ CASES = [
     "measurement_trigger_captures_all_channels_on_one_sample",
     "measurement_periodic",
     "version_reports_latch",
+    "code_write_address_wraps_at_32_words",
 ]
 
 

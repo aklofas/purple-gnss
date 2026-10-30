@@ -17,7 +17,8 @@
 // phases, chip index and epoch count as they stood before that sample into the meas_*
 // outputs; every channel sees the same strobe, so the latched states are simultaneous.
 //
-// Timing: a sample taken at clock edge E shows in a dump raised DUMP_LATENCY edges later.
+// Timing: a sample taken at clock edge E shows in a dump raised two edges later (the bench
+// wrapper's DUMP_LATENCY).
 module channel #(
     parameter CODE_LEN = 1023,
     parameter CODE_AW  = 10,
@@ -47,9 +48,6 @@ module channel #(
     output wire [31:0] meas_epoch,
     output wire [CODE_AW+1:0] meas_chip_q
 );
-    /* verilator lint_off UNUSEDPARAM */
-    localparam DUMP_LATENCY = 2;  // read by the bench, not by the logic
-    /* verilator lint_on UNUSEDPARAM */
     localparam [CODE_AW+2:0] N_Q = 4 * CODE_LEN;  // one bit wider than chip_q: CODE_LEN may be 2^CODE_AW
     localparam CODE_WORDS = (CODE_LEN + 31) / 32;
 

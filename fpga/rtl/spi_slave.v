@@ -37,7 +37,7 @@ module spi_slave (
     wire mosi_s   = mosi_q[1];
 
     // ---- transaction state ----
-    reg [7:0]  nbit;        // rising edges seen in this transaction (saturates at 255 then wraps per word)
+    reg [7:0]  nbit;        // rising edges seen in the command, address and dummy bytes (at most 32)
     reg        is_write, incr;
     /* verilator lint_off UNUSEDSIGNAL */
     reg [31:0] shift;       // bits shifted in (command/address/write data) or out (read data);
