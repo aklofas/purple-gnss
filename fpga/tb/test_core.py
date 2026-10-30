@@ -14,6 +14,9 @@ CASES = [
     "sample_count_reads_coherently",
     "two_channels_track_two_prns",
     "phase_registers_only_while_disabled",
+    "measurement_trigger_captures_all_channels_on_one_sample",
+    "measurement_periodic",
+    "version_reports_latch",
 ]
 
 

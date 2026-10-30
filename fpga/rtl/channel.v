@@ -12,7 +12,9 @@
 // steps (while disabled the inputs are copied every clock, so a write takes effect at once).
 // load_phase, honored only while disabled, sets the NCO accumulators directly. After a code
 // write or a phase load the channel needs about eight clocks before enable to refresh the
-// chips around the current code phase.
+// chips around the current code phase. meas_strobe, raised with a sample, latches the NCO
+// phases, chip index and epoch count as they stood before that sample into the meas_*
+// outputs; every channel sees the same strobe, so the latched states are simultaneous.
 //
 // Timing: a sample taken at clock edge E shows in a dump raised DUMP_LATENCY edges later.
 module channel #(
@@ -65,6 +67,7 @@ module channel #(
 
     reg [31:0] carr_acc, code_acc, carr_step_a, code_step_a;
     reg [CODE_AW+1:0] chip_q;
+    reg [31:0] epoch0;  // dumps so far, counted where the wrap happens (epoch lags it by the pipeline)
     wire [CODE_AW-1:0] chip_idx = chip_q[CODE_AW+1:2];
     wire [CODE_AW-1:0] idx_prev  = (chip_idx == 0) ? CODE_LEN - 1 : chip_idx - 1;
     wire [CODE_AW-1:0] idx_next  = (chip_idx == CODE_LEN - 1) ? 0 : chip_idx + 1;
@@ -132,7 +135,7 @@ module channel #(
         s1_wrap <= 1'b0;
         if (rst) begin
             carr_acc <= 32'd0; code_acc <= 32'd0; chip_q <= {(CODE_AW+2){1'b0}};
-            carr_step_a <= 32'd0; code_step_a <= 32'd0;
+            carr_step_a <= 32'd0; code_step_a <= 32'd0; epoch0 <= 32'd0;
         end else begin
             if (!enable) begin
                 carr_step_a <= carr_step;
@@ -156,6 +159,7 @@ module channel #(
                 if (wrap) begin
                     carr_step_a <= carr_step;
                     code_step_a <= code_step;
+                    epoch0      <= epoch0 + 32'd1;
                 end
             end
         end
@@ -223,10 +227,22 @@ module channel #(
         end
     end
 
-    // measurement latch: not built yet
-    assign meas_carr_phase = 32'd0;
-    assign meas_code_frac  = 32'd0;
-    assign meas_epoch      = 32'd0;
-    assign meas_chip_q     = {(CODE_AW+2){1'b0}};
-    wire unused_strobe = meas_strobe;
+    // ---- measurement latch: the state before the strobed sample ----------------------
+    reg [31:0] meas_carr_r, meas_frac_r, meas_epoch_r;
+    reg [CODE_AW+1:0] meas_chip_r;
+    always @(posedge clk) begin
+        if (rst) begin
+            meas_carr_r <= 32'd0; meas_frac_r <= 32'd0; meas_epoch_r <= 32'd0;
+            meas_chip_r <= {(CODE_AW+2){1'b0}};
+        end else if (meas_strobe) begin
+            meas_carr_r  <= carr_acc;
+            meas_frac_r  <= code_acc;
+            meas_chip_r  <= chip_q;
+            meas_epoch_r <= epoch0;
+        end
+    end
+    assign meas_carr_phase = meas_carr_r;
+    assign meas_code_frac  = meas_frac_r;
+    assign meas_epoch      = meas_epoch_r;
+    assign meas_chip_q     = meas_chip_r;
 endmodule
