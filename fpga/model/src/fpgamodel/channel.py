@@ -89,6 +89,7 @@ class Channel:
         self.code_step = 0
         self._shadow = (0, 0)
         self._acc = [0] * 6  # ie, qe, ip, qp, il, ql
+        self.dump_code_frac = 0  # code NCO fraction right after the last dump's wrap
 
     # ---- configuration ---------------------------------------------------------
     def set_steps(self, carr_step: int, code_step: int) -> None:
@@ -116,6 +117,7 @@ class Channel:
         return (v + half) % (2 * half) - half
 
     def _dump(self) -> Dump:
+        self.dump_code_frac = self.code_acc
         self.epoch += 1
         d = Dump(self.epoch, *(self._wrap(a) for a in self._acc), self.sample_count)
         self._acc = [0] * 6

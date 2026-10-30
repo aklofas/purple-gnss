@@ -119,6 +119,24 @@ auto-increment mode. Raising CS ends the transaction and drops a partial word. T
 (command, address, dummy cycles, data, burst) is what the STM32 OCTOSPI does in indirect mode,
 so a driver written against this interface moves to quad SPI with only the lane count changing.
 
+## Closed-loop tracking
+
+`fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
+will: FLL pull-in then a Costas PLL on the carrier, a non-coherent early-minus-late DLL every
+10 ms, the same constants as `pyrx.tracking`. pyrx moves its correlation window in time at each
+DLL update; a channel can only change its code NCO rate, so the DLL output becomes a chip-rate
+offset spread over the next 10 ms, with carrier aiding folded into the code step. Step words
+written after dump k take effect at dump k + 1.
+
+On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), over the 2 s after
+pull-in, against `pyrx.tracking.track_l1ca` from the same acquisition seed:
+
+| Loop around | Doppler, RMS difference | Code-period start, largest difference |
+|---|---|---|
+| the model (`fpga/model/tests/test_loop.py`) | 0.37 Hz | 0.0004 chips |
+
+Bounds: 1 Hz RMS and one quarter chip.
+
 ## Quantization loss
 
 The channel works on 2-bit samples with a 3-level local oscillator. Its cost against

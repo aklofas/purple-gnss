@@ -187,3 +187,16 @@ def test_measurement_is_state_before_next_sample():
 def test_dump_fields():
     d = Dump(1, 2, 3, 4, 5, 6, 7, 8)
     assert (d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample) == (1, 2, 3, 4, 5, 6, 7, 8)
+
+
+def test_dump_code_frac_is_the_fraction_right_after_the_wrap():
+    ch_a, codes = _aligned(doppler=333.0, n=30_000)
+    ch_a.run(codes)
+    ch_b = _channel(doppler=333.0)
+    frac = None
+    for c in codes:
+        if ch_b.step(int(c)) is not None:
+            frac = ch_b.code_acc
+    assert frac is not None
+    assert ch_a.dump_code_frac == frac == ch_b.dump_code_frac
+    assert ch_a.dump_code_frac != ch_a.code_acc  # the block ran on past the dump
