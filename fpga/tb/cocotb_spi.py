@@ -137,9 +137,10 @@ async def cs_glitch_restarts_the_framing(dut):
 
 
 @cocotb.test()
-async def status_read_relatches_sample_count_high_word(dut):
-    # every read fetches the word after its last one, so a STATUS read fetches SAMPLE_CNT_LO
-    # and re-latches SAMPLE_CNT_HI: read the pair as one burst, never LO, STATUS, HI
+async def sample_count_words_are_live(dut):
+    # neither count word reacts to a read (every read fetches one word past its end, so a
+    # read side effect would fire from reads of other registers); a coherent 48-bit value
+    # comes from the measurement latch, taken on a write
     spi = await start(dut)
     codes = np.zeros(60_000, dtype=np.uint8)
     await spi.write(R.PB_ADDR, 0)
@@ -150,11 +151,12 @@ async def status_read_relatches_sample_count_high_word(dut):
     dut.core.sample_cnt.value = 2**32 - 600  # crosses the word boundary during the reads
     lo = await spi.read(R.SAMPLE_CNT_LO)
     assert lo > 2**32 - 600
-    assert await spi.read(R.SAMPLE_CNT_HI) == 0  # latched with LO: coherent
+    assert await spi.read(R.SAMPLE_CNT_HI) == 1  # live: the count has crossed by now
     await spi.read(R.STATUS)
-    assert await spi.read(R.SAMPLE_CNT_HI) == 1  # re-latched by the read-ahead, LO unread
-    lo, hi = await spi.read_words(R.SAMPLE_CNT_LO, 2)
-    assert hi == 1 and lo < 10_000
+    assert await spi.read(R.SAMPLE_CNT_HI) == 1
+    await spi.write(R.MEAS_TRIG, 1)
+    lo, hi = await spi.read_words(R.ch(0, R.MEAS_SAMPLE_LO), 2)
+    assert hi == 1 and 0 < lo < 20_000  # the latched pair is coherent
 
 
 async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, codes) -> None:
