@@ -12,6 +12,7 @@ CASES = [
     "load_phase_ignored_while_enabled",
     "spacing_q_half_chip",
     "recording_200ms",
+    "enable_right_after_phase_load",
 ]
 
 

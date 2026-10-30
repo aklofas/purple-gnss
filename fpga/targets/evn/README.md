@@ -16,12 +16,12 @@ Yosys `synth_nexus`, nextpnr-nexus for `LIFCL-40-9BG400C` with `evn.pdc`, `prjox
 short: nextpnr can abort while writing the PLL parameters and leave a truncated file that
 prjoxide packs without complaint. `report.py` prints the utilization and fmax line.
 
-Lint, allowing the Lattice primitives' many unused ports and the registers that start
-from an initial value at configuration:
+Lint, with `lint_stubs.v` standing in for the two Lattice primitives and allowing their many
+unused ports and the registers that start from an initial value at configuration:
 
 ```
 verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-PINMISSING -Wno-PINCONNECTEMPTY \
-    --top-module top ../../rtl/*.v top.v /opt/oss-cad-suite/share/yosys/nexus/cells_xtra.v
+    -Wno-PROCASSINIT --top-module top ../../rtl/*.v top.v lint_stubs.v
 ```
 
 ## Clocking
@@ -29,8 +29,9 @@ verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-PINMISSING -Wno-PINCONNECTEMP
 The board's only fabric clock input is the 12 MHz oscillator on L13, below the GPLL's 18 MHz
 minimum reference (data sheet fIN), and the 125 and 200 MHz oscillators reach only the SERDES
 reference pins. The fabric therefore runs from the device's internal oscillator, 450 MHz / 12
-= 37.5 MHz nominal (a few percent accuracy; the receiver does not depend on the rate: NCO step
-words absorb it and SPI is asynchronous). A GPLL referenced from the same oscillator runs
+= 37.5 MHz nominal; the oscillator is specified at 418.5 to 481.5 MHz, so the fabric runs
+between 34.9 and 40.1 MHz (the receiver does not depend on the rate: NCO step words absorb it
+and SPI is asynchronous). A GPLL referenced from the same oscillator runs
 alongside, 37.5 MHz × 3 = 112.5 MHz on CLKOP with a 1125 MHz VCO, only to check that a
 bitstream from the open toolchain configures a PLL that locks. For a precise clock later,
 J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
@@ -64,7 +65,8 @@ SW2 (G14) resets everything but the playback RAM contents.
 ## First test on the board
 
 1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED0 (lock) on, LED1 and LED4 blinking.
-2. From the Nucleo's SPI master (mode 0, SCK ≤ 4.6 MHz at the 37.5 MHz fabric clock): read
+2. From the Nucleo's SPI master (mode 0, SCK ≤ 4.3 MHz: an eighth of the slowest fabric
+   clock): read
    `ID` (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.
 3. Write the PRN's 32 code words to `CODE_WR_ADDR`/`CODE_WR_DATA`, then the recording's 2-bit
    samples 16 per word to `PB_ADDR`/`PB_DATA` (3 ms of the 24 MHz recording is 4500 words),

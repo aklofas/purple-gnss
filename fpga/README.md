@@ -22,11 +22,13 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,454 | 1,502 | 19 | 140.0 MHz | 249 KB |
-| 12 | 18,734 | 10,885 | 30 | 97.7 MHz | 569 KB |
+| 1 | 2,441 | 1,506 | 19 | 143.7 MHz | 249 KB |
+| 12 | 17,244 | 10,933 | 30 | 99.2 MHz | 549 KB |
 
-The playback RAM takes 16 EBR of that. Each channel adds about 1,480 LUT4 and 850
-flip-flops, three to four times the correlator alone: the per-channel control and
+The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
+so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
+in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,350 LUT4 and 860
+flip-flops, three times the correlator alone: the per-channel control and
 measurement registers (32-bit step, phase, code-address, miss-counter and latch words) and
 the readback mux are most of it, and are the first thing to trim when channel count matters.
 The fabric clock on the EVN is 37.5 MHz; the target design's is 38.4 MHz.
@@ -39,6 +41,9 @@ From the repository root, with the project venv:
 uv pip install --python .venv/bin/python -e fpga/model
 .venv/bin/pytest fpga
 ```
+
+Install `pyrx` first (the repository's quick start): `fpgamodel` depends on it, and the name
+`pyrx` on PyPI is an unrelated package.
 
 Tests on the recordings need `PYRX_CAPTURES` set to the directory holding them, exactly as the
 `pyrx` suite does; without it they skip. Lint: `verilator --lint-only -Wall fpga/rtl/*.v
@@ -132,9 +137,9 @@ every `MEAS_PERIOD` samples, captures every channel's state on the same sample, 
 phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
 returns the same five numbers for the model.
 
-Two timing rules for whoever drives the bus: enable a channel at least eight clocks after its
-last code or phase write (the channel refreshes the chips around its code phase while
-disabled; any SPI transaction is longer than that), and the sample rate must exceed four
+Two things to know when driving the bus: a channel's enable takes effect eight clocks after it
+is written (the channel spends them re-reading the chips around its code phase, so a phase or
+code write followed at once by enable is still exact), and the sample rate must exceed four
 times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per
 sample.
 

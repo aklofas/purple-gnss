@@ -3,7 +3,8 @@
 //
 // Clocking. The board's only fabric clock input is a 12 MHz oscillator, below the GPLL's
 // 18 MHz minimum reference (FPGA-DS-02049, fIN), so the fabric runs from the device's
-// internal oscillator: 450 MHz / 12 = 37.5 MHz nominal. The receiver does not depend on
+// internal oscillator: 450 MHz / 12 = 37.5 MHz nominal, 34.9 to 40.1 MHz over the oscillator's
+// specified range. The receiver does not depend on
 // the clock rate (the NCO step words absorb it and the SPI link is asynchronous). A GPLL
 // referenced from the same oscillator runs alongside, locked at a 1125 MHz VCO with a
 // 112.5 MHz output, purely to check that a bitstream from the open toolchain configures a
