@@ -109,7 +109,7 @@ class Channel:
 
     def set_steps(self, carr_step: int, code_step: int) -> None:
         """New NCO step words: applied at the next dump, or at once while disabled."""
-        self._shadow = (carr_step & MASK32, code_step & MASK32)
+        self._shadow = (int(carr_step) & MASK32, int(code_step) & MASK32)  # ints, not numpy
         if not self.enabled:
             self.carr_step, self.code_step = self._shadow
 
@@ -117,6 +117,7 @@ class Channel:
         """Set the NCO accumulators directly; only while disabled."""
         if self.enabled:
             raise ValueError("phase can only be set while the channel is disabled")
+        carr_phase, code_frac, chip_q = int(carr_phase), int(code_frac), int(chip_q)
         if not 0 <= chip_q < self.n_q:
             raise ValueError(f"quarter-chip index {chip_q} outside 0..{self.n_q - 1}")
         self.carr_acc = carr_phase & MASK32

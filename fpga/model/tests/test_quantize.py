@@ -41,3 +41,14 @@ def test_code_bits_prn1():
     for i in (0, 1, 31, 32, 1022):
         assert (words[i >> 5] >> (i & 31)) & 1 == (chips[i] < 0)
     assert words[31] >> 31 == 0  # chip 1023 does not exist: padding is zero
+
+
+def test_two_bit_input_keeps_its_magnitudes():
+    # input that already holds only +/-1 and +/-3 is a 2-bit recording: the threshold is 2,
+    # so a stretch of nothing but +/-1 stays at magnitude 1 instead of all going to 3
+    ones = np.array([1, -1, 1, 1, -1], dtype=np.int8)
+    assert to_sign_mag(ones).tolist() == [0b00, 0b10, 0b00, 0b00, 0b10]
+    mixed = np.array([3, -1, -3, 1], dtype=np.int8)
+    assert values(to_sign_mag(mixed)).tolist() == mixed.tolist()
+    floats = np.array([0.4, -1.2, 2.5, -0.1])  # not a 2-bit recording: the std rules
+    assert to_sign_mag(floats).tolist() == to_sign_mag(floats, threshold=floats.std()).tolist()

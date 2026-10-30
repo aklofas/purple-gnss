@@ -114,6 +114,10 @@ def track_model(ch: Channel, tracker: Tracker, codes: np.ndarray, block: int = 1
 
     Each run stops at the first dump so its feedback is applied before any later sample,
     whatever the block size."""
+    if not ch.enabled:
+        raise ValueError("the channel is disabled: it would consume no samples")
+    if block <= 0:
+        raise ValueError(f"block size {block} would consume no samples")
     history: list[Epoch] = []
     pos = 0
     while pos < len(codes):
