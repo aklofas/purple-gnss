@@ -63,7 +63,7 @@ LED0 off and LED4 dark or at another rate. LED1 blinks either way, since the fab
 the oscillator. Once a variant locks, make its settings the defaults in `top.v`. If none does,
 the next things to try are the remaining difference from the reference files (`V2I_PP_ICTRL`
 0b11111) and a ratio of 8 (`FBK_MMD_DIG` 8, `DIVA` 2), which stays above the mask without
-clearing it and quadruples the LED4 rate.
+clearing it and raises the LED4 rate by 8/3, to about 4.5 Hz.
 
 ## Wiring to the Nucleo
 
@@ -126,7 +126,8 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `CODE_PHASE_FRAC`; `fpgamodel.channel.nco_step(6 MHz + Doppler, 24 MHz)` gives `CARR_STEP`
    and `nco_step(4 × chip rate, 24 MHz)` gives `CODE_STEP`. Use 24 MHz in `nco_step` even
    though playback runs at the EVN fabric clock: the step words are per sample. Then, over
-   SPI and in this order: `CODE_WR_ADDR` (0x1009) = 0 and the PRN's 32 code words to
+   SPI and in this order: `CODE_WR_ADDR` (0x1009) = 0 and the PRN's 32 code words
+   (`fpgamodel.quantize.code_bits(pyrx.codes.gps_ca(prn))`, also what `Channel` takes) to
    `CODE_WR_DATA` (0x100A) as two bursts of 16, reading `CODE_WR_ADDR` between them (expect
    16); `PB_ADDR` (0x0100) = 0 and the 4,500 sample words (`fpgamodel.quantize.pack_words`) to
    `PB_DATA` (0x0101), then read `PB_ADDR` (expect 4500); both data bursts use a fixed address
@@ -139,10 +140,10 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `DUMP_MISSED` again: if it changed, a dump landed during the read, so discard what was
    read and read again at once. Playback runs one sample per fabric clock, so a dump arrives
    about every 0.64 ms. When `STATUS` bit 2 (done) is set and nothing
-   is pending, `DUMP_MISSED` (0x100C) must read 0 and `SAMPLE_CNT_LO` 72000 (the count runs
-   from reset, so load a fresh bitstream or soft-reset first).
-5. Run `fpgamodel.channel.Channel` on the same 2-bit samples with the same steps and phase
+   is pending, `DUMP_MISSED` (0x100C) must read 0 and `SAMPLE_CNT_LO` 72000 (a new run does
+   not clear the count: soft-reset first if the pins source was ever enabled).
+5. Run `fpgamodel.channel.Channel` on the same code words and 2-bit samples with the same steps and phase
    (`set_steps`, `set_phase(0, CODE_PHASE_FRAC, CODE_CHIP)`, `enabled = True`, `run`): the
    board returns as many dumps as the model, and each dump's epoch and six sums equal the
    model's (the board reports no sample index, so the model's `sample` field is not compared).
-   `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this exact sequence in simulation.
+   `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this sequence in simulation.
