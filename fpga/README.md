@@ -99,7 +99,10 @@ against a float correlator is measured below.
 
 `rx_core` exposes everything on a 16-bit word-address, 32-bit data bus (`fpgamodel.regmap`
 holds the same constants). A write lands on the clock where `bus_we` is high; a read returns
-its word the clock after `bus_re`. Unmapped addresses read zero and ignore writes.
+its word the clock after `bus_re`. Unmapped addresses read zero and ignore writes. Reads have
+no side effects, with one exception: reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`. Because
+the SPI slave fetches one word past every read, read that pair as one two-word burst, and no
+register will ever snapshot or clear on a read.
 
 Global block at `0x0000`:
 
