@@ -6,7 +6,7 @@ from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import gps_ca
 from pyrx.samples import read_samples
 
-from fpgamodel.channel import Channel, synthetic_codes
+from fpgamodel.channel import Channel, Dump, synthetic_codes
 from fpgamodel.compare import start_phase
 from fpgamodel.quantize import code_bits, to_sign_mag
 from tb.support import (
@@ -189,3 +189,34 @@ async def recording_200ms(dut):
     expected = model(prn=best.prn, doppler=best.doppler, phase=(0, frac, chip_q)).run(codes)
     assert len(expected) >= 199
     assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def enable_right_after_phase_load(dut):
+    # samples keep streaming while the channel is disabled; a phase load and an enable in
+    # consecutive clocks must not start on stale neighbor chips: the channel starts a few
+    # clocks later and from then on matches the model run from the first consumed sample
+    doppler, chip_q0 = 1000.0, 2000
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 72_000, 45.0)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(code_bits(gps_ca(PRN)))
+    bench.set_steps(*channel_steps(doppler))
+    await bench.load_samples(codes)
+    bench.stream()
+    await bench.pause_at(5000)
+    dut.chip_q_in.value = chip_q0
+    dut.load_phase.value = 1
+    bench.resume()
+    await cocotb.triggers.RisingEdge(dut.clk)
+    dut.load_phase.value = 0
+    dut.enable.value = 1  # no wait for the chip-neighbor refresh
+    await bench.finish()
+    assert len(bench.dumps) >= 2
+    probe = model(doppler=doppler, phase=(0, 0, chip_q0))
+    s1 = probe.run(codes)[0].sample  # samples from the start to the first wrap: NCO only
+    k0 = bench.dumps[0].sample - s1
+    assert 5000 <= k0 <= 5000 + 12, k0  # the channel started within a few clocks of enable
+    expected = model(doppler=doppler, phase=(0, 0, chip_q0)).run(codes[k0:])
+    shifted = [Dump(d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample + k0) for d in expected]
+    assert_dumps_equal(bench.dumps, shifted)

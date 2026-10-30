@@ -10,9 +10,10 @@
 // chip rate; the chip index wrapping at 4 * CODE_LEN dumps the six sums into ie..ql, raises
 // dump for one clock, increments epoch and copies the step inputs into the active NCO
 // steps (while disabled the inputs are copied every clock, so a write takes effect at once).
-// load_phase, honored only while disabled, sets the NCO accumulators directly. After a code
-// write or a phase load the channel needs about eight clocks before enable to refresh the
-// chips around the current code phase. meas_strobe, raised with a sample, latches the NCO
+// load_phase, honored only while disabled, sets the NCO accumulators directly. Enable takes
+// effect eight clocks after it rises: the channel spends them re-reading the chips around its
+// code phase, so a phase load or code write followed at once by enable is still exact.
+// meas_strobe, raised with a sample, latches the NCO
 // phases, chip index and epoch count as they stood before that sample into the meas_*
 // outputs; every channel sees the same strobe, so the latched states are simultaneous.
 //
@@ -77,7 +78,16 @@ module channel #(
     wire tick     = code_sum[32];
     wire chip_inc = tick && (chip_q[1:0] == 2'b11);
     wire wrap     = tick && (chip_q == N_Q - 1);
-    wire v0       = sample_valid && enable;
+
+    // enable is honored READY_CLOCKS after it rises; until then the chip neighbors refresh
+    reg [3:0] ready_cnt;
+    localparam [3:0] READY_CLOCKS = 4'd8;
+    always @(posedge clk) begin
+        if (rst || !enable) ready_cnt <= 4'd0;
+        else if (ready_cnt != READY_CLOCKS) ready_cnt <= ready_cnt + 4'd1;
+    end
+    wire active = enable && (ready_cnt == READY_CLOCKS);
+    wire v0     = sample_valid && active;
 
     // c_prev / c_cur / c_next hold the chips at chip_idx - 1, chip_idx, chip_idx + 1. While
     // enabled, a chip increment shifts them and prefetches the new next chip; while disabled
@@ -96,7 +106,7 @@ module channel #(
             refill <= 2'd0;
             rd_pend_d <= 1'b0;
         end else begin
-            if (!enable) begin
+            if (!active) begin
                 rd_pend <= 1'b1;
                 rd_rot  <= 1'b1;
                 rd_tag  <= refill;
@@ -110,7 +120,7 @@ module channel #(
                 rd_tag  <= 2'd2;
                 rd_chip <= idx_next2;
             end
-            if (rd_pend_d && !(rd_rot_d && enable)) begin
+            if (rd_pend_d && !(rd_rot_d && active)) begin
                 case (rd_tag_d)
                     2'd0: c_prev <= rd_data;
                     2'd1: c_cur  <= rd_data;
@@ -137,7 +147,7 @@ module channel #(
             carr_acc <= 32'd0; code_acc <= 32'd0; chip_q <= {(CODE_AW+2){1'b0}};
             carr_step_a <= 32'd0; code_step_a <= 32'd0; epoch0 <= 32'd0;
         end else begin
-            if (!enable) begin
+            if (!active) begin
                 carr_step_a <= carr_step;
                 code_step_a <= code_step;
             end

@@ -107,7 +107,7 @@ class ChannelBench:
 
     async def set_enable(self, on: bool) -> None:
         self.dut.enable.value = int(on)
-        await RisingEdge(self.dut.clk)
+        await ClockCycles(self.dut.clk, 10)  # enable takes effect eight clocks after it rises
 
     def stream(self, on: bool = True) -> None:
         self.dut.stream_en.value = int(on)
@@ -211,10 +211,9 @@ async def configure_channel(bus: RegAccess, k: int, carr_step: int, code_step: i
 
 
 async def enable_channel(bus: RegAccess, k: int, on: bool = True) -> None:
-    """Enable after the channel's chip-neighbor refresh (eight clocks after the last code
-    or phase write; any SPI transaction is longer than that)."""
-    await ClockCycles(bus.dut.clk, 8)
+    """Write the channel's enable bit; it takes effect eight clocks later."""
     await bus.write(R.ch(k, R.CH_CTRL), int(on))
+    await ClockCycles(bus.dut.clk, 10)
 
 
 async def start_playback(bus: RegAccess, n_samples: int) -> None:

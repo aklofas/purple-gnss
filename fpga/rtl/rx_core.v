@@ -194,7 +194,7 @@ module rx_core #(
         channel #(.CODE_LEN(CODE_LEN), .CODE_AW(CODE_AW), .ACC_W(ACC_W)) ch (
             .clk(clk), .rst(rst_i),
             .sample_valid(src_valid), .sample(src_sample),
-            .enable(ch_en[k] && g_enable),
+            .enable(ch_en[k]),  // the global enable gates src_valid instead, so it never restarts the channel's enable guard
             .carr_step(ch_carr_step[k]), .code_step(ch_code_step[k]), .spacing_q(ch_spacing[k]),
             .load_phase(ch_load[k]), .carr_phase_in(ch_carr_ph[k]), .code_frac_in(ch_code_frac[k]),
             .chip_q_in(ch_chip_q[k]),
