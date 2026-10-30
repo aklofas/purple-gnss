@@ -79,7 +79,9 @@ async def closed_loop_rtl(dut):
             await First(RisingEdge(dut.dump_irq), RisingEdge(dut.done), Timer(5, unit="ms"))
             assert int(dut.dump_irq.value) or int(dut.done.value), "no dump for 5 ms"
         if not int(dut.dump_irq.value):
-            break  # done, and nothing pending
+            await ClockCycles(dut.clk, 8)  # a dump from the last sample is still in the pipeline
+            if not int(dut.dump_irq.value):
+                break  # done, and nothing pending
         d = await read_dump_retrying(spi, 0)
         steps = tracker.update(d)
         await spi.write_words(R.ch(0, R.CARR_STEP), list(steps))
@@ -110,10 +112,10 @@ async def closed_loop_rtl(dut):
     ref = track_l1ca(SampleFile(path, FS, iq=False), F_IF, best.prn, best.code_offset, best.doppler,
                      best.cn0, duration=DURATION)
     assert ref.locked
-    dopp_rms, code_max = compare_with_pyrx(history, ref, FS, t_from=1.0)
+    dopp_rms, code_max = compare_with_pyrx(history, ref, FS, t_from=1.3)  # after the handover
     dut._log.info(f"PRN {best.prn}: Doppler RMS {dopp_rms:.3f} Hz, code max {code_max:.4f} chips")
-    assert dopp_rms < 0.5  # the same bounds as the model loop test
-    assert code_max < 0.002
+    assert dopp_rms < 0.1  # the same window and bounds as the model loop test
+    assert code_max < 0.001
 
 
 def tracker_doppler(steps: tuple[int, int]) -> float:

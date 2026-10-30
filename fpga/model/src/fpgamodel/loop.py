@@ -100,7 +100,10 @@ class Tracker:
 
         # C/N0 every T_CN0 from the moments of the prompt magnitude: for a signal of power S
         # in complex noise of power N, E|z|^2 = S + N and E|z|^4 = S^2 + 4SN + 2N^2, so
-        # S = sqrt(2 M2^2 - M4); independent of data bits and of the carrier phase
+        # S = sqrt(2 M2^2 - M4); independent of data bits and of the carrier phase. Noisier
+        # than a noise tap near the loss threshold (about 1.6 dB per window at 28 dB-Hz, 0.3 dB
+        # at 35), so a satellite near 28 dB-Hz reads below CN0_LOST a few percent of the time
+        # and the smoothing then needs two such windows in a row to declare the loss.
         self._prompt_mag2.append(abs(prompt) ** 2)
         if self.epoch % self._n_cn0 == 0:
             mag2 = np.array(self._prompt_mag2)

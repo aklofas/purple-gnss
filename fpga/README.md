@@ -161,10 +161,13 @@ every `MEAS_PERIOD` samples, captures every channel's state on the same sample, 
 phases of different channels are comparable to the sample. A periodic strobe can land while
 the six words are being read, so read `MEAS_SEQ` before and after them and read again when it
 changed. A disabled channel, or one still in the eight clocks after its enable, latches its
-frozen state on every strobe. The carrier phase
-of an observable is the latched `MEAS_CARR_PHASE` less the IF phase at the latched sample
-(`MEAS_SAMPLE` × f_IF / f_sample, modulo one cycle): that gives every channel the origin pyrx
-uses, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`
+frozen state on every strobe. The carrier NCO advances only on the samples a channel accepts,
+so the latched `MEAS_CARR_PHASE` is the phase loaded at enable plus f_IF × (accepted samples)
+/ f_sample plus the Doppler integral. The Doppler integral an observable needs is that value
+less the loaded phase less f_IF × (`MEAS_SAMPLE` − n0) / f_sample, with n0 the channel's first
+accepted sample; a channel enabled before the first valid sample has n0 = 0, and for any other
+n0 is what `CH_START_SAMPLE` is reserved to report. Referenced that way, every channel shares
+pyrx's origin, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`
 returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the
 channel's own count of the samples it processed while enabled, which equals `MEAS_SAMPLE` only
 for a channel whose enable was in effect before the first valid sample and never dropped since.
@@ -235,19 +238,23 @@ overlaps pull-in). A channel started mid-period, as `fpgamodel.compare.start_pha
 from an acquisition, dumps a partial period first; the tracker's `skip_first` drops that dump,
 and the firmware should do the same.
 
-On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), over the 2 s after
-pull-in, against `pyrx.tracking.track_l1ca` from the same acquisition seed, pairing each dump
-with the pyrx epoch its update governs:
+On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), against
+`pyrx.tracking.track_l1ca` from the same acquisition seed, pairing each dump with the pyrx
+epoch its update governs, from 1.3 s on: the FLL hands over to the PLL at 1 s, and the two
+loops enter that handover from different carrier phases (pyrx starts its NCO at the IF phase
+of its first window, the channel's has run from sample 0), so the first 300 ms after it are a
+transient that says nothing about tracking.
 
 | Loop around | Doppler, RMS difference | Code-period start, largest difference |
 |---|---|---|
-| the model (`fpga/model/tests/test_loop.py`) | 0.41 Hz | 0.0006 chips |
-| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.41 Hz | 0.0006 chips |
+| the model (`fpga/model/tests/test_loop.py`) | 0.07 Hz | 0.0006 chips |
+| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.07 Hz | 0.0006 chips |
 
-Bounds: 0.5 Hz RMS and 0.002 chips, set from measured failures (a doubled FLL gain reaches
-0.76 Hz, a dead DLL 0.0057 chips). The RTL run also replays the same samples and the same
-step schedule through the model and requires every dump to be equal: the closed loop is
-bit-exact too, which is why the two rows agree to the digit.
+Bounds: 0.1 Hz RMS and 0.001 chips, set from measured failures (a PLL gain of twice or half
+the value reaches 0.20 or 0.10 Hz, a doubled FLL gain 0.10 Hz, a doubled DLL gain 0.0015
+chips, a dead DLL 0.0057 chips). The RTL run also replays the same samples and the same step
+schedule through the model and requires every dump to be equal: the closed loop is bit-exact
+too, which is why the two rows agree to the digit.
 
 ## Quantization loss
 
