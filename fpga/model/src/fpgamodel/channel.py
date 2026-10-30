@@ -43,8 +43,9 @@ def nco_step(freq: float, fs: float) -> int:
 
 @dataclass(frozen=True)
 class Dump:
-    """The six correlator sums of one code period; `sample` counts the valid samples
-    processed up to and including the one that completed the period."""
+    """The six correlator sums of one code period; `sample` counts the samples this channel
+    processed while enabled, up to and including the one that completed the period (the
+    channel's own count, not the core's global sample count)."""
 
     epoch: int
     ie: int
@@ -58,7 +59,9 @@ class Dump:
 
 @dataclass(frozen=True)
 class Measurement:
-    """Channel state before the next sample is processed."""
+    """Channel state before the next sample is processed; `sample` is the channel's own count
+    of enabled samples, equal to the core's `MEAS_SAMPLE` only for a channel enabled before the
+    first valid sample."""
 
     carr_phase: int
     code_frac: int

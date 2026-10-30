@@ -153,7 +153,9 @@ dump.
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
 phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
-returns the same five numbers for the model.
+returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the
+channel's own count of the samples it processed while enabled, which equals `MEAS_SAMPLE` only
+for a channel enabled before the first valid sample.
 
 Three things to know when driving the bus. A channel's enable takes effect eight clocks after
 it is written (the channel spends them re-reading the chips around its code phase, so a phase
