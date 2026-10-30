@@ -6,7 +6,8 @@
 // Samples are 2-bit {sign, mag} (values +/-1, +/-3) and count only while sample_valid and
 // enable are both high; a disabled channel freezes. The code is held as CODE_LEN bits in
 // 32-bit words (bit set = chip value -1), written over code_we. The code NCO counts quarter
-// chips; the chip index wrapping at 4 * CODE_LEN dumps the six sums into ie..ql, raises
+// chips and ticks at most once per sample, so the sample rate must exceed four times the
+// chip rate; the chip index wrapping at 4 * CODE_LEN dumps the six sums into ie..ql, raises
 // dump for one clock, increments epoch and copies the step inputs into the active NCO
 // steps (while disabled the inputs are copied every clock, so a write takes effect at once).
 // load_phase, honored only while disabled, sets the NCO accumulators directly. After a code

@@ -37,6 +37,14 @@ def test_nco_step():
     assert nco_step(6.0e6, 24e6) == 1 << 30
 
 
+def test_nco_step_rejects_a_rate_the_nco_cannot_tick():
+    # the code NCO ticks at most once per sample: the sample rate must exceed 4 x chip rate
+    with pytest.raises(ValueError):
+        nco_step(4 * CA_CHIP_RATE, 4e6)
+    with pytest.raises(ValueError):
+        nco_step(-4e6, 4e6)
+
+
 def test_lo_table_is_a_3_level_circle():
     assert len(LO_TABLE) == 8
     assert LO_TABLE[0] == (2, 1) and LO_TABLE[2] == (-1, 2) and LO_TABLE[6] == (1, -2)

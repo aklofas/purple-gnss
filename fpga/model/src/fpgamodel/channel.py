@@ -30,7 +30,14 @@ _SIN = np.array([s for _, s in LO_TABLE], dtype=np.int64)
 
 
 def nco_step(freq: float, fs: float) -> int:
-    """32-bit NCO step word for `freq` Hz at `fs` samples per second."""
+    """32-bit NCO step word for `freq` Hz at `fs` samples per second.
+
+    An NCO advances at most one full turn per sample, so |freq| must be below `fs`; for the
+    code NCO, which counts quarter chips, that means the sample rate must exceed four times
+    the chip rate (4.092 MHz for L1 C/A).
+    """
+    if abs(freq) >= fs:
+        raise ValueError(f"{freq} Hz cannot be stepped at {fs} samples/s")
     return round(freq / fs * 2**32) % 2**32
 
 

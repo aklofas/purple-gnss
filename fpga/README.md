@@ -28,6 +28,58 @@ The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects
 hex file through a small Verilog wrapper, so simulation time is spent in the simulator, not in
 Python: the nine channel cases, including 200 ms of the recording, take about three minutes.
 
+## Register map
+
+`rx_core` exposes everything on a 16-bit word-address, 32-bit data bus (`fpgamodel.regmap`
+holds the same constants). A write lands on the clock where `bus_we` is high; a read returns
+its word the clock after `bus_re`. Unmapped addresses read zero and ignore writes.
+
+Global block at `0x0000`:
+
+| Offset | Name | Access | Notes |
+|---|---|---|---|
+| 0x00 | `ID` | R | `0x50474E53` |
+| 0x01 | `VERSION` | R | bits 15:0 = `0x0100`; bit 16 = measurement latch implemented; bit 17 = `CH_START_SAMPLE` implemented |
+| 0x02 | `CTRL` | RW | bit0 global enable, bit1 soft reset (self-clearing, resets everything but the playback RAM), bit2 source (0 pins, 1 playback) |
+| 0x03 | `STATUS` | R | bit0 pll_lock, bit1 playback running, bit2 playback done |
+| 0x04 | `SAMPLE_CNT_LO` | R | valid samples since enable; reading it latches `SAMPLE_CNT_HI` |
+| 0x05 | `SAMPLE_CNT_HI` | R | bits 15:0, as latched by the last `SAMPLE_CNT_LO` read |
+| 0x06 | `DUMP_PENDING` | R | bit k = channel k has an unread dump |
+| 0x07 | `DUMP_CLEAR` | W | write bits to clear |
+| 0x08 | `MEAS_TRIG` | W | write 1: strobe on the next valid sample (not built yet) |
+| 0x09 | `MEAS_PERIOD` | RW | samples between periodic strobes, 0 = off (not built yet) |
+| 0x0A | `N_CHANNELS` | R | |
+| 0x0B | `PLAYBACK_CTRL` | W | bit0 start, one-shot from sample 0 |
+| 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
+| 0x0D | `PB_DEPTH` | R | playback RAM size in samples |
+| 0x100 | `PB_ADDR` | RW | playback word index |
+| 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR` |
+
+Channel k at `0x1000 + k·0x100` (up to 16 channels):
+
+| Offset | Name | Access | Notes |
+|---|---|---|---|
+| 0x00 | `CH_CTRL` | RW | bit0 enable |
+| 0x01, 0x02 | `CH_START_SAMPLE_LO/HI` | RW | placeholder, reads 0 |
+| 0x03 | `CARR_STEP` | RW | carrier NCO step, cycles per sample × 2^32; takes effect at the next dump, at once while disabled |
+| 0x04 | `CODE_STEP` | RW | code NCO step, quarter chips per sample × 2^32; same timing |
+| 0x05 | `CARR_PHASE` | RW | carrier NCO phase; written only while disabled |
+| 0x06 | `CODE_PHASE_FRAC` | RW | code NCO fraction; written only while disabled |
+| 0x07 | `CODE_CHIP` | RW | quarter-chip index 0..4091 of the prompt tap; written only while disabled |
+| 0x08 | `SPACING_Q` | RW | early/late offset in quarter chips, 1 or 2 (reset 1; 0 and 3 act as 1) |
+| 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31 |
+| 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments |
+| 0x0B | `EPOCH` | R | dumps so far |
+| 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set |
+| 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
+| 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | zero until the measurement latch is built |
+
+Two timing rules for whoever drives the bus: enable a channel at least eight clocks after its
+last code or phase write (the channel refreshes the chips around its code phase while
+disabled; any SPI transaction is longer than that), and the sample rate must exceed four
+times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per
+sample.
+
 ## Quantization loss
 
 The channel works on 2-bit samples with a 3-level local oscillator. Its cost against
