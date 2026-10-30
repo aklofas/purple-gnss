@@ -139,10 +139,10 @@ Channel k at `0x1000 + k·0x100` (up to 16 channels):
 | 0x08 | `SPACING_Q` | RW | early/late offset in quarter chips, 1 or 2 (reset 1; 0 and 3 act as 1) |
 | 0x09 | `CODE_WR_ADDR` | RW | code word index 0..31, wraps |
 | 0x0A | `CODE_WR_DATA` | W | 32 chips, bit i = chip 32·addr+i, set = chip value −1; auto-increments; burst it with a fixed address (command bit 6 = 0); written only while the channel is disabled |
-| 0x0B | `EPOCH` | R | dumps so far |
+| 0x0B | `EPOCH` | R | dumps so far, counted when the dump lands two clocks after its wrap sample |
 | 0x0C | `DUMP_MISSED` | R | dumps that landed while the pending bit was still set (16 bits) |
 | 0x10..0x15 | `IE, QE, IP, QP, IL, QL` | R | the last dump, sign-extended 20-bit sums |
-| 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | the measurement latch: the channel's code NCO fraction, quarter-chip index, carrier NCO phase and dump count as they stood before the strobed sample, and that sample's count (48 bits, the same in every channel) |
+| 0x18..0x1D | `MEAS_CODE_PHASE_FRAC, MEAS_CODE_CHIP, MEAS_CARR_PHASE, MEAS_EPOCH, MEAS_SAMPLE_LO, MEAS_SAMPLE_HI` | R | the measurement latch: the channel's code NCO fraction, quarter-chip index, carrier NCO phase and dump count as they stood before the strobed sample (the count includes a wrap the sample before, which `EPOCH` shows two clocks later), and that sample's count (48 bits, the same in every channel) |
 
 A write to any of `CARR_PHASE`, `CODE_PHASE_FRAC` or `CODE_CHIP` on a disabled channel loads all
 three into the NCOs, so write all three; they read back as written, and the live phase is read
@@ -152,7 +152,8 @@ dump.
 
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
-phases of different channels are comparable to the sample. `fpgamodel.channel.Channel.measurement`
+phases of different channels are comparable to the sample. A disabled channel, or one still in
+the eight clocks after its enable, latches its frozen state on every strobe. `fpgamodel.channel.Channel.measurement`
 returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the
 channel's own count of the samples it processed while enabled, which equals `MEAS_SAMPLE` only
 for a channel enabled before the first valid sample.

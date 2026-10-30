@@ -141,7 +141,7 @@ module rx_core #(
     reg [31:0] ch_code_frac [0:N_CHANNELS-1];
     reg [CODE_AW+1:0] ch_chip_q [0:N_CHANNELS-1];
     reg [1:0]  ch_spacing   [0:N_CHANNELS-1];
-    reg [CODE_AW-6:0] ch_code_addr [0:N_CHANNELS-1];  // wraps at the code's word count
+    reg [CODE_AW-6:0] ch_code_addr [0:N_CHANNELS-1];  // wraps at 2^(CODE_AW-5) words, 32 for L1 C/A
     reg        ch_load      [0:N_CHANNELS-1];
     reg        ch_code_we   [0:N_CHANNELS-1];
     reg        pending      [0:N_CHANNELS-1];
