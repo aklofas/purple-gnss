@@ -1,8 +1,8 @@
 """rx_core: register bus, global registers, sample mux and playback RAM around channels.
 
 Synthetic stimulus at 8 MHz (2 MHz IF): the quarter-chip code NCO needs more than 4.092 MHz,
-and 12 ms is then 96 000 samples, which fits the test's 131 072-sample playback RAM.
-N_CHANNELS = 2.
+and 12 ms is then 96 000 samples, which fits the board's 147 456-sample playback RAM.
+N_CHANNELS = 2, except for the one case the 12-channel build runs.
 """
 
 import cocotb
@@ -32,7 +32,7 @@ from tb.support import (
 
 FS, F_IF = 8e6, 2e6
 N_CHANNELS = 2
-PB_DEPTH = 131072
+PB_DEPTH = 147_456
 PRN = 7
 
 
@@ -244,6 +244,26 @@ async def two_channels_track_two_prns(dut):
     assert_dumps_equal(dumps[0], model(7, 1000.0).run(codes), ignore_sample=True)
     assert_dumps_equal(dumps[1], model(12, -2500.0, 1500).run(codes), ignore_sample=True)
     assert len(dumps[0]) >= 7 and len(dumps[1]) >= 7
+
+
+@cocotb.test()
+async def last_channel_tracks_like_the_first(dut):
+    # run in the 12-channel build: channel decode and readback at an index above 1
+    bus = await start(dut)
+    n = await bus.read(R.N_CHANNELS)
+    assert n > 2
+    x = signal(7, 1000.0, 0, 3, seed=1) + signal(12, -2500.0, 1500, 3, seed=2)
+    codes = to_sign_mag(x)
+    await set_up_channel(bus, 0, 7, 1000.0)
+    await set_up_channel(bus, n - 1, 12, -2500.0, 1500)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    dumps = await collect_dumps(bus, n)
+    assert_dumps_equal(dumps[0], model(7, 1000.0).run(codes), ignore_sample=True)
+    assert_dumps_equal(dumps[n - 1], model(12, -2500.0, 1500).run(codes), ignore_sample=True)
+    assert len(dumps[0]) >= 2 and len(dumps[n - 1]) >= 2
+    assert all(dumps[k] == [] for k in range(1, n - 1))
 
 
 @cocotb.test()
