@@ -331,6 +331,26 @@ async def meas_period_written_mid_run_counts_from_the_write(dut):
 
 
 @cocotb.test()
+async def playback_write_past_the_end_is_dropped(dut):
+    # the RAM holds PB_DEPTH / 16 words; a write at or past that is dropped (the address bits
+    # would otherwise alias onto word 0) and PB_ADDR stays at the end as the tell
+    bus = await start(dut)
+    words = PB_DEPTH // 16
+    await bus.write(R.PB_ADDR, 0)
+    await bus.write(R.PB_DATA, 0x1111_1111)
+    await bus.write(R.PB_ADDR, words - 1)
+    await bus.write(R.PB_DATA, 0x2222_2222)
+    await bus.write(R.PB_DATA, 0x3333_3333)
+    assert await bus.read(R.PB_ADDR) == words
+    await bus.write(R.PB_ADDR, 1 << 14)  # the address bits of word 0 at this depth
+    await bus.write(R.PB_DATA, 0x4444_4444)
+    assert await bus.read(R.PB_ADDR) == 1 << 14
+    await RisingEdge(dut.clk)
+    assert int(dut.pb.mem[0].value) == 0x1111_1111
+    assert int(dut.pb.mem[words - 1].value) == 0x2222_2222
+
+
+@cocotb.test()
 async def code_chip_out_of_range_is_ignored(dut):
     # the quarter-chip index runs 0..4091; the register's 12 bits would hold 4092..4095, which
     # the channel could never wrap from, and anything above is a firmware error: all ignored
