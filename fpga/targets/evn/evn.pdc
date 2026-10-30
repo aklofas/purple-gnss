@@ -1,0 +1,22 @@
+# LIFCL-40-EVN pins (FPGA-EB-02028 v1.7). All on 3.3 V banks: PMOD headers J17/J18 are bank 7
+# (fixed 3.3 V), LEDs and SW2 bank 1 (fixed 3.3 V).
+#
+# J18 (PMOD1): 1 SCK, 2 MOSI, 3 MISO, 4 CS_N, 7 DUMP_IRQ; 5/11 GND, 6/12 3.3 V
+ldc_set_location -site {E10} [get_ports spi_sck]
+ldc_set_location -site {E9}  [get_ports spi_mosi]
+ldc_set_location -site {E7}  [get_ports spi_miso]
+ldc_set_location -site {E8}  [get_ports spi_cs_n]
+ldc_set_location -site {E4}  [get_ports dump_irq]
+# J17 (PMOD0): 3 sample sign, 4 sample mag. Pins 1 and 2 (D10, D9) are the GPLL0 dedicated
+# clock inputs and stay free for an external reference clock.
+ldc_set_location -site {D7}  [get_ports sample_sign]
+ldc_set_location -site {D8}  [get_ports sample_mag]
+# LED0..LED4 and push button SW2
+ldc_set_location -site {E17} [get_ports {led_n[0]}]
+ldc_set_location -site {F13} [get_ports {led_n[1]}]
+ldc_set_location -site {G13} [get_ports {led_n[2]}]
+ldc_set_location -site {F14} [get_ports {led_n[3]}]
+ldc_set_location -site {L16} [get_ports {led_n[4]}]
+ldc_set_location -site {G14} [get_ports btn_rst_n]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33} [get_ports {spi_sck spi_mosi spi_miso dump_irq sample_sign sample_mag led_n[0] led_n[1] led_n[2] led_n[3] led_n[4] btn_rst_n}]
+ldc_set_port -iobuf {IO_TYPE=LVCMOS33 PULLMODE=UP} [get_ports spi_cs_n]
