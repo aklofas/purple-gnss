@@ -50,12 +50,30 @@ module top #(
     end
     wire rst = !por_done || !btn_q[1];
 
+    // PLL settings tried in order on the first board (README, "PLL bitstreams"); build.sh
+    // selects them with -D. The feedback divider's minimum-ratio mask defaults to 8, above the
+    // ratio of 3 here (TN-02095 Table C.3 says the mask then sets the ratio), and the analog
+    // defaults are the 0.9 V-core values while the EVN's core runs at 1.0 V.
+`ifdef PLL_FBK_DIV_FIX
+    localparam PLL_RESET_ENA = "ENABLED", PLL_FBK_MASK = "0b00000000", PLL_FBK_PULS = "0b0001";
+`else
+    localparam PLL_RESET_ENA = "DISABLED", PLL_FBK_MASK = "0b00001000", PLL_FBK_PULS = "0b0000";
+`endif
+`ifdef PLL_ANALOG_1V0
+    localparam PLL_V2I_1V_EN = "ENABLED", PLL_KVCO = "60", PLL_KP_VCO = "0b00011";
+`else
+    localparam PLL_V2I_1V_EN = "DISABLED", PLL_KVCO = "85", PLL_KP_VCO = "0b11001";
+`endif
+
     wire pll_clkop, pll_lock;
     PLL #(
         .REF_MMD_DIG("1"), .FBK_MMD_DIG("3"),            // 37.5 MHz x 3 = 112.5 MHz on CLKOP
+        .FBK_MASK(PLL_FBK_MASK), .FBK_MMD_PULS_CTL(PLL_FBK_PULS),
         .FBK_INTEGER_MODE("ENABLED"), .REF_INTEGER_MODE("ENABLED"),
         .CLKMUX_FB("CMUX_CLKOP"), .SEL_FBK("DIVA"),
-        .V2I_KVCO_SEL("85"),                              // explicit: nextpnr drops the PLL's FASM otherwise
+        .V2I_KVCO_SEL(PLL_KVCO),                          // explicit: nextpnr drops the PLL's FASM otherwise
+        .KP_VCO(PLL_KP_VCO), .V2I_1V_EN(PLL_V2I_1V_EN),
+        .PLLRESET_ENA(PLL_RESET_ENA),
         .DIVA("9"), .DELA("0"), .ENCLK_CLKOP("ENABLED")   // VCO = 112.5 MHz x (9 + 1) = 1125 MHz
     ) pll (
         .PLLPOWERDOWN_N(1'b1),

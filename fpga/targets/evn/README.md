@@ -6,8 +6,9 @@ the dump interrupt on PMOD header J18, two sample pins on J17, five LEDs, SW2 as
 ## Build and load
 
 ```
-./build.sh          # one channel: build/n1/top.bit, report.txt
-./build.sh 12       # twelve channels: build/n12/
+./build.sh            # one channel: build/n1/top.bit, report.txt
+./build.sh 12         # twelve channels: build/n12/
+./build.sh 1 fbkdiv   # a PLL variant (below): build/n1-fbkdiv/, likewise analog
 openFPGALoader -b crosslinknx_evn build/n1/top.bit
 ```
 
@@ -18,7 +19,7 @@ packs without complaint, so the script also requires nextpnr's closing log line 
 PLL and oscillator sections; and because nextpnr drops a port constraint whose selector matches
 nothing without a warning, it counts the pull-ups and pull-downs in the FASM against the ones
 `evn.pdc` asks for. `report.py` prints the utilization and the fabric clock's fmax; `report.txt`
-also records the source commit.
+also records the source commit and the PLL variant.
 
 Lint, with `lint_stubs.v` standing in for the two Lattice primitives and allowing their many
 unused ports and the registers that start from an initial value at configuration:
@@ -39,6 +40,30 @@ and SPI is asynchronous). A GPLL referenced from the same oscillator runs
 alongside, 37.5 MHz × 3 = 112.5 MHz on CLKOP with a 1125 MHz VCO, only to check that a
 bitstream from the open toolchain configures a PLL that locks. For a precise clock later,
 J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
+
+### PLL bitstreams
+
+Whether that GPLL locks is the one thing here only the board can tell, and two of its settings
+are in doubt. The feedback divider's minimum-ratio mask (`FBK_MASK`) defaults to 8 while the
+ratio is 3; TN-02095 Table C.3 says the mask then sets the ratio, which would ask for a 3 GHz
+VCO and never lock. And the analog settings the open toolchain defaults to (`V2I_KVCO_SEL` 85,
+`KP_VCO` 0b11001, `V2I_1V_EN` off) are the values Lattice's reference files use for a 0.9 V
+core; the EVN's core runs at 1.0 V, where those files use 60, 0b00011 and on. `build.sh`
+builds three variants of `top.v`, selected with `-D`; load them in this order and stop at the
+first that locks:
+
+| Variant | Changes | Bitstream |
+|---|---|---|
+| `asbuilt` | none | `build/n1/top.bit` |
+| `fbkdiv` | `FBK_MASK` cleared; `FBK_MMD_PULS_CTL` 0b0001, the pulse width Table C.3 gives for ratios above 2; `PLLRESET_ENA` on, so the power-on reset `top.v` drives reaches the PLL | `build/n1-fbkdiv/top.bit` |
+| `analog` | `fbkdiv` plus the 1.0 V analog set | `build/n1-analog/top.bit` |
+
+Locked: LED0 on and LED4 blinking at 1.6 to 1.8 Hz (34.9 to 40.1 MHz × 3 / 2^26). Not locked:
+LED0 off and LED4 dark or at another rate. LED1 blinks either way, since the fabric runs from
+the oscillator. Once a variant locks, make its settings the defaults in `top.v`. If none does,
+the next things to try are the remaining difference from the reference files (`V2I_PP_ICTRL`
+0b11111) and a ratio of 8 (`FBK_MMD_DIG` 8, `DIVA` 2), which stays above the mask without
+clearing it and quadruples the LED4 rate.
 
 ## Wiring to the Nucleo
 
@@ -69,7 +94,9 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
 
 ## First test on the board
 
-1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED0 (lock) on, LED1 and LED4 blinking.
+1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED1 blinking shows the fabric running;
+   LED0 on with LED4 blinking shows the PLL locked. If LED0 stays off, load the next PLL
+   variant (above) and note which one locks.
 2. From the Nucleo's SPI master (mode 0, SCK ≤ 4.3 MHz: an eighth of the slowest fabric
    clock): read
    `ID` (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.

@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Build the EVN bitstream: build.sh [N_CHANNELS] -> build/n<N>/top.bit and report.txt
+# Build the EVN bitstream: build.sh [N_CHANNELS] [PLL variant] -> build/n<N>[-<variant>]/top.bit
+# and report.txt. PLL variants, tried in this order on the board (README, "PLL bitstreams"):
+# asbuilt (default), fbkdiv, analog.
 set -euo pipefail
 cd "$(dirname "$0")"
 N=${1:-1}
-OUT=build/n$N
+VARIANT=${2:-asbuilt}
+case "$VARIANT" in
+    asbuilt) DEFINES="";                                  OUT=build/n$N ;;
+    fbkdiv)  DEFINES="-DPLL_FBK_DIV_FIX";                 OUT=build/n$N-fbkdiv ;;
+    analog)  DEFINES="-DPLL_FBK_DIV_FIX -DPLL_ANALOG_1V0"; OUT=build/n$N-analog ;;
+    *) echo "unknown PLL variant '$VARIANT' (asbuilt, fbkdiv, analog)" >&2; exit 2 ;;
+esac
 RTL=../../rtl
 rm -rf "$OUT"   # a failed run must not leave the previous run's bitstream behind
 mkdir -p "$OUT"
 
 yosys -q -l "$OUT/yosys.log" -p "
-    read_verilog $RTL/channel.v $RTL/playback.v $RTL/rx_core.v $RTL/spi_slave.v $RTL/rx_spi.v top.v;
+    read_verilog $DEFINES $RTL/channel.v $RTL/playback.v $RTL/rx_core.v $RTL/spi_slave.v $RTL/rx_spi.v top.v;
     chparam -set N_CHANNELS $N top;
     synth_nexus -top top -json $OUT/top.json"
 
@@ -44,6 +52,6 @@ check_pulls DOWN
 prjoxide pack --compress "$OUT/top.fasm" "$OUT/top.bit"
 {
     python3 report.py "$OUT/report.json" "$N"
-    echo "source $(git describe --always --dirty --tags)"
+    echo "source $(git describe --always --dirty --tags), PLL variant $VARIANT"
 } | tee "$OUT/report.txt"
 ls -l "$OUT/top.bit"
