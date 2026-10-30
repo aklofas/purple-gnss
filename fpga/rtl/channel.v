@@ -3,16 +3,20 @@
 // prompt / late code correlation at quarter-chip tap spacing, integrate-and-dump once per
 // code period. Everything with a feedback loop lives in software.
 //
-// Samples are 2-bit {sign, mag} (values +/-1, +/-3) and count only while sample_valid and
-// enable are both high; a disabled channel freezes. The code is held as CODE_LEN bits in
-// 32-bit words (bit set = chip value -1), written over code_we. The code NCO counts quarter
-// chips and ticks at most once per sample, so the sample rate must exceed four times the
-// chip rate; the chip index wrapping at 4 * CODE_LEN dumps the six sums into ie..ql, raises
-// dump for one clock, increments epoch and copies the step inputs into the active NCO
-// steps (while disabled the inputs are copied every clock, so a write takes effect at once).
-// load_phase, honored only while disabled, sets the NCO accumulators directly. Enable takes
-// effect eight clocks after it rises: the channel spends them re-reading the chips around its
-// code phase, so a phase load or code write followed at once by enable is still exact.
+// Samples are 2-bit {sign, mag} (values +/-1, +/-3) and count only while sample_valid is high
+// and the channel is active: enable takes effect eight clocks after it rises, and the channel
+// spends them re-reading the chips around its code phase, so a phase load or code write
+// followed at once by enable is still exact. A code write while enabled would leave those
+// cached chips stale, so the core only passes code writes to a disabled channel. The code is
+// held as CODE_LEN bits in 32-bit words (bit set = chip value -1), written over code_we. The
+// code NCO counts quarter chips (index 0 to 4 * CODE_LEN - 1) and ticks at most once per
+// sample, so the sample rate must exceed four times the chip rate; the index wrapping dumps
+// the six sums into ie..ql, raises dump for one clock, increments epoch and copies the step
+// inputs into the active NCO steps (while not active, disabled or in the eight clocks after
+// enable, the inputs are copied every clock, so a write then takes effect at once).
+// load_phase, honored only while disabled, sets the NCO accumulators directly and leaves the
+// six running sums alone, so the first dump after a phase load on a channel that ran before
+// carries that earlier partial period.
 // meas_strobe, raised with a sample, latches the NCO
 // phases, chip index and epoch count as they stood before that sample into the meas_*
 // outputs; every channel sees the same strobe, so the latched states are simultaneous.
@@ -88,9 +92,9 @@ module channel #(
     wire v0     = sample_valid && active;
 
     // c_prev / c_cur / c_next hold the chips at chip_idx - 1, chip_idx, chip_idx + 1. While
-    // enabled, a chip increment shifts them and prefetches the new next chip; while disabled
-    // all three are re-read in rotation (reads issued while disabled are dropped if they
-    // land after enable, so a stale value never overwrites a shifted one).
+    // active, a chip increment shifts them and prefetches the new next chip; while not active
+    // all three are re-read in rotation (reads issued then are dropped if they land once the
+    // channel is active, so a stale value never overwrites a shifted one).
     reg c_prev, c_cur, c_next;
     reg [1:0] refill;
     reg rd_pend, rd_pend_d, rd_rot, rd_rot_d;

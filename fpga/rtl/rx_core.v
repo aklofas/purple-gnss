@@ -181,14 +181,14 @@ module rx_core #(
                     C_CODE_PHASE_FRAC: if (!ch_en[k]) begin
                         ch_code_frac[k] <= bus_wdata; ch_load[k] <= 1'b1;
                     end
-                    C_CODE_CHIP: if (!ch_en[k] && bus_wdata < 4 * CODE_LEN) begin  // a valid index only
+                    C_CODE_CHIP: if (!ch_en[k] && bus_wdata < 4 * CODE_LEN) begin  // valid index only
                         ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1;
                     end
                     C_SPACING_Q: ch_spacing[k] <= bus_wdata[1:0];
                     // placeholders until a live sample source exists
                     C_CH_START_SAMPLE_LO, C_CH_START_SAMPLE_HI: ;
                     C_CODE_WR_ADDR: ch_code_addr[k] <= bus_wdata[CODE_AW-6:0];
-                    C_CODE_WR_DATA: begin
+                    C_CODE_WR_DATA: if (!ch_en[k]) begin  // the chip cache refreshes while disabled
                         ch_code_we[k] <= 1'b1;
                         ch_code_addr[k] <= ch_code_addr[k] + {{(CODE_AW-6){1'b0}}, 1'b1};
                     end
