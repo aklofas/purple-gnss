@@ -1,6 +1,6 @@
 import pytest
 
-from tb.conftest import RTL, TB, build, run_cocotb
+from tb.conftest import RTL, TB, build, needs_captures, run_cocotb
 
 CASES = [
     "aligned_clean",
@@ -11,7 +11,7 @@ CASES = [
     "disable_mid_period_then_resume",
     "load_phase_ignored_while_enabled",
     "spacing_q_half_chip",
-    "recording_200ms",
+    pytest.param("recording_200ms", marks=needs_captures),
     "enable_right_after_phase_load",
     "disable_for_one_and_two_clocks",
     "measurement_latch_at_load_guard_and_wrap",

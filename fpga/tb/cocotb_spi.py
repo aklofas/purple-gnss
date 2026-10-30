@@ -102,19 +102,8 @@ async def sck_at_fabric_over_8(dut):
     assert await slow.read_words(R.ch(0, R.CARR_STEP), 3) == words
 
 
-@cocotb.test()
-async def board_sequence_over_spi(dut):
-    spi = await start(dut)
-    n_ms = 3
-    if captures_dir() is not None:
-        x = read_samples(captures_dir() / RECORDING, FS, iq=False, duration=n_ms * 1e-3).real
-        results = [acquire_l1ca(x, FS, F_IF, prn) for prn in range(1, 33)]
-        best = max(results, key=lambda a: a.cn0 if a.detected else -1.0)
-        prn, doppler, code_offset_s = best.prn, best.doppler, best.code_offset
-        codes = to_sign_mag(x)
-    else:
-        prn, doppler, code_offset_s = 7, 1000.0, 0.0
-        codes = synthetic_codes(prn, FS, F_IF, doppler, 0, round(FS * n_ms * 1e-3), 45.0)
+async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, codes) -> None:
+    """The board test's register sequence on one channel, every dump equal to the model's."""
     chip_q, frac = start_phase(code_offset_s, 1.023e6 * (1 + doppler / 1575.42e6))
     carr_step, code_step = channel_steps(doppler)
 
@@ -137,3 +126,22 @@ async def board_sequence_over_spi(dut):
     assert await spi.read(R.ch(0, R.DUMP_MISSED)) == 0
     assert await spi.read(R.SAMPLE_CNT_LO) == len(codes)
     assert np.all(np.array([d.ip for d in expected]) != 0)
+
+
+@cocotb.test()
+async def board_sequence_over_spi(dut):
+    spi = await start(dut)
+    prn, doppler = 7, 1000.0
+    codes = synthetic_codes(prn, FS, F_IF, doppler, 0, round(FS * 3e-3), 45.0)
+    await board_sequence(spi, prn, doppler, 0.0, codes)
+
+
+@cocotb.test()
+async def board_sequence_over_spi_recording(dut):
+    # the first 3 ms of the recording, on the strongest PRN acquisition finds in them
+    spi = await start(dut)
+    x = read_samples(captures_dir() / RECORDING, FS, iq=False, duration=3e-3).real
+    results = [acquire_l1ca(x, FS, F_IF, prn) for prn in range(1, 33)]
+    best = max(results, key=lambda a: a.cn0 if a.detected else -1.0)
+    assert best.detected
+    await board_sequence(spi, best.prn, best.doppler, best.code_offset, to_sign_mag(x))
