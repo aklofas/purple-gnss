@@ -149,7 +149,8 @@ sample.
 
 `rx_spi` puts `rx_core` behind a single-lane SPI slave (`spi_slave.v`), the bring-up interface
 for the evaluation board. Mode 0 (clock idle low, data sampled on the rising edge), MSB first,
-CS active low, SCK at most the fabric clock divided by 8 (4.8 MHz at 38.4 MHz).
+CS active low, SCK at most the fabric clock divided by 8 (4.8 MHz at 38.4 MHz; 4.3 MHz on the
+EVN, whose fabric clock can be as low as 34.9 MHz).
 
 | Bytes | Content |
 |---|---|
@@ -160,7 +161,22 @@ CS active low, SCK at most the fabric clock divided by 8 (4.8 MHz at 38.4 MHz).
 | read: 4.. | 32-bit data words, high byte first |
 
 Words keep coming for as long as CS is held low; the address advances by one per word in
-auto-increment mode. Raising CS ends the transaction and drops a partial word. The shape
+auto-increment mode. Raising CS ends the transaction and drops a partial word.
+
+What the slave needs, in fabric clocks (29 ns at the EVN's slowest 34.9 MHz): SCK high and SCK
+low each at least 2; MOSI held at least 2 after the SCK rise that samples it; CS low at least 2
+before the first SCK rise and at least 2 after the last one (a CS rise within one clock of the
+last SCK rise drops that word); CS high at least 2 between transactions; and one CS assertion
+per transaction. SCK at an eighth of the fabric clock with equal high and low times meets all
+of these; the limits matter for a master that stretches, truncates or releases its clock
+between calls. MISO takes its next bit within a few fabric clocks after each SCK rise, to be
+sampled on the following rise, and is driven low while CS is high (it is never high impedance),
+so give it its own line rather than sharing it with another slave. A read fetches the next word
+while bit 24 of the current one shifts out, so a burst also reads the address after its last
+word (the same address in fixed mode); reading `SAMPLE_CNT_LO` latches `SAMPLE_CNT_HI`, so read
+the pair as one two-word burst.
+
+The shape
 (command, address, dummy cycles, data, burst) is what the STM32 OCTOSPI does in indirect mode,
 so a driver written against this interface moves to quad SPI with only the lane count changing.
 
