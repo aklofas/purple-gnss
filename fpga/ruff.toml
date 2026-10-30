@@ -1,0 +1,7 @@
+line-length = 100
+
+[lint]
+extend-select = ["I", "FURB", "PLW"]
+
+[lint.isort]
+known-first-party = ["fpgamodel", "tb"]

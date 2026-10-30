@@ -23,6 +23,11 @@ uv pip install --python .venv/bin/python -e fpga/model
 Tests on the recordings need `PYRX_CAPTURES` set to the directory holding them, exactly as the
 `pyrx` suite does; without it they skip.
 
+The cocotb benches build the RTL with Icarus by default (`SIM=verilator` selects Verilator,
+`WAVES=1` records traces) under `fpga/tb/sim_build/`. Each bench streams its samples from a
+hex file through a small Verilog wrapper, so simulation time is spent in the simulator, not in
+Python: the nine channel cases, including 200 ms of the recording, take about three minutes.
+
 ## Quantization loss
 
 The channel works on 2-bit samples with a 3-level local oscillator. Its cost against
