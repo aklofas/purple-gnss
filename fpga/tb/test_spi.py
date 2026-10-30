@@ -1,6 +1,6 @@
 import pytest
 
-from tb.conftest import RTL, build, run_cocotb
+from tb.conftest import RTL, build, needs_captures, run_cocotb
 
 CASES = [
     "read_id_and_version",
@@ -10,6 +10,7 @@ CASES = [
     "aborted_word_is_not_written",
     "sck_at_fabric_over_8",
     "board_sequence_over_spi",
+    pytest.param("board_sequence_over_spi_recording", marks=needs_captures),
 ]
 
 

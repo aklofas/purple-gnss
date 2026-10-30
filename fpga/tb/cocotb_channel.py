@@ -176,7 +176,7 @@ async def spacing_q_half_chip(dut):
     assert_dumps_equal(bench.dumps, expected)
 
 
-@cocotb.test(skip=captures_dir() is None)
+@cocotb.test()
 async def recording_200ms(dut):
     x = read_samples(captures_dir() / RECORDING, FS, iq=False, duration=0.2).real
     results = [acquire_l1ca(x[: round(FS * 0.01)], FS, F_IF, prn) for prn in range(1, 33)]

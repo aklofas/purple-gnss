@@ -2,9 +2,10 @@ import os
 
 import pytest
 
-from tb.conftest import RTL, TB, build, run_cocotb
+from tb.conftest import RTL, TB, build, needs_captures, run_cocotb
 
 
+@needs_captures
 @pytest.mark.skipif(not os.environ.get("FPGA_SLOW"), reason="set FPGA_SLOW=1 for the closed-loop RTL run")
 def test_closed_loop_rtl():
     runner = build(

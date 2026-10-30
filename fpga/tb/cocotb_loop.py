@@ -40,7 +40,7 @@ from tb.support import (
 DURATION = 3.0
 
 
-@cocotb.test(skip=captures_dir() is None)
+@cocotb.test()
 async def closed_loop_rtl(dut):
     path = captures_dir() / RECORDING
     head = read_samples(path, FS, iq=False, duration=0.01)
