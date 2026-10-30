@@ -21,15 +21,23 @@ CASES = [
 ]
 
 
+SOURCES = [RTL / "channel.v", RTL / "playback.v", RTL / "rx_core.v"]
+
+
 @pytest.fixture(scope="module")
 def core_build():
-    return build(
-        "rx_core",
-        [RTL / "channel.v", RTL / "playback.v", RTL / "rx_core.v"],
-        {"N_CHANNELS": 2, "PB_DEPTH": 131072},
-    )
+    return build("rx_core", SOURCES, {"N_CHANNELS": 2})  # the board's playback RAM depth
 
 
 @pytest.mark.parametrize("case", CASES)
 def test_core(core_build, case):
     run_cocotb(core_build, "rx_core", "tb.cocotb_core", case)
+
+
+def test_core_12_channels():
+    runner = build("rx_core", SOURCES, {"N_CHANNELS": 12})
+    run_cocotb(runner, "rx_core", "tb.cocotb_core", "last_channel_tracks_like_the_first")
+
+
+def test_core_16_channels_elaborates():
+    build("rx_core", SOURCES, {"N_CHANNELS": 16})  # the map's ceiling: four channel-index bits
