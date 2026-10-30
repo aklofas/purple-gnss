@@ -275,6 +275,9 @@ def test_run_matches_step_under_random_schedules(seed):
         block = codes[i : i + int(rng.integers(1, 3000))]
         max_dumps = int(rng.integers(1, 3)) if rng.random() < 0.3 else None
         got = a.run(block, max_dumps=max_dumps)
+        assert max_dumps is None or len(got) <= max_dumps
+        if got and len(got) == max_dumps:
+            assert got[-1].sample == a.sample_count  # stopped right after the dump
         consumed = a.sample_count - b.sample_count
         expected = [d for c in block[:consumed] if (d := b.step(int(c))) is not None]
         assert got == expected

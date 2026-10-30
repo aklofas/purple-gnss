@@ -123,10 +123,16 @@ async def soft_reset_mid_run_keeps_only_the_rams(dut):
     await bus.write(R.CTRL, R.CTRL_RESET)
     await ClockCycles(dut.clk, 4)
     zeroed = (R.CTRL, R.PLAYBACK_LEN, R.MEAS_PERIOD, R.DUMP_PENDING, R.SAMPLE_CNT_LO)
-    zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CARR_STEP, R.EPOCH, R.DUMP_MISSED, R.IP))
-    zeroed += tuple(R.ch(0, off) for off in (R.MEAS_SAMPLE_LO, R.MEAS_CODE_CHIP, R.MEAS_EPOCH))
+    zeroed += (R.SAMPLE_CNT_HI, R.PB_ADDR)
+    zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CARR_STEP, R.CODE_STEP, R.CARR_PHASE))
+    zeroed += tuple(R.ch(0, off) for off in (R.CODE_PHASE_FRAC, R.CODE_CHIP, R.CODE_WR_ADDR))
+    zeroed += tuple(R.ch(0, off) for off in (R.EPOCH, R.DUMP_MISSED, R.IE, R.QE, R.IP, R.QP, R.IL))
+    zeroed += tuple(R.ch(0, off) for off in (R.QL, R.MEAS_CODE_PHASE_FRAC, R.MEAS_CODE_CHIP))
+    zeroed += tuple(R.ch(0, off) for off in (R.MEAS_CARR_PHASE, R.MEAS_EPOCH, R.MEAS_SAMPLE_LO))
+    zeroed += (R.ch(0, R.MEAS_SAMPLE_HI),)
     for addr in zeroed:
         assert await bus.read(addr) == 0, hex(addr)
+    assert await bus.read(R.ch(0, R.SPACING_Q)) == 1  # its reset value
     assert await bus.read(R.STATUS) == R.STATUS_PLL_LOCK  # neither running nor done
     # both RAMs kept their contents: steps, phase and enable alone track the samples again
     chip_q, frac = phase_of(0, 1000.0)

@@ -233,6 +233,7 @@ async def measurement_latch_at_load_guard_and_wrap(dut):
     # enable guard gives the same frozen state, the wrap sample the state before the wrap,
     # and the sample after it the wrapped index with the new epoch
     doppler, phase = 1000.0, (0x1234_5678, 0x9ABC_DEF0, 2000)
+    phase2 = (0x0F0F_0F0F, 0x1357_9BDF, 2600)  # loaded before enable: the guard strobe's tell
     codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 72_000, 45.0)
     bench = ChannelBench(dut)
     await bench.start()
@@ -251,6 +252,8 @@ async def measurement_latch_at_load_guard_and_wrap(dut):
     await bench.strobe()
     m.set_phase(*phase)
     assert await bench.latched() == _latch_of(m.measurement())
+    await bench.load_phase(*phase2)
+    m.set_phase(*phase2)
 
     await bench.pause_at(5000)
     bench.resume()
@@ -264,7 +267,7 @@ async def measurement_latch_at_load_guard_and_wrap(dut):
     m.enabled = True
     probe = Channel(code_bits(gps_ca(PRN)))
     probe.set_steps(*channel_steps(doppler))
-    probe.set_phase(*phase)
+    probe.set_phase(*phase2)
     probe.enabled = True
     k0 = 5009  # the first sample the channel accepts (enable_right_after_phase_load)
     wraps = [k0 + d.sample - 1 for d in probe.run(codes[k0:])[:2]]  # the samples that wrap
