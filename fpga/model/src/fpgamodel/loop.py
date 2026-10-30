@@ -2,11 +2,17 @@
 
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
 Costas PLL for the carrier, a non-coherent early-minus-late DLL every 10 ms for the code) and
-turns them into the NCO step words a channel takes. One deliberate difference: pyrx moves its
-correlation window in time at each DLL update, while a channel can only change its code NCO
-rate, so the DLL output becomes a chip-rate offset applied over the following 10 ms, with
-carrier aiding folded into the code step. Step words written after dump k take effect at dump
-k + 1, one epoch later than pyrx applies its update.
+turns them into the NCO step words a channel takes. Three deliberate differences from pyrx:
+
+1. pyrx moves its correlation window in time at each DLL update, while a channel can only
+   change its code NCO rate, so the DLL output becomes a chip-rate offset applied over the
+   following 10 ms, with carrier aiding folded into the code step.
+2. Step words written after dump k take effect at dump k + 1, one epoch later than pyrx
+   applies its update.
+3. pyrx estimates C/N0 from a noise correlator tap the channel does not have; the tracker
+   uses the second and fourth moments of the prompt magnitude instead, which data bits and
+   the residual carrier of pull-in leave alone, and it does not declare a loss of lock from
+   a window that overlaps pull-in.
 """
 
 from dataclasses import dataclass
@@ -22,8 +28,9 @@ from fpgamodel.channel import Channel, Dump, nco_step
 
 @dataclass(frozen=True)
 class Epoch:
-    """Loop state after one dump: the dump's last sample, the Doppler the loop then set, and
-    the code fraction (quarter chips) the code NCO held at that sample."""
+    """Loop state after one dump: the dump's sample count (up to and including its last
+    sample), the Doppler the loop then set, and the code fraction (quarter chips) the code
+    NCO held at that sample."""
 
     sample: int
     doppler: float
