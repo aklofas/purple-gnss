@@ -24,3 +24,8 @@ def channel_build():
 @pytest.mark.parametrize("case", CASES)
 def test_channel(channel_build, case):
     run_cocotb(channel_build, "tb_channel", "tb.cocotb_channel", case)
+
+
+def test_channel_code_len_1024():
+    runner = build("tb_channel", [RTL / "channel.v", TB / "tb_channel.v"], {"CODE_LEN": 1024, "CODE_AW": 10})
+    run_cocotb(runner, "tb_channel", "tb.cocotb_channel", "code_len_1024_dumps")

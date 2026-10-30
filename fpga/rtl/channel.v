@@ -50,7 +50,7 @@ module channel #(
     /* verilator lint_off UNUSEDPARAM */
     localparam DUMP_LATENCY = 2;  // read by the bench, not by the logic
     /* verilator lint_on UNUSEDPARAM */
-    localparam [CODE_AW+1:0] N_Q = 4 * CODE_LEN;
+    localparam [CODE_AW+2:0] N_Q = 4 * CODE_LEN;  // one bit wider than chip_q: CODE_LEN may be 2^CODE_AW
     localparam CODE_WORDS = (CODE_LEN + 31) / 32;
 
     // ---- code memory and the chips around the current one ---------------------------
@@ -77,7 +77,7 @@ module channel #(
     wire [32:0] code_sum = {1'b0, code_acc} + {1'b0, code_step_a};
     wire tick     = code_sum[32];
     wire chip_inc = tick && (chip_q[1:0] == 2'b11);
-    wire wrap     = tick && (chip_q == N_Q - 1);
+    wire wrap     = tick && ({1'b0, chip_q} == N_Q - 1);
 
     // enable is honored READY_CLOCKS after it rises; until then the chip neighbors refresh
     reg [3:0] ready_cnt;

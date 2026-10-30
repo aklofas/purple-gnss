@@ -78,7 +78,7 @@ class Channel:
         self.code_len = code_len
         self.n_q = 4 * code_len
         self.acc_w = acc_w
-        self.enabled = False
+        self._enabled = False
         self.spacing_q = 1
         self.carr_acc = 0
         self.code_acc = 0
@@ -92,6 +92,18 @@ class Channel:
         self.dump_code_frac = 0  # code NCO fraction right after the last dump's wrap
 
     # ---- configuration ---------------------------------------------------------
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, on: bool) -> None:
+        # the hardware copies the step inputs into the active steps while disabled, so steps
+        # written while enabled take effect at a disable even if no dump came in between
+        self._enabled = bool(on)
+        if not on:
+            self.carr_step, self.code_step = self._shadow
+
     def set_steps(self, carr_step: int, code_step: int) -> None:
         """New NCO step words: applied at the next dump, or at once while disabled."""
         self._shadow = (carr_step & MASK32, code_step & MASK32)
@@ -149,13 +161,15 @@ class Channel:
         return None
 
     # ---- a block of samples, vectorized ------------------------------------------
-    def run(self, codes: np.ndarray) -> list[Dump]:
+    def run(self, codes: np.ndarray, max_dumps: int | None = None) -> list[Dump]:
+        """Process `codes`, stopping right after the `max_dumps`-th dump when given; the
+        samples consumed show in `sample_count`."""
         dumps: list[Dump] = []
         codes = np.asarray(codes, dtype=np.int64)
         if not self.enabled:
             return dumps
         i, n = 0, len(codes)
-        while i < n:
+        while i < n and (max_dumps is None or len(dumps) < max_dumps):
             need = self.n_q - self.chip_q  # ticks until the chip index wraps
             if self.code_step == 0:
                 k = n - i

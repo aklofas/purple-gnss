@@ -70,3 +70,24 @@ def test_model_loop_tracks_like_pyrx(captures):
     assert dopp_rms < 1.0
     assert code_max_chips < 0.25
     assert np.isfinite(tracker.cn0) and tracker.cn0 > 40.0
+
+
+def test_track_model_does_not_depend_on_block_size():
+    # at 8 MHz a period is 8000 samples, so a 12 000-sample block can hold two dumps; the
+    # feedback after each dump must still apply before the next one
+    from pyrx.codes import gps_ca
+    from pyrx.synth import synth_l1ca
+
+    from fpgamodel.quantize import code_bits, to_sign_mag
+
+    fs, f_if, doppler = 8e6, 2e6, 1200.0
+    codes = to_sign_mag(synth_l1ca(7, fs, f_if, doppler, 0, 400_000, 45.0, iq=False).real)
+    runs = []
+    for block in (12_000, 3_000, 50_000):
+        ch = Channel(code_bits(gps_ca(7)))
+        tracker = Tracker(fs, f_if, doppler + 40.0)  # start 40 Hz off so the loop has to move
+        ch.set_steps(*tracker.steps())
+        ch.enabled = True
+        runs.append(track_model(ch, tracker, codes, block=block))
+    assert len(runs[0]) == 50
+    assert runs[0] == runs[1] == runs[2]
