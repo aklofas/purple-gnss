@@ -117,13 +117,30 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    commands and holds NCS a full CLK cycle after the last edge, which meets the slave's timing
    ([SPI transaction](../../README.md#spi-transaction)) at any such prescaler. Words go out
    high byte first, so byte-swap each 32-bit word of a little-endian buffer. Read `ID`
-   (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.
-3. Write the PRN's 32 code words to `CODE_WR_ADDR`/`CODE_WR_DATA`, then the recording's 2-bit
-   samples 16 per word to `PB_ADDR`/`PB_DATA` (3 ms of the 24 MHz recording is 4500 words),
-   then `CARR_STEP`, `CODE_STEP`, `CARR_PHASE`, `CODE_PHASE_FRAC`, `CODE_CHIP` from the same
-   acquisition result the bench used (`fpgamodel.compare.start_phase`,
-   `fpgamodel.channel.nco_step`), `CH_CTRL` = 1, `CTRL` = 5 (enable, playback source),
-   `PLAYBACK_LEN`, `PLAYBACK_CTRL` = 1.
-4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` and `IE..QL`, write `DUMP_CLEAR`.
-5. Compare each dump with `fpgamodel.channel.Channel.run` on the same samples: they are equal.
+   (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x00010100` (release 0x0100,
+   measurement latch present).
+3. On the host, acquire the first 3 ms of the recording (`pyrx.acquisition.acquire_l1ca`,
+   PRN 1 to 32, keep the strongest) and convert the samples with
+   `fpgamodel.quantize.to_sign_mag`. With chip rate = 1.023 MHz × (1 + Doppler / 1575.42 MHz),
+   `fpgamodel.compare.start_phase(code_offset, chip rate)` gives `CODE_CHIP` and
+   `CODE_PHASE_FRAC`; `fpgamodel.channel.nco_step(6 MHz + Doppler, 24 MHz)` gives `CARR_STEP`
+   and `nco_step(4 × chip rate, 24 MHz)` gives `CODE_STEP`. Use 24 MHz in `nco_step` even
+   though playback runs at the EVN fabric clock: the step words are per sample. Then, over
+   SPI and in this order: `CODE_WR_ADDR` (0x1009) = 0 and the PRN's 32 code words to
+   `CODE_WR_DATA` (0x100A) as two bursts of 16, reading `CODE_WR_ADDR` between them (expect
+   16); `PB_ADDR` (0x0100) = 0 and the 4,500 sample words (`fpgamodel.quantize.pack_words`) to
+   `PB_DATA` (0x0101), then read `PB_ADDR` (expect 4500); both data bursts use a fixed address
+   (command bit 6 = 0), and the read-backs show the link delivered every word. Then
+   `CARR_STEP`, `CODE_STEP`, `CARR_PHASE` = 0, `CODE_PHASE_FRAC`, `CODE_CHIP` (0x1003 to
+   0x1007); `CH_CTRL` (0x1000) = 1; `CTRL` = 5 (enable, playback source); `PLAYBACK_LEN` =
+   72000 (samples); and `PLAYBACK_CTRL` = 1 last, since playback runs from that write.
+4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` (0x100B) and the signed 32-bit sums
+   `IE..QL` (0x1010 to 0x1015), write `DUMP_CLEAR` = 1. Playback runs one sample per fabric
+   clock, so a dump arrives about every 0.64 ms. When `STATUS` bit 2 (done) is set and nothing
+   is pending, `DUMP_MISSED` (0x100C) must read 0 and `SAMPLE_CNT_LO` 72000 (the count runs
+   from reset, so load a fresh bitstream or soft-reset first).
+5. Run `fpgamodel.channel.Channel` on the same 2-bit samples with the same steps and phase
+   (`set_steps`, `set_phase(0, CODE_PHASE_FRAC, CODE_CHIP)`, `enabled = True`, `run`): the
+   board returns as many dumps as the model, and each dump's epoch and six sums equal the
+   model's (the board reports no sample index, so the model's `sample` field is not compared).
    `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this exact sequence in simulation.
