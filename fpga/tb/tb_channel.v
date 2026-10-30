@@ -5,7 +5,7 @@
 // stood when each dump's last sample went in (dump_sample). Test-only.
 module tb_channel #(
     parameter CODE_LEN = 1023,
-    parameter CODE_AW = $clog2(CODE_LEN),
+    parameter CODE_AW = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,
     parameter ACC_W = 20,
     parameter MAX_SAMPLES = 5_000_000,
     parameter DUMP_LATENCY = 2   // clock edges from the one taking the wrap sample to dump high

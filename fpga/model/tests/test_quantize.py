@@ -52,3 +52,13 @@ def test_two_bit_input_keeps_its_magnitudes():
     assert values(to_sign_mag(mixed)).tolist() == mixed.tolist()
     floats = np.array([0.4, -1.2, 2.5, -0.1])  # not a 2-bit recording: the std rules
     assert to_sign_mag(floats).tolist() == to_sign_mag(floats, threshold=floats.std()).tolist()
+
+
+def test_two_bit_check_is_exact_and_blockwise():
+    from fpgamodel.quantize import _holds_only_two_bit_values
+
+    x = np.tile(np.array([1.0, -3.0, 3.0, -1.0]), 1000)
+    assert _holds_only_two_bit_values(x, block=7)
+    x[2345] = 2.0
+    assert not _holds_only_two_bit_values(x, block=7)
+    assert not _holds_only_two_bit_values(np.zeros(0))

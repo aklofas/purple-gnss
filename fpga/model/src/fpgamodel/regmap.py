@@ -6,7 +6,7 @@ does not use them.
 """
 
 ID_VALUE = 0x50474E53  # "PGNS"
-VERSION_BASE = 0x0100
+VERSION_BASE = 0x0200  # 0x0100 had readable step and phase words, no MEAS_SEQ, a latched SAMPLE_CNT_HI
 VERSION_LATCH = 1 << 16  # measurement latch implemented
 VERSION_START_SAMPLE = 1 << 17  # CH_START_SAMPLE implemented
 

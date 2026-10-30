@@ -22,12 +22,12 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,357 | 1,513 | 19 | 141.4 MHz | 246 KB |
-| 12 | 14,408 | 10,412 | 30 | 110.6 MHz | 507 KB |
+| 1 | 2,385 | 1,513 | 19 | 151.3 MHz | 248 KB |
+| 12 | 14,175 | 10,412 | 30 | 104.3 MHz | 504 KB |
 
 The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
 so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
-in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,100 LUT4 and 810
+in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,070 LUT4 and 810
 flip-flops, three times the correlator alone: the per-channel control and measurement
 registers (32-bit step, phase and latch words) and the readback mux of the dump and latch
 words are most of it. Holding the phase words only in the channel's NCOs (the stored copies
@@ -107,7 +107,7 @@ Global block at `0x0000`:
 | Offset | Name | Access | Notes |
 |---|---|---|---|
 | 0x00 | `ID` | R | `0x50474E53` |
-| 0x01 | `VERSION` | R | bits 15:0 = `0x0100`; bit 16 = measurement latch implemented; bit 17 = `CH_START_SAMPLE` implemented |
+| 0x01 | `VERSION` | R | bits 15:0 = `0x0200`, the register map's version (`0x0100` had readable step and phase words, no `MEAS_SEQ`, a `SAMPLE_CNT_HI` latched by a `SAMPLE_CNT_LO` read and separately committed step words); bit 16 = measurement latch implemented; bit 17 = `CH_START_SAMPLE` implemented |
 | 0x02 | `CTRL` | RW | bit0 global enable, bit1 soft reset (self-clearing, resets everything but the RAM contents: playback samples and code chips), bit2 source (0 pins, 1 playback) |
 | 0x03 | `STATUS` | R | bit0 pll_lock, bit1 playback running, bit2 playback done |
 | 0x04 | `SAMPLE_CNT_LO` | R | valid samples since reset, counted while `CTRL` bit 0 is set; live |
@@ -163,7 +163,8 @@ The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
 phases of different channels are comparable to the sample. A periodic strobe can land while
 the six words are being read, so read `MEAS_SEQ` before and after them and read again when it
-changed. A disabled channel, or one still in the eight clocks after its enable, latches its
+changed; for pseudoranges, which pair several channels on one strobe, put the one check around
+the whole set of channel reads. A disabled channel, or one still in the eight clocks after its enable, latches its
 frozen state on every strobe. The carrier NCO advances only on the samples a channel accepts,
 so the latched `MEAS_CARR_PHASE` is the phase loaded at enable plus f_IF × (accepted samples)
 / f_sample plus the Doppler integral, all modulo one cycle. The Doppler integral an observable
@@ -181,9 +182,10 @@ or code write followed at once by enable is still exact). The sample rate must e
 times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per sample.
 And playback runs from the clock `PLAYBACK_CTRL` is written, whatever the global enable, the
 source and the channels are doing, so write it last: code and samples, steps and phases,
-`CH_CTRL`, `CTRL` (enable and the playback source), then `PLAYBACK_CTRL`. A channel enabled or
-a source selected after the start misses samples and nothing flags it, and `PLAYBACK_CTRL`
-written while a run is in progress is unsupported.
+`CH_CTRL`, `CTRL` (enable and the playback source), then `PLAYBACK_CTRL`, at least eight clocks
+after the last `CH_CTRL` write on the direct bus (any SPI transaction is far longer). A channel
+enabled or a source selected after the start misses samples and nothing flags it, and
+`PLAYBACK_CTRL` written while a run is in progress is unsupported.
 
 ## SPI transaction
 
@@ -264,8 +266,9 @@ too, which is why the two rows agree to the digit.
 The channel works on 2-bit samples with a 3-level local oscillator. Its cost against
 `pyrx`'s float correlator, measured by `fpgamodel.compare` as the ratio of post-correlation
 SNRs on the same samples (prompt power on the tracked PRN less the noise power, over the noise
-power: the mean prompt power on eight PRNs absent from the signal; 100 sample-aligned 1 ms
-windows, fixed NCO):
+power: the mean prompt power on eight PRNs absent from the signal; 100 windows of one code
+period, fixed NCO; pyrx's windows are sample-aligned 1 ms blocks and the model's are its dumps,
+the first of them partial for a nonzero code offset, a misalignment measured at 0.03 dB or less):
 
 | Signal | What the number measures | Loss |
 |---|---|---|
