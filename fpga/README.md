@@ -80,6 +80,25 @@ disabled; any SPI transaction is longer than that), and the sample rate must exc
 times the chip rate, 4.092 MHz for L1 C/A, because the code NCO ticks at most once per
 sample.
 
+## SPI transaction
+
+`rx_spi` puts `rx_core` behind a single-lane SPI slave (`spi_slave.v`), the bring-up interface
+for the evaluation board. Mode 0 (clock idle low, data sampled on the rising edge), MSB first,
+CS active low, SCK at most the fabric clock divided by 8 (4.8 MHz at 38.4 MHz).
+
+| Bytes | Content |
+|---|---|
+| 0 | command: bit 7 = 1 write / 0 read, bit 6 = 1 auto-increment the word address / 0 fixed, bits 5:0 zero |
+| 1, 2 | 16-bit word address, high byte first |
+| write: 3.. | 32-bit data words, high byte first; each word is committed when its last bit arrives |
+| read: 3 | one dummy byte while the slave fetches the first word |
+| read: 4.. | 32-bit data words, high byte first |
+
+Words keep coming for as long as CS is held low; the address advances by one per word in
+auto-increment mode. Raising CS ends the transaction and drops a partial word. The shape
+(command, address, dummy cycles, data, burst) is what the STM32 OCTOSPI does in indirect mode,
+so a driver written against this interface moves to quad SPI with only the lane count changing.
+
 ## Quantization loss
 
 The channel works on 2-bit samples with a 3-level local oscillator. Its cost against
