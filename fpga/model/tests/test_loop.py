@@ -4,6 +4,7 @@ from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.samples import SampleFile, read_samples
 from pyrx.signals import L1_FREQ
+from pyrx.synth import synth_l1ca
 from pyrx.tracking import track_l1ca
 
 from fpgamodel.channel import Channel, Dump
@@ -12,6 +13,7 @@ from fpgamodel.loop import Tracker, compare_with_pyrx, track_model
 from fpgamodel.quantize import code_bits, to_sign_mag
 
 FS, F_IF = 24e6, 6.0e6
+FS_SYN, F_IF_SYN, DOPPLER_SYN = 5e6, 1.25e6, 1200.0
 RECORDING = "L1_20211226_082401_24MHz_I.bin"
 DURATION = 3.0
 
@@ -37,6 +39,40 @@ def test_dll_speeds_the_code_when_early_wins():
     for k in range(1, 11):
         t.update(Dump(k, 900, 0, 1000, 0, 700, 0, 0))  # early > late every epoch
     assert t.steps()[1] > base
+
+
+def _synthetic(cn0, seed=0, duration=2.2, data_bits=True):
+    """A data-modulated L1 C/A signal at 5 MHz (1.25 MHz IF), the smallest rate the quarter-chip
+    code NCO allows; float samples for pyrx and 2-bit codes for the channel."""
+    n = round(FS_SYN * duration)
+    x = synth_l1ca(7, FS_SYN, F_IF_SYN, DOPPLER_SYN, 0, n, cn0, iq=False, seed=seed, data_bits=data_bits)
+    return x, to_sign_mag(x.real)
+
+
+def _track_synthetic(codes, doppler_seed, cn0_seed):
+    ch = Channel(code_bits(gps_ca(7)))
+    tracker = Tracker(FS_SYN, F_IF_SYN, doppler_seed, cn0_seed)
+    ch.set_steps(*tracker.steps())
+    ch.enabled = True
+    track_model(ch, tracker, codes)
+    return tracker
+
+
+@pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
+def test_cn0_estimate_holds_lock_through_data_bits(cn0):
+    # seeded 5 Hz and 5 dB off, through pull-in and data bits: the estimate settles within
+    # 1.5 dB of the truth and lock is never declared lost
+    _, codes = _synthetic(cn0)
+    tracker = _track_synthetic(codes, DOPPLER_SYN + 5.0, cn0 + 5.0)
+    assert tracker.locked
+    assert abs(tracker.cn0 - cn0) < 1.5, tracker.cn0
+
+
+def test_noise_alone_loses_lock_after_pull_in():
+    _, codes = _synthetic(5.0)  # 5 dB-Hz: the signal is 20 dB under the noise per epoch
+    tracker = _track_synthetic(codes, DOPPLER_SYN, 45.0)
+    assert not tracker.locked
+    assert tracker.cn0 < 25.0
 
 
 def test_model_loop_tracks_like_pyrx(captures):

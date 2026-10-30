@@ -10,7 +10,7 @@ k + 1, one epoch later than pyrx applies its update.
 """
 
 from dataclasses import dataclass
-from math import atan, log10, pi
+from math import atan, log10, pi, sqrt
 
 import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD
@@ -42,8 +42,7 @@ class Tracker:
         self._prompt_prev = 0j
         self._err_phase_prev = 0.0
         self._sum_e = self._sum_l = 0.0
-        self._prompt_i: list[float] = []
-        self._prompt_q: list[float] = []
+        self._prompt_mag2: list[float] = []
         self._n_dll = round(T_DLL / CA_PERIOD)
         self._n_cn0 = round(T_CN0 / CA_PERIOD)
 
@@ -82,18 +81,20 @@ class Tracker:
                 self.rate_offset = advance_s * CA_CHIP_RATE / T_DLL
             self._sum_e = self._sum_l = 0.0
 
-        self._prompt_i.append(prompt.real)
-        self._prompt_q.append(prompt.imag)
+        # C/N0 every T_CN0 from the moments of the prompt magnitude: for a signal of power S
+        # in complex noise of power N, E|z|^2 = S + N and E|z|^4 = S^2 + 4SN + 2N^2, so
+        # S = sqrt(2 M2^2 - M4); independent of data bits and of the carrier phase
+        self._prompt_mag2.append(abs(prompt) ** 2)
         if self.epoch % self._n_cn0 == 0:
-            i = np.array(self._prompt_i)
-            q = np.array(self._prompt_q)
-            noise = q.var() if self.epoch * t > T_FLL_PULLIN else 0.5 * (i.var() + q.var())
-            signal = max(abs(i).mean() ** 2 - noise, 0.01 * noise)
-            if noise > 0.0:
-                self.cn0 += 0.5 * (10.0 * log10(signal / (2.0 * noise) / t) - self.cn0)
-            self._prompt_i.clear()
-            self._prompt_q.clear()
-            if self.cn0 < CN0_LOST:
+            mag2 = np.array(self._prompt_mag2)
+            m2, m4 = mag2.mean(), (mag2 * mag2).mean()
+            s = sqrt(max(2.0 * m2 * m2 - m4, 0.0))
+            n = m2 - s
+            if n > 0.0:
+                s = max(s, 0.01 * n)
+                self.cn0 += 0.5 * (10.0 * log10(s / n / t) - self.cn0)
+            self._prompt_mag2.clear()
+            if self.epoch * t > T_FLL_PULLIN and self.cn0 < CN0_LOST:
                 self.locked = False
         return self.steps()
 
