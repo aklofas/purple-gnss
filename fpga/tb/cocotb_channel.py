@@ -255,10 +255,9 @@ async def disable_for_one_and_two_clocks(dut):
     for k, low_clocks in gaps:
         await bench.pause_at(k)
         dut.enable.value = 0
-        bench.resume()
-        await bench.pause_at(k + low_clocks)
-        dut.enable.value = 1
-        bench.resume()
+        bench.resume()  # sample k goes in on the next edge with enable low
+        await cocotb.triggers.ClockCycles(dut.clk, low_clocks)
+        dut.enable.value = 1  # exactly low_clocks edges, each with a valid sample
     await bench.finish()
     skipped = [(k, low_clocks + 8) for k, low_clocks in gaps]
     kept = np.concatenate([codes[:20_000], codes[20_000 + skipped[0][1] : 40_000],
