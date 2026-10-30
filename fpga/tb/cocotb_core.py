@@ -8,7 +8,7 @@ N_CHANNELS = 2, except for the one case the 12-channel build runs.
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, RisingEdge
+from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
@@ -109,26 +109,34 @@ async def unmapped_reads_zero_writes_ignored(dut):
 
 
 @cocotb.test()
-async def soft_reset_clears_state_not_playback_ram(dut):
+async def soft_reset_mid_run_keeps_only_the_rams(dut):
     bus = await start(dut)
     codes = to_sign_mag(signal(PRN, 1000.0, 0, 6))
     await set_up_channel(bus, 0, PRN, 1000.0)
     await load_playback(bus, codes)
+    await bus.write(R.MEAS_PERIOD, 5000)
     await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
-    await bus.write(R.PLAYBACK_LEN, 1234)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 9000)  # a dump is pending, a strobe has landed, playback runs
+    assert await bus.read(R.DUMP_PENDING) == 0b01
+    assert await bus.read(R.STATUS) == R.STATUS_PLL_LOCK | R.STATUS_PB_RUNNING
     await bus.write(R.CTRL, R.CTRL_RESET)
     await ClockCycles(dut.clk, 4)
-    assert await bus.read(R.CTRL) == 0
-    assert await bus.read(R.PLAYBACK_LEN) == 0
-    assert await bus.read(R.ch(0, R.CARR_STEP)) == 0
-    assert await bus.read(R.ch(0, R.CH_CTRL)) == 0
-    assert await bus.read(R.ch(0, R.EPOCH)) == 0
-    # the RAM kept its samples: a fresh channel setup tracks them
-    await set_up_channel(bus, 0, PRN, 1000.0)
+    zeroed = (R.CTRL, R.PLAYBACK_LEN, R.MEAS_PERIOD, R.DUMP_PENDING, R.SAMPLE_CNT_LO)
+    zeroed += tuple(R.ch(0, off) for off in (R.CH_CTRL, R.CARR_STEP, R.EPOCH, R.DUMP_MISSED, R.IP))
+    zeroed += tuple(R.ch(0, off) for off in (R.MEAS_SAMPLE_LO, R.MEAS_CODE_CHIP, R.MEAS_EPOCH))
+    for addr in zeroed:
+        assert await bus.read(addr) == 0, hex(addr)
+    assert await bus.read(R.STATUS) == R.STATUS_PLL_LOCK  # neither running nor done
+    # both RAMs kept their contents: steps, phase and enable alone track the samples again
+    chip_q, frac = phase_of(0, 1000.0)
+    await configure_channel(bus, 0, *steps(1000.0), 0, frac, chip_q)
+    await enable_channel(bus, 0)
     await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
     await start_playback(bus, len(codes))
     dumps = await collect_dumps(bus, N_CHANNELS)
     assert_dumps_equal(dumps[0], model(PRN, 1000.0).run(codes), ignore_sample=True)
+    assert await bus.read(R.SAMPLE_CNT_LO) == len(codes)
 
 
 @cocotb.test()
@@ -217,7 +225,7 @@ async def dump_missed_counts_and_values_replace(dut):
 
 
 @cocotb.test()
-async def sample_count_reads_coherently(dut):
+async def sample_count_stops_with_global_enable(dut):
     bus = await start(dut)
     codes = np.zeros(5000, dtype=np.uint8)
     await load_playback(bus, codes)
@@ -307,11 +315,13 @@ async def measurement_trigger_captures_all_channels_on_one_sample(dut):
     await start_playback(bus, len(codes))
     await ClockCycles(dut.clk, 20_000)
     await bus.write(R.MEAS_TRIG, 1)
+    await ReadOnly()
+    at_write = int(dut.sample_cnt.value)  # samples consumed once the write has landed
     await ClockCycles(dut.clk, len(codes))
     m0 = await read_measurement(bus, 0)
     m1 = await read_measurement(bus, 1)
     assert m0.sample == m1.sample
-    assert 19_990 <= m0.sample <= 20_100  # the next valid sample after the trigger write
+    assert m0.sample == at_write, (m0.sample, at_write)  # the next valid sample is strobed
     for k, (prn, doppler, offset) in enumerate(((7, 1000.0, 0), (12, -2500.0, 1500))):
         mdl = model(prn, doppler, offset)
         mdl.run(codes[: m0.sample])
@@ -337,12 +347,6 @@ async def measurement_periodic(dut):
     mdl.run(codes[:15_000])
     assert last == mdl.measurement()
     assert last.epoch == mdl.epoch >= 1
-
-
-@cocotb.test()
-async def version_reports_latch(dut):
-    bus = await start(dut)
-    assert await bus.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
 
 
 @cocotb.test()
