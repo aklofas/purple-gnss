@@ -20,6 +20,7 @@ CASES = [
     "measurement_trigger_captures_all_channels_on_one_sample",
     "measurement_periodic",
     "meas_period_written_mid_run_counts_from_the_write",
+    "meas_seq_counts_strobes_and_guards_the_latch_read",
     "code_write_address_wraps_at_32_words",
 ]
 

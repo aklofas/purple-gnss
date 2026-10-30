@@ -37,8 +37,8 @@ module rx_core #(
                       A_SAMPLE_CNT_LO = 12'h004, A_SAMPLE_CNT_HI = 12'h005,
                       A_DUMP_PENDING = 12'h006, A_DUMP_CLEAR = 12'h007, A_MEAS_TRIG = 12'h008,
                       A_MEAS_PERIOD = 12'h009, A_N_CHANNELS = 12'h00A, A_PLAYBACK_CTRL = 12'h00B,
-                      A_PLAYBACK_LEN = 12'h00C, A_PB_DEPTH = 12'h00D, A_PB_ADDR = 12'h100,
-                      A_PB_DATA = 12'h101;
+                      A_PLAYBACK_LEN = 12'h00C, A_PB_DEPTH = 12'h00D, A_MEAS_SEQ = 12'h00E,
+                      A_PB_ADDR = 12'h100, A_PB_DATA = 12'h101;
     localparam [7:0] C_CH_CTRL = 8'h00, C_CH_START_SAMPLE_LO = 8'h01, C_CH_START_SAMPLE_HI = 8'h02,
                      C_CARR_STEP = 8'h03, C_CODE_STEP = 8'h04, C_CARR_PHASE = 8'h05,
                      C_CODE_PHASE_FRAC = 8'h06, C_CODE_CHIP = 8'h07, C_SPACING_Q = 8'h08,
@@ -111,13 +111,13 @@ module rx_core #(
 
     // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
     // MEAS_PERIOD valid samples counted from the MEAS_PERIOD write; all channels latch at once ----
-    reg [31:0] period_cnt;
+    reg [31:0] period_cnt, meas_seq;  // meas_seq: strobes so far, read around the latch words
     reg [47:0] meas_sample;
     wire periodic_hit = (meas_period != 32'd0) && (period_cnt >= meas_period);
     wire meas_strobe  = src_valid && (trig_pending || periodic_hit);
     always @(posedge clk) begin
         if (rst_i) begin
-            trig_pending <= 1'b0; period_cnt <= 32'd0; meas_sample <= 48'd0;
+            trig_pending <= 1'b0; period_cnt <= 32'd0; meas_sample <= 48'd0; meas_seq <= 32'd0;
         end else begin
             if (wr_g && (g_off == A_MEAS_TRIG) && bus_wdata[0]) trig_pending <= 1'b1;
             if ((wr_g && (g_off == A_MEAS_PERIOD)) || (meas_period == 32'd0)) period_cnt <= 32'd0;
@@ -125,6 +125,7 @@ module rx_core #(
             if (src_valid) begin
                 if (meas_strobe) begin
                     meas_sample  <= sample_cnt;
+                    meas_seq     <= meas_seq + 32'd1;
                     trig_pending <= 1'b0;
                 end
             end
@@ -251,6 +252,7 @@ module rx_core #(
                     A_N_CHANNELS: bus_rdata <= N_CHANNELS;
                     A_PLAYBACK_LEN: bus_rdata <= pb_len;
                     A_PB_DEPTH: bus_rdata <= PB_DEPTH;
+                    A_MEAS_SEQ: bus_rdata <= meas_seq;
                     A_PB_ADDR: bus_rdata <= pb_addr;
                     default: ;
                 endcase
