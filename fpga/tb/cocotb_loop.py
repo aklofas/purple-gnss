@@ -34,7 +34,7 @@ from tb.support import (
     configure_channel,
     enable_channel,
     load_code,
-    read_dump_retrying,
+    read_dumps_now,
 )
 
 DURATION = 3.0
@@ -82,11 +82,11 @@ async def closed_loop_rtl(dut):
             await ClockCycles(dut.clk, 8)  # a dump from the last sample is still in the pipeline
             if not int(dut.dump_irq.value):
                 break  # done, and nothing pending
-        d = await read_dump_retrying(spi, 0)
-        steps = tracker.update(d)
-        await spi.write_words(R.ch(0, R.CARR_STEP), list(steps))
-        dumps.append(d)
-        schedule.append(steps)
+        for d in await read_dumps_now(spi, 0):
+            steps = tracker.update(d)
+            await spi.write_words(R.ch(0, R.CARR_STEP), list(steps))
+            dumps.append(d)
+            schedule.append(steps)
         if not tracker.locked:
             break
     assert tracker.locked

@@ -152,9 +152,12 @@ dump.
 
 A dump that lands while the previous one is being read replaces the holding registers at once,
 so a read can mix two periods, and a `DUMP_CLEAR` after it would acknowledge the new dump
-unread. Read `EPOCH` first, then the sums, write `DUMP_CLEAR`, then read `EPOCH` again: it
-changes on the same clock as the sums, so if it changed, discard what was read and read again
-at once (the bench's `read_dump` is the reference).
+unread. `EPOCH` changes on the same clock as the sums, so: read `EPOCH`, the six sums, and
+`EPOCH` again; if it changed, discard what was read and read again without clearing (the new
+dump is pending, and `DUMP_MISSED` counted the one it replaced). Otherwise write `DUMP_CLEAR`
+and read `EPOCH` a third time; if that changed, a dump landed around the clear and sits in the
+registers whether or not the clear caught it, so keep the dump just read and read again at once,
+whatever `DUMP_PENDING` says (the bench's `read_dump` and `read_dumps_now` are the reference).
 
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
@@ -163,9 +166,9 @@ the six words are being read, so read `MEAS_SEQ` before and after them and read 
 changed. A disabled channel, or one still in the eight clocks after its enable, latches its
 frozen state on every strobe. The carrier NCO advances only on the samples a channel accepts,
 so the latched `MEAS_CARR_PHASE` is the phase loaded at enable plus f_IF × (accepted samples)
-/ f_sample plus the Doppler integral. The Doppler integral an observable needs is that value
-less the loaded phase less f_IF × (`MEAS_SAMPLE` − n0) / f_sample, with n0 the channel's first
-accepted sample; a channel enabled before the first valid sample has n0 = 0, and for any other
+/ f_sample plus the Doppler integral, all modulo one cycle. The Doppler integral an observable
+needs is that value less the loaded phase less f_IF × (`MEAS_SAMPLE` − n0) / f_sample, modulo
+one cycle, with n0 the channel's first accepted sample; a channel enabled before the first valid sample has n0 = 0, and for any other
 n0 is what `CH_START_SAMPLE` is reserved to report. Referenced that way, every channel shares
 pyrx's origin, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`
 returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the

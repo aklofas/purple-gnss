@@ -245,28 +245,36 @@ async def start_playback(bus: RegAccess, n_samples: int) -> None:
     await bus.write(R.PLAYBACK_CTRL, 1)
 
 
-async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> Dump | None:
-    """The channel's holding registers as a Dump (sample = -1: the core does not know it).
+async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> tuple[Dump | None, bool]:
+    """The channel's holding registers as a Dump (sample = -1: the core does not know it),
+    and whether to read again at once.
 
-    A dump that lands during the read replaces the registers at once, so the sums could mix
-    two periods, and the clear would acknowledge the new dump unread. EPOCH changes on the
-    same clock as the sums: it is read first and again after the clear, and on a change the
-    result is None and the caller reads again at once (the registers then hold the new dump,
-    already cleared)."""
+    A dump that lands during the read replaces the registers the moment it does, EPOCH with
+    them. EPOCH is read before and after the sums: a change means the sums could mix two
+    periods, so the result is (None, True), nothing is cleared (the new dump is pending, and
+    DUMP_MISSED counted the one it replaced) and the caller reads again. Otherwise the clear
+    goes out and EPOCH is read a third time: a change there means a dump landed around the
+    clear and sits in the registers, acknowledged or not, so the dump read is good and the
+    caller must read again at once, whatever DUMP_PENDING says."""
     epoch = await bus.read(R.ch(k, R.EPOCH))
     sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
-    if clear:
-        await bus.write(R.DUMP_CLEAR, 1 << k)
     if await bus.read(R.ch(k, R.EPOCH)) != epoch:
-        return None
-    return Dump(epoch, *sums, -1)
+        return None, True
+    if not clear:
+        return Dump(epoch, *sums, -1), False
+    await bus.write(R.DUMP_CLEAR, 1 << k)
+    return Dump(epoch, *sums, -1), await bus.read(R.ch(k, R.EPOCH)) != epoch
 
 
-async def read_dump_retrying(bus: RegAccess, k: int) -> Dump:
-    """`read_dump`, read again whenever a dump landed during the read."""
-    while (dump := await read_dump(bus, k)) is None:
-        pass
-    return dump
+async def read_dumps_now(bus: RegAccess, k: int) -> list[Dump]:
+    """Every dump channel k holds right now: `read_dump` again while it asks for it."""
+    dumps: list[Dump] = []
+    again = True
+    while again:
+        dump, again = await read_dump(bus, k)
+        if dump is not None:
+            dumps.append(dump)
+    return dumps
 
 
 async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) -> list[list[Dump]]:
@@ -276,7 +284,7 @@ async def collect_dumps(bus: RegAccess, n_channels: int, poll_cycles: int = 20) 
         pending = await bus.read(R.DUMP_PENDING)
         for k in range(n_channels):
             if pending & (1 << k):
-                dumps[k].append(await read_dump_retrying(bus, k))
+                dumps[k].extend(await read_dumps_now(bus, k))
         status = await bus.read(R.STATUS)
         if status & R.STATUS_PB_DONE and not pending:
             await ClockCycles(bus.dut.clk, 8)
