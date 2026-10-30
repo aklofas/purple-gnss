@@ -108,9 +108,16 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
 1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED1 blinking shows the fabric running;
    LED0 on with LED4 blinking shows the PLL locked. If LED0 stays off, load the next PLL
    variant (above) and note which one locks.
-2. From the Nucleo's SPI master (mode 0, SCK ≤ 4.3 MHz: an eighth of the slowest fabric
-   clock): read
-   `ID` (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.
+2. Configure OCTOSPI1 for indirect mode on one line (IMODE, ADMODE and DMODE = 1 line):
+   instruction 8 bits, address 16 bits, 8 dummy cycles on reads and none on writes, DLR =
+   4n − 1 for n words, CKMODE 0 (clock idle low), SSHIFT 0, DLYBYP 1 (no delay block), DEVSIZE
+   31 (the address is a word index, so the OCTOSPI's byte-based size check must never bind),
+   and a prescaler that keeps CLK at or below 4.3 MHz, an eighth of the slowest fabric clock
+   (kernel clock / (PRESCALER + 1); 275 MHz / 64 = 4.3 MHz). The OCTOSPI keeps CLK low between
+   commands and holds NCS a full CLK cycle after the last edge, which meets the slave's timing
+   ([SPI transaction](../../README.md#spi-transaction)) at any such prescaler. Words go out
+   high byte first, so byte-swap each 32-bit word of a little-endian buffer. Read `ID`
+   (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x0100`.
 3. Write the PRN's 32 code words to `CODE_WR_ADDR`/`CODE_WR_DATA`, then the recording's 2-bit
    samples 16 per word to `PB_ADDR`/`PB_DATA` (3 ms of the 24 MHz recording is 4500 words),
    then `CARR_STEP`, `CODE_STEP`, `CARR_PHASE`, `CODE_PHASE_FRAC`, `CODE_CHIP` from the same

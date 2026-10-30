@@ -9,7 +9,11 @@
 //
 // SCK, MOSI and CS are oversampled through two-flop synchronizers; MISO takes its next bit
 // right after a detected SCK rising edge, so it is stable long before the master's next
-// sample. SCK must not exceed the fabric clock divided by 8.
+// sample. In fabric clocks the slave needs: SCK high and low at least 2 each; MOSI held at
+// least 2 after the SCK rise; CS low at least 2 before the first SCK rise and at least 2 after
+// the last (a CS rise within one clock of the last SCK rise drops that word); CS high at least
+// 2 between transactions. SCK at the fabric clock divided by 8 with equal high and low times
+// meets all of these.
 module spi_slave (
     input  wire        clk,
     input  wire        rst,
