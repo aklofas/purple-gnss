@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE, gps_ca
@@ -73,6 +74,16 @@ def test_noise_alone_loses_lock_after_pull_in():
     tracker = _track_synthetic(codes, DOPPLER_SYN, 45.0)
     assert not tracker.locked
     assert tracker.cn0 < 25.0
+
+
+def test_track_model_rejects_a_disabled_channel():
+    ch = Channel(code_bits(gps_ca(7)))
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    with pytest.raises(ValueError):
+        track_model(ch, tracker, np.zeros(1000, dtype=np.uint8))
+    ch.enabled = True
+    with pytest.raises(ValueError):
+        track_model(ch, tracker, np.zeros(1000, dtype=np.uint8), block=0)
 
 
 def test_model_loop_tracks_like_pyrx(captures):

@@ -296,3 +296,16 @@ def test_run_matches_step_under_random_schedules(seed):
                 ch.enabled = True
         assert _state(a) == _state(b)
     assert a.sample_count == len(codes)
+
+
+def test_numpy_integer_inputs_are_taken_as_python_ints():
+    # step words and phases often arrive as numpy integers from acquisition arithmetic; the
+    # model must not carry their fixed width into its 32-bit wrap-around sums
+    ch_a, codes = _aligned(doppler=1234.5, n=30_000)
+    ch_b = Channel(code_bits(gps_ca(7)))
+    steps = np.array(_steps(1234.5), dtype=np.uint32)
+    ch_b.set_steps(steps[0], steps[1])
+    ch_b.set_phase(np.uint32(PHASE_ALIGNED), np.int64(0), np.uint16(0))
+    ch_b.enabled = True
+    assert ch_b.run(codes) == ch_a.run(codes)
+    assert type(ch_b.carr_step) is int and type(ch_b.carr_acc) is int

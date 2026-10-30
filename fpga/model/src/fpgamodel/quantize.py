@@ -12,12 +12,14 @@ def to_sign_mag(x: np.ndarray, threshold: float | None = None) -> np.ndarray:
     """2-bit codes for real samples; the magnitude bit is set where |x| >= `threshold`.
 
     The threshold defaults to the standard deviation of `x`, close to the optimal 2-bit
-    quantizer for Gaussian noise. Recordings that already hold only +/-1 and +/-3
-    come back unchanged in meaning: their standard deviation lies between 1 and 3.
+    quantizer for Gaussian noise, except for input that already holds only the values +/-1
+    and +/-3 (a 2-bit recording), which comes back unchanged in meaning: there the
+    threshold is 2, so a stretch of nothing but +/-1 stays at magnitude 1.
     """
     x = np.asarray(x, dtype=np.float64)
     if threshold is None:
-        threshold = float(x.std())
+        two_bit = np.isin(np.unique(x), (-3.0, -1.0, 1.0, 3.0)).all()
+        threshold = 2.0 if two_bit else float(x.std())
     sign = (x < 0).astype(np.uint8)
     mag = (np.abs(x) >= threshold).astype(np.uint8)
     return (sign << 1) | mag
