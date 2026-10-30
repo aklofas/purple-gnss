@@ -12,8 +12,8 @@
 // code NCO counts quarter chips (index 0 to 4 * CODE_LEN - 1) and ticks at most once per
 // sample, so the sample rate must exceed four times the chip rate; the index wrapping dumps
 // the six sums into ie..ql, raises dump for one clock, increments epoch and copies the step
-// inputs into the active NCO steps (while not active, disabled or in the eight clocks after
-// enable, the inputs are copied every clock, so a write then takes effect at once).
+// inputs into the active NCO steps (while not active, disabled or in the seven clocks after
+// the enable lands, the inputs are copied every clock, so a write then takes effect at once).
 // load_phase, honored only while disabled, sets the NCO accumulators directly and leaves the
 // six running sums alone, so the first dump after a phase load on a channel that ran before
 // carries that earlier partial period.

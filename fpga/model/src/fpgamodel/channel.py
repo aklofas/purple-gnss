@@ -60,8 +60,8 @@ class Dump:
 @dataclass(frozen=True)
 class Measurement:
     """Channel state before the next sample is processed; `sample` is the channel's own count
-    of enabled samples, equal to the core's `MEAS_SAMPLE` only for a channel enabled before the
-    first valid sample."""
+    of enabled samples, equal to the core's `MEAS_SAMPLE` only for a channel whose enable was in
+    effect before the first valid sample and never dropped since."""
 
     carr_phase: int
     code_frac: int

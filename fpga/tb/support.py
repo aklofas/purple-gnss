@@ -249,16 +249,15 @@ async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> Dump | None:
     """The channel's holding registers as a Dump (sample = -1: the core does not know it).
 
     A dump that lands during the read replaces the registers at once, so the sums could mix
-    two periods, and the clear would acknowledge the new dump unread. DUMP_MISSED counts such
-    a dump: it is read first and again after the clear, and on a change the result is None
-    and the caller reads again at once (the registers then hold the new dump, already
-    cleared)."""
-    missed = await bus.read(R.ch(k, R.DUMP_MISSED))
+    two periods, and the clear would acknowledge the new dump unread. EPOCH changes on the
+    same clock as the sums: it is read first and again after the clear, and on a change the
+    result is None and the caller reads again at once (the registers then hold the new dump,
+    already cleared)."""
     epoch = await bus.read(R.ch(k, R.EPOCH))
     sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
     if clear:
         await bus.write(R.DUMP_CLEAR, 1 << k)
-    if await bus.read(R.ch(k, R.DUMP_MISSED)) != missed:
+    if await bus.read(R.ch(k, R.EPOCH)) != epoch:
         return None
     return Dump(epoch, *sums, -1)
 
