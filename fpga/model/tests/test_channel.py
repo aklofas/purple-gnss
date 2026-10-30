@@ -236,3 +236,60 @@ def test_set_phase_rejects_a_quarter_chip_index_past_the_code():
         ch.set_phase(0, 0, 4092)
     with pytest.raises(ValueError):
         ch.set_phase(0, 0, -1)
+
+
+def _state(ch: Channel) -> tuple:
+    return (
+        ch.carr_acc, ch.code_acc, ch.chip_q, ch.epoch, ch.sample_count, ch.carr_step,
+        ch.code_step, ch.dump_code_frac, ch.measurement(), tuple(ch._acc), ch._shadow,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_run_matches_step_under_random_schedules(seed):
+    # `run` must equal `step` sample for sample whatever the code length, spacing, phase,
+    # step words (including a code step of 0), block boundaries, mid-run step writes,
+    # disable/phase/enable sequences and `max_dumps` stops: dumps and the whole state
+    rng = np.random.default_rng(seed)
+    code_len = int(rng.choice([1023, 1024, 37]))
+    words = rng.integers(0, 2**32, size=32, dtype=np.uint64)
+    codes = rng.integers(0, 4, size=20_000, dtype=np.uint8)
+    n_q = 4 * code_len
+
+    def random_steps():
+        code_step = 0 if rng.random() < 0.1 else int(rng.integers(1, 2**32))
+        return int(rng.integers(0, 2**32)), code_step
+
+    def random_phase():
+        return int(rng.integers(0, 2**32)), int(rng.integers(0, 2**32)), int(rng.integers(0, n_q))
+
+    a, b = Channel(words, code_len=code_len), Channel(words, code_len=code_len)
+    spacing, steps, phase = int(rng.integers(0, 4)), random_steps(), random_phase()
+    for ch in (a, b):
+        ch.spacing_q = spacing
+        ch.set_steps(*steps)
+        ch.set_phase(*phase)
+        ch.enabled = True
+    i = 0
+    while i < len(codes):
+        block = codes[i : i + int(rng.integers(1, 3000))]
+        max_dumps = int(rng.integers(1, 3)) if rng.random() < 0.3 else None
+        got = a.run(block, max_dumps=max_dumps)
+        consumed = a.sample_count - b.sample_count
+        expected = [d for c in block[:consumed] if (d := b.step(int(c))) is not None]
+        assert got == expected
+        assert _state(a) == _state(b)
+        i += consumed
+        action = rng.integers(0, 4)
+        if action == 0:
+            steps = random_steps()
+            a.set_steps(*steps)
+            b.set_steps(*steps)
+        elif action == 1:
+            phase = random_phase()
+            for ch in (a, b):
+                ch.enabled = False
+                ch.set_phase(*phase)
+                ch.enabled = True
+        assert _state(a) == _state(b)
+    assert a.sample_count == len(codes)
