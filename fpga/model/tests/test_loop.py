@@ -39,7 +39,6 @@ def test_dll_speeds_the_code_when_early_wins():
     assert t.steps()[1] > base
 
 
-@pytest.mark.slow
 def test_model_loop_tracks_like_pyrx(captures):
     path = captures / RECORDING
     if not path.is_file():
