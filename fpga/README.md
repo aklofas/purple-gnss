@@ -159,7 +159,10 @@ unread. Read `DUMP_MISSED` first, then `EPOCH` and the sums, write `DUMP_CLEAR`,
 The measurement latch is what pseudoranges are built from: one strobe, by `MEAS_TRIG` or
 every `MEAS_PERIOD` samples, captures every channel's state on the same sample, so the code
 phases of different channels are comparable to the sample. A disabled channel, or one still in
-the eight clocks after its enable, latches its frozen state on every strobe. `fpgamodel.channel.Channel.measurement`
+the eight clocks after its enable, latches its frozen state on every strobe. The carrier phase
+of an observable is the latched `MEAS_CARR_PHASE` less the IF phase at the latched sample
+(`MEAS_SAMPLE` × f_IF / f_sample, modulo one cycle): that gives every channel the origin pyrx
+uses, the IF phase at sample 0, with no per-channel start phase to load. `fpgamodel.channel.Channel.measurement`
 returns the first four of those numbers for the model; its `sample`, like `Dump.sample`, is the
 channel's own count of the samples it processed while enabled, which equals `MEAS_SAMPLE` only
 for a channel enabled before the first valid sample.
@@ -218,20 +221,30 @@ dummy stays 8 cycles there, whatever the lane count.
 
 `fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
 will: FLL pull-in then a Costas PLL on the carrier, a non-coherent early-minus-late DLL every
-10 ms, the same constants as `pyrx.tracking`. pyrx moves its correlation window in time at each
-DLL update; a channel can only change its code NCO rate, so the DLL output becomes a chip-rate
-offset spread over the next 10 ms, with carrier aiding folded into the code step. Step words
-written after dump k take effect at dump k + 1.
+10 ms, the same constants as `pyrx.tracking`. Fed pyrx's own correlator sums, it reproduces
+pyrx's Doppler exactly (`fpga/model/tests/test_loop.py`). Closed around a channel it differs
+from pyrx in three deliberate ways: pyrx moves its correlation window in time at each DLL
+update, while a channel can only change its code NCO rate, so the DLL output becomes a
+chip-rate offset spread over the next 10 ms, with carrier aiding folded into the code step;
+step words written after dump k take effect at dump k + 1, one epoch later than pyrx applies
+its update; and C/N0 comes from the second and fourth moments of the prompt magnitude rather
+than from pyrx's noise tap, which the channel does not have (data bits and the residual
+carrier of pull-in leave the moments alone, and no loss of lock is declared from a window that
+overlaps pull-in). A channel started mid-period, as `fpgamodel.compare.start_phase` places it
+from an acquisition, dumps a partial period first; the tracker's `skip_first` drops that dump,
+and the firmware should do the same.
 
 On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), over the 2 s after
-pull-in, against `pyrx.tracking.track_l1ca` from the same acquisition seed:
+pull-in, against `pyrx.tracking.track_l1ca` from the same acquisition seed, pairing each dump
+with the pyrx epoch its update governs:
 
 | Loop around | Doppler, RMS difference | Code-period start, largest difference |
 |---|---|---|
-| the model (`fpga/model/tests/test_loop.py`) | 0.37 Hz | 0.0004 chips |
-| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.37 Hz | 0.0004 chips |
+| the model (`fpga/model/tests/test_loop.py`) | 0.41 Hz | 0.0006 chips |
+| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.41 Hz | 0.0006 chips |
 
-Bounds: 1 Hz RMS and one quarter chip. The RTL run also replays the same samples and the same
+Bounds: 0.5 Hz RMS and 0.002 chips, set from measured failures (a doubled FLL gain reaches
+0.76 Hz, a dead DLL 0.0057 chips). The RTL run also replays the same samples and the same
 step schedule through the model and requires every dump to be equal: the closed loop is
 bit-exact too, which is why the two rows agree to the digit.
 
