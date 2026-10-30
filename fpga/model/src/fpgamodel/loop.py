@@ -31,7 +31,13 @@ class Epoch:
 
 
 class Tracker:
-    def __init__(self, fs: float, f_if: float, doppler: float, cn0: float = 45.0):
+    """`skip_first` drops the first dump: a channel started mid-period by `set_phase` (as
+    `compare.start_phase` places it) dumps a partial period first, which the loops must not
+    see. The bench and the firmware set it whenever they start a channel that way."""
+
+    def __init__(
+        self, fs: float, f_if: float, doppler: float, cn0: float = 45.0, skip_first: bool = False
+    ):
         self.fs = fs
         self.f_if = f_if
         self.doppler = float(doppler)
@@ -39,6 +45,7 @@ class Tracker:
         self.epoch = 0
         self.locked = True
         self.rate_offset = 0.0  # chips per second added to the Doppler-scaled chip rate
+        self._skip = skip_first
         self._prompt_prev = 0j
         self._err_phase_prev = 0.0
         self._sum_e = self._sum_l = 0.0
@@ -55,6 +62,9 @@ class Tracker:
     def update(self, dump: Dump) -> tuple[int, int]:
         """Take one dump, update the loops, return the next (carrier step, code step)."""
         t = CA_PERIOD
+        if self._skip:
+            self._skip = False  # the partial first period: no update, no epoch
+            return self.steps()
         self.epoch += 1
         prompt = complex(dump.ip, dump.qp)
         if self.epoch * t <= T_FLL_PULLIN:

@@ -89,7 +89,7 @@ def test_model_loop_tracks_like_pyrx(captures):
     chip_rate = CA_CHIP_RATE * (1 + best.doppler / L1_FREQ)
     chip_q, frac = start_phase(best.code_offset, chip_rate)
     ch = Channel(code_bits(gps_ca(best.prn)))
-    tracker = Tracker(FS, F_IF, best.doppler, best.cn0)
+    tracker = Tracker(FS, F_IF, best.doppler, best.cn0, skip_first=True)  # starts mid-period
     ch.set_steps(*tracker.steps())
     ch.set_phase(0, frac, chip_q)
     ch.enabled = True

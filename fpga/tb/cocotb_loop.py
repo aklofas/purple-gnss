@@ -65,7 +65,7 @@ async def closed_loop_rtl(dut):
     await ClockCycles(dut.clk, 2)
     dut.load.value = 0
 
-    tracker = Tracker(FS, F_IF, best.doppler, best.cn0)
+    tracker = Tracker(FS, F_IF, best.doppler, best.cn0, skip_first=True)  # starts mid-period
     await load_code(spi, 0, best.prn)
     await configure_channel(spi, 0, *tracker.steps(), 0, frac, chip_q)
     await enable_channel(spi, 0)
