@@ -3,7 +3,6 @@
 module rx_spi #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
-    parameter CODE_AW    = 10,
     parameter ACC_W      = 20,
     parameter PB_DEPTH   = 147456
 ) (
@@ -30,8 +29,7 @@ module rx_spi #(
     );
 
     rx_core #(
-        .N_CHANNELS(N_CHANNELS), .CODE_LEN(CODE_LEN), .CODE_AW(CODE_AW),
-        .ACC_W(ACC_W), .PB_DEPTH(PB_DEPTH)
+        .N_CHANNELS(N_CHANNELS), .CODE_LEN(CODE_LEN), .ACC_W(ACC_W), .PB_DEPTH(PB_DEPTH)
     ) core (
         .clk(clk), .rst(rst),
         .pin_valid(pin_valid), .pin_sample(pin_sample), .pll_lock(pll_lock),
