@@ -4,6 +4,7 @@ import pytest
 from pyrx import channels
 from pyrx.acquisition import AcqResult
 from pyrx.channels import track_prn, track_prns
+from pyrx.navdecode import decode_lnav, ephemerides_by_prn
 
 FS = 2.5e6
 
@@ -73,3 +74,11 @@ def test_probe_grid_anchors_at_t_start(gap_file, monkeypatch):
     monkeypatch.setattr(channels, "read_samples", recording)
     track_prn(gap_file, FS, True, 0.0, 9, t_start=3.0, interval=10.0)
     assert starts == [3.0, 13.0, 23.0, 33.0]
+
+
+def test_ephemeris_assembles_across_the_gap(gap_file):
+    segs = track_prn(gap_file, FS, True, 0.0, 4, interval=5.0)
+    lnavs = [decode_lnav(s) for s in segs]
+    assert [[sf.sf_id for sf in ln.subframes] for ln in lnavs] == [[1, 2], [3]]
+    assert all(ln.ephemeris is None for ln in lnavs)
+    assert ephemerides_by_prn(lnavs)[4].iode == 149
