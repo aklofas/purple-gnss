@@ -29,7 +29,9 @@ pip install -e '.[dev]'
 pytest
 ```
 
-The suite runs across all cores (pytest-xdist); `pytest -n 0` runs it serially.
+The suite runs across all cores (pytest-xdist); `pytest -n 0` runs it serially. Tests
+marked `slow` (minutes on a long recording) are left out by default; `pytest -m slow`
+runs them.
 
 The files under `tests/golden/` pin the exact output of the RINEX writers and of every
 command on synthetic inputs; `PYRX_UPDATE_GOLDENS=1 pytest` rewrites them after a

@@ -33,4 +33,5 @@ extend-select = ["I", "FURB", "PLW"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto"
+addopts = "-n auto -m 'not slow'"
+markers = ["slow: minutes-long capture tests, run with -m slow"]
