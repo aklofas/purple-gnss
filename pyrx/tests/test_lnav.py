@@ -166,6 +166,17 @@ def test_assemble_ephemeris_requires_matching_iode():
     assert assemble_ephemeris(sfs) is None
 
 
+def test_assemble_ephemeris_keeps_the_last_complete_set():
+    sfs = [
+        decode_subframe(encode_subframe(i, 5044 + i, f), 0, 0, prn=4)
+        for i, f in ((1, SF1), (2, SF2), (3, SF3))
+    ]
+    # a new data set begins with its subframe 1 at the end of the data: the complete old set stands
+    newer = decode_subframe(encode_subframe(1, 5054, dict(SF1, iodc=150)), 0, 0, prn=4)
+    assert assemble_ephemeris(sfs + [newer]).iode == 149
+    assert assemble_ephemeris([newer] + sfs).iode == 149
+
+
 def test_decode_how_reads_tow_and_id():
     bits = encode_subframe(2, 5044, SF2)
     assert decode_how(bits[:30], bits[30:60], 0, 0) == (5044, 2)

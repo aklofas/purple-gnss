@@ -255,20 +255,28 @@ def encode_subframe(
 
 
 def assemble_ephemeris(subframes: list[Subframe]) -> Ephemeris | None:
-    """An Ephemeris from the latest subframes 1, 2 and 3 when their issue of data agree."""
+    """The last Ephemeris the subframes completed, in their order.
+
+    Walking the subframes, the latest 1, 2 and 3 make an ephemeris whenever their
+    issue of data agree; the last one made is returned, so a new data set that has
+    only begun to arrive (its subframe 1 alone, say) does not take away the complete
+    one before it. None when no three ever agreed.
+    """
     latest = {}
+    eph = None
     for sf in subframes:
-        if sf.sf_id in (1, 2, 3):
-            latest[sf.sf_id] = sf
-    if len(latest) < 3:
-        return None
-    sf1, sf2, sf3 = latest[1], latest[2], latest[3]
-    iode = sf2.fields["iode"]
-    if iode != sf3.fields["iode"] or iode != sf1.fields["iodc"] & 0xFF:
-        return None
-    return Ephemeris(
-        prn=sf1.prn,
-        **sf1.fields,
-        **sf2.fields,
-        **{k: v for k, v in sf3.fields.items() if k != "iode"},
-    )
+        if sf.sf_id not in (1, 2, 3):
+            continue
+        latest[sf.sf_id] = sf
+        if len(latest) < 3:
+            continue
+        sf1, sf2, sf3 = latest[1], latest[2], latest[3]
+        iode = sf2.fields["iode"]
+        if iode == sf3.fields["iode"] and iode == sf1.fields["iodc"] & 0xFF:
+            eph = Ephemeris(
+                prn=sf1.prn,
+                **sf1.fields,
+                **sf2.fields,
+                **{k: v for k, v in sf3.fields.items() if k != "iode"},
+            )
+    return eph
