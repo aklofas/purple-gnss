@@ -207,3 +207,26 @@ def test_help_golden(main, capsys, monkeypatch):
         main(["--help"])
     assert e.value.code == 0
     check_golden(f"help_{main.__name__.removesuffix('_main')}.txt", capsys.readouterr().out)
+
+
+def test_trk_main_prints_a_line_per_segment(gap_file, tmp_path, capsys):
+    rc = trk_main([str(gap_file), "--fs", "2.5e6", "--iq", "--prn", "4", "--plot", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    lines = [line for line in out.splitlines() if line.startswith("PRN  4")]
+    assert len(lines) == 2
+    assert lines[0].startswith("PRN  4  C/N0") and "LOST at" in lines[0]
+    assert re.match(r"PRN  4 from 30\.0 s  C/N0", lines[1]) and lines[1].endswith("LOCK")
+    assert (tmp_path / "trk_prn04.png").exists() and (tmp_path / "trk_prn04_2.png").exists()
+
+
+def test_rinex_main_writes_one_nav_record_from_two_segments(gap_file, tmp_path, capsys):
+    obs, nav = tmp_path / "g.obs", tmp_path / "g.nav"
+    rc = rinex_main(
+        [str(gap_file), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--nav", str(nav)]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    lines = [line for line in out.splitlines() if line.startswith("PRN  4")]
+    assert len(lines) == 2 and lines[1].startswith("PRN  4 from 30.0 s  epochs")
+    assert nav.read_text().count("\nG04 ") == 1

@@ -13,10 +13,11 @@ import numpy as np
 import pymap3d as pm
 
 from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
-from pyrx.gpstime import gps_datetime
+from pyrx.channels import track_prns
+from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
-from pyrx.navdecode import decode_lnav
-from pyrx.observables import make_observables
+from pyrx.navdecode import decode_lnav, ephemerides_by_prn, ionosphere_of, tow1_by_prn
+from pyrx.observables import make_observables, receiver_time0
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.pvt import ELEVATION_MASK, solve
 from pyrx.rinex import (
@@ -29,10 +30,10 @@ from pyrx.rinex import (
 )
 from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import read_samples
-from pyrx.tracking import TrackResult, track_channels
+from pyrx.tracking import TrackResult
 
 NO_DETECTION = (
-    f"no PRN detected in the {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window: "
+    f"no PRN detected in any {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window: "
     "check --fs, --f-if and --iq"
 )
 
@@ -62,26 +63,41 @@ def _add_sample_arguments(p: argparse.ArgumentParser) -> None:
 
 
 def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
-    """Acquire the requested PRNs in the first 10 ms and track the detected ones.
+    """Track every segment of the requested PRNs, re-acquiring where they are not tracked.
 
-    Returns the tracks and the instant tracking started, or None after a message on
-    stderr when no PRN was detected.
+    Returns the segments (PRNs in the requested order, each PRN's segments in time
+    order) and the instant the work started, or None after a message on stderr when
+    no PRN was detected anywhere in the run.
     """
-    head = read_samples(args.file, args.fs, args.iq, args.t_start, DEFAULT_WINDOW)
-    seeds = []
-    for prn in args.prn:
-        acq = acquire_l1ca(head, args.fs, args.f_if, prn)
-        if acq.detected:
-            seeds.append((prn, acq.code_offset, acq.doppler, acq.cn0))
-    if not seeds:
-        print(NO_DETECTION, file=sys.stderr)
-        return None
     duration = args.duration if args.duration > 0 else None
     t0 = time.perf_counter()
-    tracks = track_channels(
-        args.file, args.fs, args.iq, args.f_if, seeds, t_start=args.t_start, duration=duration
+    tracks = track_prns(
+        args.file, args.fs, args.iq, args.f_if, args.prn, t_start=args.t_start, duration=duration
     )
+    if not tracks:
+        print(NO_DETECTION, file=sys.stderr)
+        return None
     return tracks, t0
+
+
+def _segment_label(tracks: list[TrackResult], i: int) -> str:
+    """`PRN nn` for a PRN's first segment, `PRN nn from t s` for the ones after it."""
+    r = tracks[i]
+    if any(tr.prn == r.prn for tr in tracks[:i]):
+        return f"PRN {r.prn:2d} from {r.t[0]:.1f} s"
+    return f"PRN {r.prn:2d}"
+
+
+def _in_segment(t_file: float, r: TrackResult, t_end: float | None) -> bool:
+    """Whether an observation at `t_file` seconds into the recording belongs to segment `r`,
+    which ends where the PRN's next segment starts (`t_end`, None for the last one)."""
+    return r.t[0] <= t_file and (t_end is None or t_file < t_end)
+
+
+def _plot_name(tracks: list[TrackResult], i: int, prefix: str) -> str:
+    """`prefix_prnNN.png` for a PRN's first segment, `prefix_prnNN_k.png` for its k-th."""
+    k = sum(tr.prn == tracks[i].prn for tr in tracks[: i + 1])
+    return f"{prefix}_prn{tracks[i].prn:02d}{'' if k == 1 else f'_{k}'}.png"
 
 
 def acq_main(argv: list[str] | None = None) -> int:
@@ -132,17 +148,18 @@ def trk_main(argv: list[str] | None = None) -> int:
         return 2
     results, t0 = tracked
     elapsed = time.perf_counter() - t0
-    for r in results:
+    for i, r in enumerate(results):
         state = "LOCK" if r.locked else f"LOST at {r.lost_at:.1f} s"
-        print(f"PRN {r.prn:2d}  C/N0 {r.cn0[-1]:4.1f} dB-Hz  DOP {r.doppler[-1]:7.1f} Hz  {state}")
+        label = _segment_label(results, i)
+        print(f"{label}  C/N0 {r.cn0[-1]:4.1f} dB-Hz  DOP {r.doppler[-1]:7.1f} Hz  {state}")
     print(f"TIME = {elapsed:.3f} s")
     if args.log is not None:
         write_track_log(results, args.log)
     if args.plot is not None:
         out = Path(args.plot)
         out.mkdir(parents=True, exist_ok=True)
-        for r in results:
-            plot_tracking(r, out / f"trk_prn{r.prn:02d}.png")
+        for i, r in enumerate(results):
+            plot_tracking(r, out / _plot_name(results, i, "trk"))
     return 0
 
 
@@ -159,18 +176,19 @@ def nav_main(argv: list[str] | None = None) -> int:
         return 2
     tracks, t0 = tracked
     results = [decode_lnav(r) for r in tracks]
+    ephemerides = ephemerides_by_prn(results)
     elapsed = time.perf_counter() - t0
-    for res in results:
+    for i, res in enumerate(results):
         bits = "sync" if res.stream is not None else "none"
         sfs = ",".join(f"{sf.sf_id}@{sf.tow_s}" for sf in res.subframes) or "none"
-        e = res.ephemeris
+        e = ephemerides.get(res.prn)
         eph = f"IODE {e.iode} toe {e.toe:.0f}" if e is not None else "incomplete"
-        print(f"PRN {res.prn:2d}  bits {bits}  subframes {sfs}  ephemeris {eph}")
+        print(f"{_segment_label(tracks, i)}  bits {bits}  subframes {sfs}  ephemeris {eph}")
     print(f"TIME = {elapsed:.3f} s")
     if args.json is not None:
-        iono = next((r.ionosphere for r in results if r.ionosphere is not None), None)
+        iono = ionosphere_of(results)
         data = {
-            "ephemeris": {str(r.prn): asdict(r.ephemeris) for r in results if r.ephemeris},
+            "ephemeris": {str(prn): asdict(e) for prn, e in ephemerides.items()},
             "ionosphere": None if iono is None else {"alpha": iono.alpha, "beta": iono.beta},
         }
         out = Path(args.json)
@@ -198,13 +216,21 @@ def rinex_main(argv: list[str] | None = None) -> int:
     lnavs = [decode_lnav(r) for r in tracks]
     epochs = make_observables(tracks, lnavs, args.interval, args.week)
     elapsed = time.perf_counter() - t0
-    for r, ln in zip(tracks, lnavs):
-        mine = [o for e in epochs for o in e.obs if o.prn == r.prn]
+    rx0 = receiver_time0(tracks, lnavs) if epochs else 0.0
+    for i, r in enumerate(tracks):
+        label = _segment_label(tracks, i)
+        t_end = tracks[i + 1].t[0] if i + 1 < len(tracks) and tracks[i + 1].prn == r.prn else None
+        mine = [
+            o
+            for e in epochs
+            for o in e.obs
+            if o.prn == r.prn and _in_segment((e.tow - rx0) % WEEK_S, r, t_end)
+        ]
         if not mine:
-            print(f"PRN {r.prn:2d}  no time tag")
+            print(f"{label}  no time tag")
             continue
         print(
-            f"PRN {r.prn:2d}  epochs {len(mine)}  P {mine[0].pseudorange / 1e3:.1f} km  "
+            f"{label}  epochs {len(mine)}  P {mine[0].pseudorange / 1e3:.1f} km  "
             f"D {mine[0].doppler:.1f} Hz"
         )
     if not epochs or epochs[0].week is None:
@@ -218,11 +244,9 @@ def rinex_main(argv: list[str] | None = None) -> int:
         f"to {gps_datetime(week, epochs[-1].tow)}"
     )
     if args.nav is not None:
-        ephs = [ln.ephemeris for ln in lnavs if ln.ephemeris is not None]
+        ephs = list(ephemerides_by_prn(lnavs).values())
         if ephs:
-            tow1 = {ln.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}
-            iono = next((ln.ionosphere for ln in lnavs if ln.ionosphere is not None), None)
-            write_rinex_nav(args.nav, ephs, tow1, iono)
+            write_rinex_nav(args.nav, ephs, tow1_by_prn(lnavs), ionosphere_of(lnavs))
         else:
             print("no ephemeris decoded, navigation file not written")
     print(f"TIME = {elapsed:.3f} s")
