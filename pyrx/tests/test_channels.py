@@ -2,9 +2,12 @@ import numpy as np
 import pytest
 
 from pyrx import channels
-from pyrx.acquisition import AcqResult
+from pyrx.acquisition import AcqResult, acquire_l1ca
 from pyrx.channels import track_prn, track_prns
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn
+from pyrx.observables import LLI_HALF_CYCLE, make_observables
+from pyrx.samples import SampleFile, read_samples
+from pyrx.tracking import track_l1ca
 
 FS = 2.5e6
 
@@ -82,3 +85,32 @@ def test_ephemeris_assembles_across_the_gap(gap_file):
     assert [[sf.sf_id for sf in ln.subframes] for ln in lnavs] == [[1, 2], [3]]
     assert all(ln.ephemeris is None for ln in lnavs)
     assert ephemerides_by_prn(lnavs)[4].iode == 149
+
+
+def test_observables_cover_both_segments_with_a_fresh_carrier_on_the_second(gap_file):
+    segs = track_prn(gap_file, FS, True, 0.0, 4, interval=5.0)
+    lnavs = [decode_lnav(s) for s in segs]
+    epochs = make_observables(segs, lnavs)
+    per_epoch = [(e.tow, [o for o in e.obs if o.prn == 4]) for e in epochs]
+    assert all(len(obs) == 1 for _, obs in per_epoch)
+    t0 = per_epoch[0][0]
+    first = [o for tow, (o,) in per_epoch if tow - t0 < 17.0]
+    second = [o for tow, (o,) in per_epoch if tow - t0 >= 17.0]
+    assert first and second
+    gap_start = per_epoch[len(first)][0] - per_epoch[len(first) - 1][0]
+    assert 8.0 <= gap_start <= 14.0  # loss near 16 s, bit sync of the new segment near 28.5 s
+    assert second[0].lli & LLI_HALF_CYCLE and second[-1].lli == 0
+    assert abs(second[0].pseudorange - first[-1].pseudorange) < 3e3  # 800 Hz for about 12 s
+
+
+def test_short_tail_segment_yields_no_observations(gap_file):
+    # a segment too short to decode a subframe adds nothing and breaks nothing
+    segs = track_prn(gap_file, FS, True, 0.0, 4, interval=5.0)[:1]
+    acq = acquire_l1ca(read_samples(gap_file, FS, True, 37.0, 0.02), FS, 0.0, 4)
+    tail = track_l1ca(
+        SampleFile(gap_file, FS, True), 0.0, 4, acq.code_offset, acq.doppler, acq.cn0, t_start=37.0
+    )
+    assert tail.locked and decode_lnav(tail).subframes == []
+    lnavs = [decode_lnav(s) for s in segs]
+    with_tail = make_observables(segs + [tail], lnavs + [decode_lnav(tail)])
+    assert with_tail == make_observables(segs, lnavs)
