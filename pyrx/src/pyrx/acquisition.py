@@ -14,7 +14,8 @@ from scipy import fft
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca, sample_code
 
-DETECT_THRESHOLD = 38.0  # dB-Hz
+DEFAULT_WINDOW = 0.020  # s, twice Pocket SDR's default; the threshold below is set for this window
+DETECT_THRESHOLD = 36.0  # dB-Hz
 
 
 @dataclass(frozen=True)

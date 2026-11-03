@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pyrx.acquisition import acquire_l1ca
+from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
 from pyrx.synth import synth_l1ca
 
 FS = 4e6
@@ -57,3 +57,7 @@ def test_acquire_grid_shape_and_bins():
     assert r.grid.shape == (21, 4000)
     np.testing.assert_allclose(r.dopplers[[0, 10, 20]], [-5000.0, 0.0, 5000.0])
     assert r.grid.max() == pytest.approx(1.0)
+
+
+def test_default_window_and_threshold():
+    assert DEFAULT_WINDOW == 0.020 and DETECT_THRESHOLD == 36.0
