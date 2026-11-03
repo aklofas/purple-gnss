@@ -78,11 +78,12 @@ def test_ephemerides_by_prn_keeps_prns_apart():
     assert ephemerides_by_prn([a, b]) == {}
 
 
-def test_tow1_by_prn_is_the_latest_subframe_1():
-    a = _lnav(4, [_sf(1, 5045, SF1)])
-    b = _lnav(4, [_sf(1, 5065, SF1)])
+def test_tow1_by_prn_is_the_subframe_1_of_the_selected_ephemeris():
+    a = _lnav(4, [_sf(1, 5045, SF1), _sf(2, 5046, SF2), _sf(3, 5047, SF3)])
+    b = _lnav(4, [_sf(1, 5065, dict(SF1, iodc=SF2["iode"] + 1))])  # a new set, incomplete
     c = _lnav(7, [_sf(2, 5046, SF2, prn=7)])
-    assert tow1_by_prn([a, b, c]) == {4: 5065 * 6 - 6}
+    assert tow1_by_prn([a, b, c]) == {4: 5045 * 6 - 6}
+    assert tow1_by_prn([a, a]) == {4: 5045 * 6 - 6} and tow1_by_prn([b]) == {}
 
 
 def test_ionosphere_of_takes_the_first_present():

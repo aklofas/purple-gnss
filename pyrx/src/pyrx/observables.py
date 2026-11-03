@@ -17,10 +17,11 @@ negated accumulated Doppler phase (phase grows with range), less half a cycle
 while the Costas loop is locked on inverted data; Doppler is positive for an
 approaching satellite, as tracking reports it.
 
-Carrier validity (RINEX loss-of-lock indicator, as Pocket SDR sets it): bit 1 on
-the observations within the first 2 s of a channel and on the first observation
-after the data polarity changed, that is after a half-cycle slip of the Costas
-loop; bit 2 where the polarity is not established by a decoded subframe: before
+Carrier validity (RINEX loss-of-lock indicator, after Pocket SDR's rules): bit 1 on
+a channel's first observation and on those within its first 2 s (a channel's
+carrier phase starts at its own ambiguity, so a satellite re-acquired after a gap
+begins with a slip), and on the first observation after the data polarity changed,
+that is after a half-cycle slip of the Costas loop; bit 2 where the polarity is not established by a decoded subframe: before
 the first subframe, and from the end of the last subframe before a polarity
 change to the start of the first subframe after it.
 """
@@ -185,7 +186,7 @@ def make_observables(
             # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
-            if tr.t[k] - tr.t[0] <= T_LOCK:
+            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0:
                 lli |= LLI_SLIP
             phase = -(adr + (0.5 if inverted else 0.0))
             obs.append(

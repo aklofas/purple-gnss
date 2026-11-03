@@ -237,8 +237,17 @@ def test_polarity_change_between_sparse_observations_is_a_slip():
     )
     epochs = make_observables([track], [lnav], interval=30.0, week=2190)
     assert [e.tow for e in epochs] == [30.0]
-    assert epochs[0].obs[0].lli == 0  # the first observation sits in a subframe of the new polarity
+    assert epochs[0].obs[0].lli == 1  # a channel's first observation; polarity settled by then
     epochs = make_observables([track], [lnav], interval=15.0, week=2190)
     assert [(e.tow, e.obs[0].lli, e.obs[0].carrier_phase) for e in epochs] == [
-        (15.0, 0, -0.0), (30.0, 1, -0.5), (45.0, 0, -0.5)
+        (15.0, 1, -0.0), (30.0, 1, -0.5), (45.0, 0, -0.5)
     ]  # fmt: skip
+
+
+def test_a_channels_first_observation_is_a_slip_whenever_it_falls():
+    # observations start at the first bit-synced epoch; when that is past the 2 s lock-in
+    # window the first one still begins a new carrier-phase ambiguity
+    track, lnav = _still_channel([(2000, 10.0, False), (8000, 16.0, False)], k0=4000)
+    epochs = make_observables([track], [lnav], week=2190)
+    assert epochs[0].tow == 13.0
+    assert [e.obs[0].lli for e in epochs] == [1] + [0] * (len(epochs) - 1)

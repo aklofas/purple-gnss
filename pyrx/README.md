@@ -433,8 +433,8 @@ The data polarity, and with it the half cycle added
 to the phase, is read from the preamble of every decoded subframe: a subframe of
 the opposite polarity means the Costas loop slipped half a cycle since the previous
 one. The loss-of-lock indicator written with `L1C` follows Pocket SDR's: bit 1
-(slip possible) on the observations within the first 2 s of a channel and on the
-first observation after a polarity change; bit 2 (half-cycle ambiguity) where no
+(slip possible) on a channel's first observation and those within its first 2 s,
+and on the first observation after a polarity change; bit 2 (half-cycle ambiguity) where no
 decoded subframe establishes the polarity, that is before a channel's first
 subframe and between the last subframe before a polarity change and the first
 after it. A slip that leaves the polarity unchanged (a whole cycle) is not detected
