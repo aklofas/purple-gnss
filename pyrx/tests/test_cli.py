@@ -210,9 +210,27 @@ def test_help_golden(main, capsys, monkeypatch):
 
 
 def test_trk_main_prints_a_line_per_segment(gap_file, tmp_path, capsys):
-    rc = trk_main([str(gap_file), "--fs", "2.5e6", "--iq", "--prn", "4", "--plot", str(tmp_path)])
+    log = tmp_path / "trk.csv"
+    rc = trk_main(
+        [
+            str(gap_file),
+            "--fs",
+            "2.5e6",
+            "--iq",
+            "--prn",
+            "4",
+            "--plot",
+            str(tmp_path),
+            "--log",
+            str(log),
+        ]
+    )
     out = capsys.readouterr().out
     assert rc == 0
+    rows = log.read_text().splitlines()[1:]
+    times = [float(r.split(",")[0]) for r in rows]
+    assert len(set(times)) == len(times)  # one row per 0.1 s per segment, none repeated
+    assert sum(t >= 30.0 for t in times) <= 100 and sum(t < 30.0 for t in times) <= 170
     lines = [line for line in out.splitlines() if line.startswith("PRN  4")]
     assert len(lines) == 2
     assert lines[0].startswith("PRN  4  C/N0") and "LOST at" in lines[0]

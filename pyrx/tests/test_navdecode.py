@@ -62,11 +62,11 @@ def test_ephemerides_by_prn_unites_segments():
     assert 4 not in ephemerides_by_prn([b])
 
 
-def test_ephemerides_by_prn_takes_the_latest_agreeing_set():
+def test_ephemerides_by_prn_keeps_the_last_complete_set():
     a = _lnav(4, [_sf(1, 5045, SF1), _sf(2, 5046, SF2), _sf(3, 5047, SF3)])
     other = SF2["iode"] + 1
     b = _lnav(4, [_sf(2, 5056, dict(SF2, iode=other)), _sf(3, 5057, dict(SF3, iode=other))])
-    assert 4 not in ephemerides_by_prn([a, b])  # a's subframe 1 no longer matches
+    assert ephemerides_by_prn([a, b])[4].iode == SF2["iode"]  # b's set is not complete yet
     c = _lnav(4, [_sf(1, 5065, dict(SF1, iodc=other))])
     assert ephemerides_by_prn([a, b, c])[4].iode == other
     assert ephemerides_by_prn([a])[4].iode == SF2["iode"]

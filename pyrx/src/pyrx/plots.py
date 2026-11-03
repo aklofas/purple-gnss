@@ -257,12 +257,13 @@ def plot_tracking(result: TrackResult, path: str | os.PathLike) -> None:
 
 
 def write_track_log(results: list[TrackResult], path: str | os.PathLike, interval: float = 0.1):
-    """CSV of each channel's state every `interval` seconds (nearest epoch at or after)."""
+    """CSV of each channel's state every `interval` seconds (nearest epoch at or after),
+    from the multiple of `interval` at or before the channel's start."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         f.write("time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles\n")
         for r in results:
-            times = np.arange(0.0, r.t[-1] + 1e-9, interval)
+            times = np.arange(np.floor(r.t[0] / interval) * interval, r.t[-1] + 1e-9, interval)
             idx = np.searchsorted(r.t, times)
             f.writelines(
                 f"{r.t[k]:.3f},{r.prn},{r.cn0[k]:.1f},{r.code_offset[k] * 1e3:.6f},"
