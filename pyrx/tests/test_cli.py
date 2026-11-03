@@ -39,7 +39,7 @@ def test_prn_argument_errors_are_usage_errors(tmp_path, capsys):
 
 def test_acq_main_prints_table_and_plots(tmp_path, capsys):
     fs = 4e6
-    x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.01), 45.0, True)
+    x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.02), 45.0, True)
     f = tmp_path / "s.bin"
     write_iq_int8(x, f)
     rc = acq_main([str(f), "--fs", "4e6", "--iq", "--prn", "7,9", "--plot", str(tmp_path)])
@@ -52,13 +52,13 @@ def test_acq_main_prints_table_and_plots(tmp_path, capsys):
     check_golden("cli_acq.out", without_elapsed(out))
 
 
-def test_acq_main_defaults_to_first_10ms(tmp_path, capsys):
-    # Signal at offset 1000 samples for 10 ms, then at offset 3000 for 20 ms: the
-    # default window must see only the first part.
+def test_acq_main_defaults_to_first_20ms(tmp_path, capsys):
+    # Signal at offset 3000 samples for 8 ms, then at offset 1000 for 40 ms: a 10 ms
+    # window would pick the first part, the 20 ms default sees 12 ms of the second.
     fs = 4e6
-    n10 = int(fs * 0.01)
-    first = synth_l1ca(7, fs, 0.0, 0.0, 1000, n10, 45.0, True)
-    rest = synth_l1ca(7, fs, 0.0, 0.0, 3000, 2 * n10, 45.0, True, seed=1)
+    n_ms = int(fs * 1e-3)
+    first = synth_l1ca(7, fs, 0.0, 0.0, 3000, 8 * n_ms, 45.0, True, seed=1)
+    rest = synth_l1ca(7, fs, 0.0, 0.0, 1000, 40 * n_ms, 45.0, True)
     x = np.concatenate([first, rest])
     f = tmp_path / "s.bin"
     write_iq_int8(x, f)

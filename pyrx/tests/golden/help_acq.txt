@@ -15,5 +15,5 @@ options:
   --prn PRN            PRNs, e.g. 1-32 or 1,5,7
   --t-start T_START    start offset in the file (s)
   --duration DURATION  length to integrate (s), 0 for the whole file (default
-                       0.01)
+                       0.02)
   --plot PLOT          directory for cn0.png and acq_prnNN.png

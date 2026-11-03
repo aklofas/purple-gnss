@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pymap3d as pm
 
-from pyrx.acquisition import DETECT_THRESHOLD, acquire_l1ca
+from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
 from pyrx.gpstime import gps_datetime
 from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav
@@ -31,7 +31,6 @@ from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import read_samples
 from pyrx.tracking import TrackResult, track_channels
 
-DEFAULT_WINDOW = 0.010  # s; Pocket SDR's default acquisition integration time
 NO_DETECTION = (
     f"no PRN detected in the {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window: "
     "check --fs, --f-if and --iq"

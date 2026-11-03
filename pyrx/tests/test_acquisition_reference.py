@@ -7,6 +7,7 @@ each peak in two; the first 10 ms are clean.
 """
 
 WINDOW = 0.010  # s, Pocket SDR's default acquisition integration time
+THRESHOLD = 38.0  # dB-Hz, the operating point the reference sets below were recorded at
 
 from conftest import capture_file
 
@@ -21,9 +22,10 @@ REF_4MHZ = {
     31: (0.28975e-3, -246, 46.7),
     32: (0.69150e-3, -3210, 40.8),
 }
-# PRN 18 (4 MHz) and PRN 29 (24 MHz) sit at our 38 dB-Hz detection threshold (36.5 and
-# 38.3 dB-Hz here), so whether they are detected is not checked; the 40 dB-Hz bound on
-# every PRN outside the reference set still holds them.
+# PRN 18 (4 MHz) and PRN 29 (24 MHz) sit at the 38 dB-Hz threshold used here (36.5 and
+# 38.3 dB-Hz), so whether they are detected is not checked; the 40 dB-Hz bound on
+# every PRN outside the reference set still holds them. (The package default is 36 dB-Hz
+# on a 20 ms window; PRN 23 of the 24 MHz file reads 37.6 dB-Hz on 10 ms.)
 WEAK_4MHZ = set(range(1, 33)) - set(REF_4MHZ) - {18}  # Pocket SDR below 36 dB-Hz
 
 REF_24MHZ = {
@@ -54,7 +56,7 @@ def test_reference_l1_4mhz_iq(captures):
     x = read_samples(
         capture_file(captures, "L1_20211202_084700_4MHz_IQ.bin"), fs, iq=True, duration=WINDOW
     )
-    results = {prn: acquire_l1ca(x, fs, 0.0, prn) for prn in range(1, 33)}
+    results = {prn: acquire_l1ca(x, fs, 0.0, prn, threshold=THRESHOLD) for prn in range(1, 33)}
     _check(results, REF_4MHZ, WEAK_4MHZ, fs)
 
 
@@ -63,5 +65,5 @@ def test_reference_l1_24mhz_real_if(captures):
     x = read_samples(
         capture_file(captures, "L1_20211201_054600_24MHz_I.bin"), fs, iq=False, duration=WINDOW
     )
-    results = {prn: acquire_l1ca(x, fs, 6.0e6, prn) for prn in range(1, 33)}
+    results = {prn: acquire_l1ca(x, fs, 6.0e6, prn, threshold=THRESHOLD) for prn in range(1, 33)}
     _check(results, REF_24MHZ, WEAK_24MHZ, fs)
