@@ -262,8 +262,14 @@ def assemble_ephemeris(subframes: list[Subframe]) -> Ephemeris | None:
     only begun to arrive (its subframe 1 alone, say) does not take away the complete
     one before it. None when no three ever agreed.
     """
+    found = assemble_ephemeris_with_tow(subframes)
+    return None if found is None else found[0]
+
+
+def assemble_ephemeris_with_tow(subframes: list[Subframe]) -> tuple[Ephemeris, int] | None:
+    """`assemble_ephemeris` together with the time of week of the subframe 1 it used."""
     latest = {}
-    eph = None
+    found = None
     for sf in subframes:
         if sf.sf_id not in (1, 2, 3):
             continue
@@ -279,4 +285,5 @@ def assemble_ephemeris(subframes: list[Subframe]) -> Ephemeris | None:
                 **sf2.fields,
                 **{k: v for k, v in sf3.fields.items() if k != "iode"},
             )
-    return eph
+            found = (eph, sf1.tow_s)
+    return found

@@ -5,7 +5,7 @@ from pyrx import channels
 from pyrx.acquisition import AcqResult, acquire_l1ca
 from pyrx.channels import track_prn, track_prns
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn
-from pyrx.observables import LLI_HALF_CYCLE, make_observables
+from pyrx.observables import LLI_HALF_CYCLE, LLI_SLIP, make_observables
 from pyrx.samples import SampleFile, read_samples
 from pyrx.tracking import track_l1ca
 
@@ -99,7 +99,8 @@ def test_observables_cover_both_segments_with_a_fresh_carrier_on_the_second(gap_
     assert first and second
     gap_start = per_epoch[len(first)][0] - per_epoch[len(first) - 1][0]
     assert 8.0 <= gap_start <= 14.0  # loss near 16 s, bit sync of the new segment near 28.5 s
-    assert second[0].lli & LLI_HALF_CYCLE and second[-1].lli == 0
+    assert second[0].lli & LLI_SLIP and second[0].lli & LLI_HALF_CYCLE and second[-1].lli == 0
+    assert not (second[1].lli & LLI_SLIP)
     assert abs(second[0].pseudorange - first[-1].pseudorange) < 3e3  # 800 Hz for about 12 s
 
 
