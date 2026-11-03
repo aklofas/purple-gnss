@@ -1,4 +1,4 @@
-"""Navigation message decode of one tracked channel."""
+"""Navigation message decode of tracked channels, and the per-PRN view over their segments."""
 
 from dataclasses import dataclass
 
@@ -42,3 +42,31 @@ def decode_lnav(track: TrackResult) -> LnavResult:
             beta = tuple(f[f"beta{i}"] for i in range(4))
             iono = Ionosphere(alpha, beta)
     return LnavResult(track.prn, stream, subframes, assemble_ephemeris(subframes), iono)
+
+
+def ephemerides_by_prn(lnavs: list[LnavResult]) -> dict[int, Ephemeris]:
+    """One ephemeris per PRN from the subframes of all its segments, in list order.
+
+    The list is in segment time order, so `assemble_ephemeris` sees each PRN's
+    latest subframes 1, 2 and 3 whichever segments they came from; PRNs whose
+    latest set does not agree on the issue of data are absent.
+    """
+    subframes: dict[int, list[Subframe]] = {}
+    for ln in lnavs:
+        subframes.setdefault(ln.prn, []).extend(ln.subframes)
+    out = {}
+    for prn, sfs in subframes.items():
+        eph = assemble_ephemeris(sfs)
+        if eph is not None:
+            out[prn] = eph
+    return out
+
+
+def tow1_by_prn(lnavs: list[LnavResult]) -> dict[int, int]:
+    """The latest subframe-1 time of week of each PRN, over all its segments."""
+    return {sf.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}
+
+
+def ionosphere_of(lnavs: list[LnavResult]) -> Ionosphere | None:
+    """The first ionosphere parameter set any segment decoded."""
+    return next((ln.ionosphere for ln in lnavs if ln.ionosphere is not None), None)
