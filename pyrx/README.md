@@ -93,8 +93,8 @@ pocket_trk.py -sig L1CA -prn 4,16,18,26,27,29,31 -f 24 -fi 6.0 -q -log L1_202112
 pocket_trk.py -sig L1CA -prn 10,12,15,23,24,32  -f 8  -fi 2.0 -q -log L1_20220114_004440_8MHz_I.trk.log  ../L1_20220114_004440_8MHz_I.bin
 ```
 
-The PRN lists are the satellites `pyrx-acq` reports at or above 38 dB-Hz in the
-first 10 ms of each file.
+The PRN lists are the satellites `pyrx-acq` reported at or above 38 dB-Hz in the
+first 10 ms of each file, the acquisition default when the logs were made.
 
 The Pocket SDR C tracker files were produced from the same directory (`-fo` being
 the LO frequency, L1 minus the IF, in MHz):
@@ -115,9 +115,9 @@ of the Pocket SDR front-end.
 ## Acquisition from the command line
 
 ```sh
-pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--prn 1-32] [--duration 0.01] [--plot DIR]
+pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--prn 1-32] [--duration 0.02] [--plot DIR]
 
-By default the first 10 ms of the file are integrated (`--duration 0` for the whole file).
+By default the first 20 ms of the file are integrated (`--duration 0` for the whole file).
 ```
 
 Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so the
@@ -127,7 +127,7 @@ image per detected PRN.
 The search sums whole code periods of a fixed number of samples, so the sample
 rate must hold a whole number of samples per millisecond (every rate used so far
 does) or be high enough that the fraction does not matter; at 16.3676 MHz, a
-common front-end rate, the default 10 ms search spreads the peak by a quarter
+common front-end rate, a 10 ms search spreads the peak by a quarter
 chip and a non-integer rate near 2.5 MHz measured 0.8 chip and 3.7 dB of loss.
 Non-integer rates are not supported.
 
@@ -137,12 +137,16 @@ Non-integer rates are not supported.
 pyrx-trk FILE --fs 8e6 --f-if 2e6 [--iq] [--prn 1-32] [--duration 0] [--log trk.csv] [--plot DIR]
 ```
 
-Acquires each PRN on the first 10 ms, tracks the detected ones through the file
-(`--duration 0`, the default, means all of it), each channel in its own process,
-and prints the final C/N0, Doppler and lock state per PRN. `--log` writes a CSV
-with columns `time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles`, one
-row per channel every 0.1 s. `--plot` writes `trk_prnNN.png` per channel with four
-panels: prompt I and Q over the first 2 s (the navigation data bits are visible
+Searches each PRN on 20 ms windows, at the start and then every 10 s wherever the
+PRN is not being tracked, and tracks every detection through the file (`--duration
+0`, the default, means all of it) until the data ends or lock is lost; a detection
+counts only if the data-bit edges show up in a 6 s trial, which keeps noise peaks
+and cross-correlations out. Each PRN runs in its own process. A PRN lost and found
+again has several track segments; the command prints the final C/N0, Doppler and
+lock state per segment, the later segments of a PRN as `PRN nn from t s`. `--log`
+writes a CSV with columns `time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles`,
+one row per segment every 0.1 s. `--plot` writes `trk_prnNN.png` per channel
+(`trk_prnNN_k.png` for a PRN's k-th segment) with four panels: prompt I and Q over the first 2 s (the navigation data bits are visible
 once the phase lock settles), Doppler, C/N0, and the early, prompt and late
 correlator magnitudes.
 
@@ -422,8 +426,10 @@ continuous time as `week * 604800 + tow` when they need one, and reduce every
 difference against an ephemeris time of week into half a week either way.
 
 Carrier phase: a channel's phase, and so its RINEX `L1C`, runs from the channel's
-first bit-synced epoch to the end of the run or to loss of lock; a lost channel is
-not re-acquired within a run. The data polarity, and with it the half cycle added
+first bit-synced epoch to the end of the run or to loss of lock; a lost satellite
+comes back as a new channel with its own carrier-phase ambiguity (the observations
+in between are absent), and so does one that was too weak at the previous search.
+The data polarity, and with it the half cycle added
 to the phase, is read from the preamble of every decoded subframe: a subframe of
 the opposite polarity means the Costas loop slipped half a cycle since the previous
 one. The loss-of-lock indicator written with `L1C` follows Pocket SDR's: bit 1
