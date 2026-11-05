@@ -1,8 +1,10 @@
 """Code and carrier tracking of one GPS L1 C/A channel.
 
 Each 1 ms epoch correlates one code period at prompt, early, late and noise taps,
-then updates the carrier (FLL during pull-in, Costas PLL after) and the code
-offset (carrier aiding every epoch, non-coherent early/late DLL every 10 ms).
+then updates the carrier (FLL during pull-in, its discriminator on coherent sums of
+2 then 5 epochs, `FLL_STAGES`, so that a weak channel hands over within a hertz;
+Costas PLL after) and the code offset (carrier aiding every epoch, non-coherent
+early/late DLL every 10 ms).
 C/N0 is estimated from prompt versus noise-tap power over 1 s, and over the same
 window a carrier phase-lock indicator, cos 2φ of the prompt (1 when phase-locked,
 near 0 when the carrier spins or there is only noise). A track ends after two
@@ -25,7 +27,11 @@ from pyrx.samples import SampleFile
 from pyrx.signals import L1_FREQ
 
 B_PLL = 5.0  # Hz
-B_FLL = (5.0, 2.0)  # Hz, first and second half of pull-in
+# FLL pull-in stages: (seconds, bandwidth Hz, epochs summed coherently before the discriminator).
+# The sum length sets the pull-in range, ±1/(4 sum) = ±125 Hz then ±50 Hz, and divides the
+# discriminator's noise: a weak satellite's acquisition seed can be 100 Hz off, and at 30 dB-Hz
+# one epoch alone hands over 10 Hz off.
+FLL_STAGES = ((0.3, 5.0, 2), (0.7, 2.0, 5))
 B_DLL = 0.25  # Hz
 T_FLL_PULLIN = 1.0  # s
 T_DLL = 0.010  # s, non-coherent early/late accumulation
@@ -67,11 +73,12 @@ class TrackResult:
         bad window, bad meaning cn0 below CN0_LOST or, from the second window on (the
         first is the FLL pull-in), phase_lock below PLI_LOCKED; lost_at is that epoch's
         t, None when the track ran to the end of the data.
-    carrier_error[k]: cycles, the carrier discriminator of epoch k: the FLL's
-        frequency discriminator (minus the phase change over one epoch) during pull-in, the
-        Costas phase error after it; nan on the first epoch and where the
-        discriminator's denominator is zero (prompt dot product in the FLL, prompt
-        in-phase sum in the PLL).
+    carrier_error[k]: cycles, the carrier discriminator of epoch k: during pull-in the
+        FLL's frequency discriminator (minus the phase change over one coherent sum of
+        the stage's epochs, FLL_STAGES) on the epochs that complete a sum with a
+        predecessor in the same stage, nan on the other pull-in epochs; the Costas phase
+        error after it; nan where the discriminator's denominator is zero (dot product of
+        consecutive sums in the FLL, prompt in-phase sum in the PLL).
     code_error[k]: s of code time, the early-minus-late discriminator on the epochs
         that update the DLL, nan between them and where the accumulated early and late
         magnitudes are both zero.
@@ -139,7 +146,16 @@ def track_l1ca(
     phi = (f_if * round(t_code * fs) / fs) % 1.0
     adr = 0.0
     err_phase_prev = 0.0
-    prompt_prev = 0j
+    # pull-in stages as (last epoch, bandwidth, epochs per sum); the sums restart at each stage
+    fll_stages = []
+    n_end = 0
+    for seconds, b, n_sum in FLL_STAGES:
+        n_end += round(seconds / t)
+        fll_stages.append((n_end, b, n_sum))
+    fll_stage = 0
+    fll_acc = 0j  # the coherent sum of the current stage's epochs so far
+    fll_n = 0  # epochs in it
+    fll_prev = None  # the previous completed sum of this stage
     sum_e = sum_l = sum_p = sum_n = sum_d = 0.0
     n_dll = round(T_DLL / t)
     n_cn0 = round(T_CN0 / t)
@@ -166,23 +182,29 @@ def track_l1ca(
         out_corr[k] = c
         out_coff[k] = t_code % t
 
-        # carrier: FLL during pull-in, Costas PLL after
+        # carrier: FLL during pull-in on coherent sums of prompts, Costas PLL after
         if epoch * t <= T_FLL_PULLIN:
-            if k >= 1:
-                dot = prompt.real * prompt_prev.real + prompt.imag * prompt_prev.imag
-                cross = prompt.real * prompt_prev.imag - prompt.imag * prompt_prev.real
-                if dot != 0.0:
-                    b = B_FLL[0] if epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
-                    angle = atan(cross / dot)
-                    out_err_carrier[k] = angle / (2.0 * pi)
-                    fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
+            if epoch > fll_stages[fll_stage][0]:
+                fll_stage += 1
+                fll_acc, fll_n, fll_prev = 0j, 0, None
+            _, b, n_sum = fll_stages[fll_stage]
+            fll_acc += prompt
+            fll_n += 1
+            if fll_n == n_sum:
+                if fll_prev is not None:
+                    dot = fll_acc.real * fll_prev.real + fll_acc.imag * fll_prev.imag
+                    cross = fll_acc.real * fll_prev.imag - fll_acc.imag * fll_prev.real
+                    if dot != 0.0:
+                        angle = atan(cross / dot)
+                        out_err_carrier[k] = angle / (2.0 * pi)
+                        fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
+                fll_prev, fll_acc, fll_n = fll_acc, 0j, 0
         elif prompt.real != 0.0:
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
             out_err_carrier[k] = err_phase
             w = B_PLL / 0.53
             fd += 1.4 * w * (err_phase - err_phase_prev) + w * w * err_phase * t
             err_phase_prev = err_phase
-        prompt_prev = prompt
 
         # code: non-coherent early/late DLL every T_DLL
         sum_e += float(abs(c[1]))

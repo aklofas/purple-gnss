@@ -233,7 +233,7 @@ will: FLL pull-in then a Costas PLL on the carrier, a non-coherent early-minus-l
 10 ms, the PLL, DLL and C/N0 constants of `pyrx.tracking`. Fed pyrx's own correlator sums, it
 reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
 (`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
-FLL (5 Hz, then 2 Hz) where pyrx now pulls in on 5 ms coherent sums. Closed around a channel it
+FLL (5 Hz, then 2 Hz) where pyrx now pulls in on 2 ms then 5 ms coherent sums. Closed around a channel it
 differs from pyrx in three further deliberate ways: pyrx moves its correlation window in time at each DLL
 update, while a channel can only change its code NCO rate, so the DLL output becomes a
 chip-rate offset spread over the next 10 ms, with carrier aiding folded into the code step;
