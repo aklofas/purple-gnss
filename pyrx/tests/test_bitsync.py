@@ -51,6 +51,25 @@ def test_decode_inverted_stream():
     assert [s.sf_id for s in sfs] == [1, 2, 3] and sfs[1].fields["iode"] == 149
 
 
+def test_frame_sync_takes_the_earliest_start_across_polarities():
+    # the Costas loop can lock on either data sign and slip half a cycle later: here the
+    # first three subframes arrive complemented and a later stretch, after a slip, plain
+    # but with corrupted data words. The plain stretch verifies as a start (preambles and
+    # HOWs intact) yet decodes no block; the earliest verified start, in the complemented
+    # polarity, must win and the stream be reported inverted
+    head = _frame_bits() ^ 1
+    # the tail is encoded from the wire's own parity history (a subframe ends in two zero
+    # bits), so its first word's parity does not chain from the complemented head: the
+    # verified start in this polarity is the tail's second subframe
+    tail = _frame_bits(tow0=5054, n_sf=3)
+    tail[400] ^= 1  # word 4 of the tail's second and third subframes fail parity
+    tail[700] ^= 1
+    bits = np.concatenate([head, tail])
+    stream = BitStream(bits, np.arange(len(bits)) * 20, 0, 1.0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.sf_id for s in sfs] == [1, 2, 3] and stream.inverted is True
+
+
 def test_frame_sync_rejects_chance_preamble():
     # random bits containing the preamble pattern but no valid parity: nothing decoded
     bits = rng.integers(0, 2, 1200).astype(np.uint8)
