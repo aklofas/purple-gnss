@@ -281,6 +281,23 @@ def test_unlocked_epochs_have_no_phase_and_the_next_phase_is_a_slip():
             assert e == b, i
 
 
+def test_unlocked_window_between_sparse_observations_flags_the_next_phase():
+    # at a 2 s interval an unlocked window can lie wholly between two observations: the
+    # second still begins a new ambiguity
+    sfs = [(1500, 5044, False), (7500, 5050, False)]
+    track, ln = _still_channel(sfs)
+    base = make_observables([track], [ln], interval=2.0)
+    rx0 = receiver_time0([track], [ln])
+    k1 = int(np.searchsorted(track.t, base[5].tow - rx0, side="right")) - 1
+    pl = np.ones(30000)
+    pl[k1 + 300 : k1 + 700] = 0.0  # strictly between the observations at base[5] and base[6]
+    track, ln = _still_channel(sfs, phase_lock=pl)
+    epochs = make_observables([track], [ln], interval=2.0)
+    assert all(np.isfinite(e.obs[0].carrier_phase) for e in epochs)
+    assert epochs[6].obs[0].lli & LLI_SLIP and not base[6].obs[0].lli & LLI_SLIP
+    assert [e.obs[0].lli for e in epochs[7:]] == [e.obs[0].lli for e in base[7:]]
+
+
 def test_nan_indicator_blanks_the_phase():
     pl = np.ones(30000)
     pl[-1500:] = np.nan

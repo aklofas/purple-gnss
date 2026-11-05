@@ -24,7 +24,9 @@ pseudorange, Doppler and C/N0 stay. RINEX loss-of-lock indicator (bit 1 after
 Pocket SDR's rules): on a channel's first observation and on those within its
 first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
 re-acquired after a gap begins with a slip), on the first observation with a phase
-after one without, and on the first observation after the data polarity changed,
+after any epoch without phase lock since the previous one with a phase (an unlocked
+window can lie wholly between sparse observations), and on the first observation
+after the data polarity changed,
 that is after a half-cycle slip of the Costas loop; bit 2 where the polarity is not
 established by a decoded subframe: before the first subframe, and from the end of
 the last subframe before a polarity change to the start of the first subframe
@@ -193,8 +195,11 @@ def make_observables(
             # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
-            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)  # nan: not locked
-            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or last_phase_k[c] != last_k[c]:
+            # unlocked (or unknown, nan) at this epoch or at any epoch since the previous
+            # observation with a phase: an unlocked window can lie between sparse observations
+            since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
+            locked = bool(since_phase[-1])
+            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
                 lli |= LLI_SLIP
             phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
             obs.append(
