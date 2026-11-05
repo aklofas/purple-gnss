@@ -17,13 +17,19 @@ negated accumulated Doppler phase (phase grows with range), less half a cycle
 while the Costas loop is locked on inverted data; Doppler is positive for an
 approaching satellite, as tracking reports it.
 
-Carrier validity (RINEX loss-of-lock indicator, after Pocket SDR's rules): bit 1 on
-a channel's first observation and on those within its first 2 s (a channel's
-carrier phase starts at its own ambiguity, so a satellite re-acquired after a gap
-begins with a slip), and on the first observation after the data polarity changed,
-that is after a half-cycle slip of the Costas loop; bit 2 where the polarity is not established by a decoded subframe: before
-the first subframe, and from the end of the last subframe before a polarity
-change to the start of the first subframe after it.
+Carrier validity: an epoch whose 1 s window is not phase-locked (the channel's
+`phase_lock` below `PLI_LOCKED`, or unknown) has no carrier phase (nan, a blank in
+RINEX), as receivers that report a phase-lock flag withhold the phase; its
+pseudorange, Doppler and C/N0 stay. RINEX loss-of-lock indicator (bit 1 after
+Pocket SDR's rules): on a channel's first observation and on those within its
+first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
+re-acquired after a gap begins with a slip), on the first observation with a phase
+after one without, and on the first observation after the data polarity changed,
+that is after a half-cycle slip of the Costas loop; bit 2 where the polarity is not
+established by a decoded subframe: before the first subframe, and from the end of
+the last subframe before a polarity change to the start of the first subframe
+after it. The bits are kept on an observation without a phase too, so the slip is
+reported on the next observation that has one.
 """
 
 from math import ceil, floor
@@ -36,7 +42,7 @@ from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
 from pyrx.observations import Epoch, Observation
-from pyrx.tracking import TrackResult
+from pyrx.tracking import PLI_LOCKED, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
 T_LOCK = 2.0  # s a channel must have run before its carrier phase counts as locked
@@ -171,6 +177,7 @@ def make_observables(
         week = origin_week + weeks_on
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
     last_k = [-1] * len(per)  # epoch of each channel's previous observation
+    last_phase_k = [-1] * len(per)  # epoch of each channel's previous observation with a phase
     epochs = []
     for i in range(first, last + 1):
         t = i * interval - rx0
@@ -186,9 +193,10 @@ def make_observables(
             # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
-            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0:
+            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)  # nan: not locked
+            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or last_phase_k[c] != last_k[c]:
                 lli |= LLI_SLIP
-            phase = -(adr + (0.5 if inverted else 0.0))
+            phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
             obs.append(
                 Observation(
                     tr.prn,
@@ -200,6 +208,8 @@ def make_observables(
                 )
             )
             last_k[c] = k
+            if locked:
+                last_phase_k[c] = k
         if obs:
             epochs.append(Epoch(week, float(tow), sorted(obs, key=lambda o: o.prn)))
     return epochs

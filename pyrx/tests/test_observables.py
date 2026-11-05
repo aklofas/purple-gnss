@@ -9,7 +9,7 @@ from pyrx.codes import CA_PERIOD
 from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, Subframe
 from pyrx.navdecode import LnavResult, decode_lnav
-from pyrx.observables import make_observables, receiver_time0, transmit_times
+from pyrx.observables import LLI_SLIP, make_observables, receiver_time0, transmit_times
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import frame, synth_l1ca
@@ -181,17 +181,20 @@ def test_week_comes_from_subframe_1_without_an_ephemeris():
     assert make_observables([track], [partial])[0].week == 2190
 
 
-def _still_channel(subframes, inverted=False, n=30000, k0=1500):
+def _still_channel(subframes, inverted=False, n=30000, k0=1500, phase_lock=None):
     """A 30 s channel at zero Doppler with a zero carrier phase and the given subframes.
 
     `subframes` is (first-bit epoch, seconds of week, polarity flipped) per decoded
     subframe; a flipped subframe's bits came complemented relative to the polarity
-    frame sync settled on.
+    frame sync settled on. `phase_lock` is the per-epoch indicator, locked throughout
+    by default.
     """
     zeros = np.zeros(n)
+    if phase_lock is None:
+        phase_lock = np.ones(n)
     track = TrackResult(
         4, np.arange(n) * CA_PERIOD, np.zeros((n, 4), np.complex64), zeros, zeros, zeros, zeros,
-        np.full(n, 45.0), np.ones(n), True, None, zeros, zeros,
+        np.full(n, 45.0), phase_lock, True, None, zeros, zeros,
     )  # fmt: skip
     sfs = []
     for epoch, tow, flipped in subframes:
@@ -251,3 +254,46 @@ def test_a_channels_first_observation_is_a_slip_whenever_it_falls():
     epochs = make_observables([track], [lnav], week=2190)
     assert epochs[0].tow == 13.0
     assert [e.obs[0].lli for e in epochs] == [1] + [0] * (len(epochs) - 1)
+
+
+def _unlocked(k_lo, k_hi):
+    pl = np.ones(30000)
+    pl[k_lo:k_hi] = 0.0
+    return pl
+
+
+def test_unlocked_epochs_have_no_phase_and_the_next_phase_is_a_slip():
+    sfs = [(1500, 5044, False), (7500, 5050, False), (13500, 5056, False), (19500, 5062, False)]
+    base = make_observables(*zip(*[_still_channel(sfs)], strict=True))
+    track, ln = _still_channel(sfs, phase_lock=_unlocked(10000, 13000))
+    epochs = make_observables([track], [ln])
+    assert [e.tow for e in epochs] == [e.tow for e in base]
+    blank = [i for i, e in enumerate(epochs) if np.isnan(e.obs[0].carrier_phase)]
+    assert len(blank) == 3 and blank == list(range(blank[0], blank[0] + 3))
+    for i in blank:
+        assert epochs[i].obs[0].pseudorange == base[i].obs[0].pseudorange
+        assert np.isfinite(epochs[i].obs[0].doppler) and np.isfinite(epochs[i].obs[0].cn0)
+    after = blank[-1] + 1
+    assert epochs[after].obs[0].lli & LLI_SLIP and not base[after].obs[0].lli & LLI_SLIP
+    assert epochs[after].obs[0].carrier_phase == base[after].obs[0].carrier_phase
+    for i, (e, b) in enumerate(zip(epochs, base, strict=True)):
+        if i not in blank and i != after:
+            assert e == b, i
+
+
+def test_nan_indicator_blanks_the_phase():
+    pl = np.ones(30000)
+    pl[-1500:] = np.nan
+    track, ln = _still_channel([(1500, 5044, False)], phase_lock=pl)
+    epochs = make_observables([track], [ln])
+    assert np.isnan(epochs[-1].obs[0].carrier_phase)
+    assert np.isfinite(epochs[-2].obs[0].carrier_phase)
+
+
+def test_an_unlocked_first_observation_still_counts_as_the_lock_in():
+    track, ln = _still_channel([(1500, 5044, False)], phase_lock=_unlocked(0, 2500))
+    epochs = make_observables([track], [ln])
+    first = epochs[0].obs[0]
+    assert np.isnan(first.carrier_phase) and first.lli & LLI_SLIP
+    with_phase = next(e.obs[0] for e in epochs if np.isfinite(e.obs[0].carrier_phase))
+    assert with_phase.lli & LLI_SLIP
