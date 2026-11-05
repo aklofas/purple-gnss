@@ -70,6 +70,22 @@ def test_frame_sync_takes_the_earliest_start_across_polarities():
     assert [s.sf_id for s in sfs] == [1, 2, 3] and stream.inverted is True
 
 
+def test_frame_sync_passes_over_a_verified_start_that_decodes_nothing():
+    # the earliest verified start (preambles and HOWs intact, every data word corrupted)
+    # decodes no block; a later stretch in the other polarity carries three good subframes
+    # with their own TOW sequence and must be found, with the polarity reported
+    head = _frame_bits()
+    head[100] ^= 1  # word 4 of the first two head subframes fails parity
+    head[400] ^= 1
+    head[898:900] ^= 1  # the third fails through its last two bits, which the tail chains from
+    tail = _frame_bits(tow0=5054, n_sf=3) ^ 1
+    bits = np.concatenate([head, tail])
+    stream = BitStream(bits, np.arange(len(bits)) * 20, 0, 1.0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.sf_id for s in sfs] == [1, 2, 3] and stream.inverted is True
+    assert [s.tow_s for s in sfs] == [5054 * 6 - 6, 5055 * 6 - 6, 5056 * 6 - 6]
+
+
 def test_frame_sync_rejects_chance_preamble():
     # random bits containing the preamble pattern but no valid parity: nothing decoded
     bits = rng.integers(0, 2, 1200).astype(np.uint8)
