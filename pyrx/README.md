@@ -434,12 +434,18 @@ Carrier phase: a channel's phase, and so its RINEX `L1C`, runs from the channel'
 first bit-synced epoch to the end of the run or to loss of lock; a lost satellite
 comes back as a new channel with its own carrier-phase ambiguity (the observations
 in between are absent), and so does one that was too weak at the previous search.
+An epoch whose 1 s tracking window is not phase-locked (the phase-lock indicator
+below 0.25, or unknown in an incomplete final window) has no `L1C` while its `C1C`,
+`D1C` and `S1C` are written, as the u-blox and NovAtel decoders in RTKLIB withhold
+the phase when the receiver's phase-lock flag is off; under the loss rule such a
+stretch inside a channel lasts at most 2 s before the channel ends.
 The data polarity, and with it the half cycle added
 to the phase, is read from the preamble of every decoded subframe: a subframe of
 the opposite polarity means the Costas loop slipped half a cycle since the previous
-one. The loss-of-lock indicator written with `L1C` follows Pocket SDR's: bit 1
-(slip possible) on a channel's first observation and those within its first 2 s,
-and on the first observation after a polarity change; bit 2 (half-cycle ambiguity) where no
+one. The loss-of-lock indicator written with `L1C`: bit 1 (slip possible) on a
+channel's first observation and those within its first 2 s (Pocket SDR's rule), on
+the first observation with a phase after epochs written without one, and on the
+first observation after a polarity change; bit 2 (half-cycle ambiguity) where no
 decoded subframe establishes the polarity, that is before a channel's first
 subframe and between the last subframe before a polarity change and the first
 after it. A slip that leaves the polarity unchanged (a whole cycle) is not detected
