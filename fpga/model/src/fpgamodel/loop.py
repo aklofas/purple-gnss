@@ -2,7 +2,7 @@
 
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
 Costas PLL for the carrier, a non-coherent early-minus-late DLL every 10 ms for the code) and
-turns them into the NCO step words a channel takes. Three deliberate differences from pyrx:
+turns them into the NCO step words a channel takes. Four deliberate differences from pyrx:
 
 1. pyrx moves its correlation window in time at each DLL update, while a channel can only
    change its code NCO rate, so the DLL output becomes a chip-rate offset applied over the
@@ -13,6 +13,8 @@ turns them into the NCO step words a channel takes. Three deliberate differences
    uses the second and fourth moments of the prompt magnitude instead, which data bits and
    the residual carrier of pull-in leave alone, and it does not declare a loss of lock from
    a window that overlaps pull-in.
+4. The FLL pull-in is the 1 ms two-stage one (5 Hz, then 2 Hz); pyrx pulls in on 5 ms
+   coherent sums, so the two Dopplers agree only from the handover on.
 """
 
 from dataclasses import dataclass
@@ -21,9 +23,11 @@ from math import atan, log10, pi, sqrt
 import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD
 from pyrx.signals import L1_FREQ
-from pyrx.tracking import B_DLL, B_FLL, B_PLL, CN0_LOST, T_CN0, T_DLL, T_FLL_PULLIN
+from pyrx.tracking import B_DLL, B_PLL, CN0_LOST, T_CN0, T_DLL, T_FLL_PULLIN
 
 from fpgamodel.channel import Channel, Dump, nco_step
+
+B_FLL = (5.0, 2.0)  # Hz, first and second half of a 1 ms two-stage pull-in (pyrx sums 5 ms instead)
 
 
 @dataclass(frozen=True)

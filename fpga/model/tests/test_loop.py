@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 from pyrx.acquisition import acquire_l1ca
-from pyrx.codes import CA_CHIP_RATE, gps_ca
+from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.samples import ArraySamples, SampleFile, read_samples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import track_l1ca
+from pyrx.tracking import T_FLL_PULLIN, track_l1ca
 
 from fpgamodel.channel import Channel, Dump
 from fpgamodel.compare import start_phase
@@ -43,18 +43,24 @@ def _track_synthetic(codes, doppler_seed, cn0_seed):
 
 
 def test_tracker_matches_pyrx_on_its_correlator_outputs():
-    # fed pyrx's own prompt, early and late sums epoch by epoch, the tracker's carrier loop
-    # must reproduce pyrx's Doppler exactly (the same arithmetic in the same order), and its
+    # fed pyrx's own prompt, early and late sums epoch by epoch, the tracker's Costas loop
+    # must reproduce pyrx's Doppler increments from the FLL-to-PLL handover on (the same
+    # arithmetic on the same sums; the pull-ins may differ, the tracker keeps its own), and its
     # C/N0 estimate, built without pyrx's noise tap, must agree with pyrx's to the dB
     x, _ = _synthetic(40.0)
     ref = track_l1ca(ArraySamples(x, FS_SYN), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 45.0)
     assert ref.locked and len(ref.t) >= 2000
     tracker = Tracker(FS_SYN, F_IF_SYN, DOPPLER_SYN + 5.0, 45.0)
+    ours = []
     for k in range(len(ref.t)):
         prompt, early, late = ref.corr[k][:3]
         sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
         tracker.update(Dump(k + 1, *sums, 0))
-        assert tracker.doppler == ref.doppler[k], k
+        ours.append(tracker.doppler)
+    n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
+    np.testing.assert_allclose(
+        np.diff(ours[n_pullin:]), np.diff(ref.doppler[n_pullin:]), rtol=0, atol=1e-9
+    )
     assert abs(tracker.cn0 - ref.cn0[-1]) < 1.0
     assert tracker.locked
 
@@ -111,10 +117,11 @@ def test_model_loop_tracks_like_pyrx(captures):
     ref = track_l1ca(SampleFile(path, FS, iq=False), F_IF, best.prn, best.code_offset,
                      best.doppler, best.cn0, duration=DURATION)
     assert ref.locked
-    # from 1.3 s: the 300 ms after the FLL-to-PLL handover at 1 s are a transient the two
-    # loops enter from different carrier phases (pyrx starts its NCO at the IF phase of its
-    # first window, the channel's ran from sample 0), so they are not comparable there
-    dopp_rms, code_max_chips = compare_with_pyrx(history, ref, FS, t_from=1.3)
+    # from 2 s: the pull-ins differ by design (pyrx's runs on coherent sums, the tracker keeps
+    # the 1 ms two-stage one) and the two loops enter the FLL-to-PLL handover at 1 s from
+    # different carrier phases (pyrx starts its NCO at the IF phase of its first window, the
+    # channel's ran from sample 0), so the first second after it is a transient
+    dopp_rms, code_max_chips = compare_with_pyrx(history, ref, FS, t_from=2.0)
     print(f"PRN {best.prn}: Doppler RMS {dopp_rms:.3f} Hz, code max {code_max_chips:.4f} chips")
     # measured 0.067 Hz and 0.0006 chips; a PLL gain of x2 gives 0.20 Hz, of x0.5 0.10 Hz,
     # an FLL gain of x2 0.10 Hz, a DLL gain of x2 0.0015 chips and a dead DLL 0.0057 chips

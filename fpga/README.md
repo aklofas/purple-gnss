@@ -230,9 +230,11 @@ dummy stays 8 cycles there, whatever the lane count.
 
 `fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
 will: FLL pull-in then a Costas PLL on the carrier, a non-coherent early-minus-late DLL every
-10 ms, the same constants as `pyrx.tracking`. Fed pyrx's own correlator sums, it reproduces
-pyrx's Doppler exactly (`fpga/model/tests/test_loop.py`). Closed around a channel it differs
-from pyrx in three deliberate ways: pyrx moves its correlation window in time at each DLL
+10 ms, the PLL, DLL and C/N0 constants of `pyrx.tracking`. Fed pyrx's own correlator sums, it
+reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
+(`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
+FLL (5 Hz, then 2 Hz) where pyrx now pulls in on 5 ms coherent sums. Closed around a channel it
+differs from pyrx in three further deliberate ways: pyrx moves its correlation window in time at each DLL
 update, while a channel can only change its code NCO rate, so the DLL output becomes a
 chip-rate offset spread over the next 10 ms, with carrier aiding folded into the code step;
 step words written after dump k take effect at dump k + 1, one epoch later than pyrx applies
@@ -245,10 +247,10 @@ and the firmware should do the same.
 
 On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), against
 `pyrx.tracking.track_l1ca` from the same acquisition seed, pairing each dump with the pyrx
-epoch its update governs, from 1.3 s on: the FLL hands over to the PLL at 1 s, and the two
-loops enter that handover from different carrier phases (pyrx starts its NCO at the IF phase
-of its first window, the channel's has run from sample 0), so the first 300 ms after it are a
-transient that says nothing about tracking.
+epoch its update governs, from 2 s on: the pull-ins differ by design, the FLL hands over to the
+PLL at 1 s, and the two loops enter that handover from different carrier phases (pyrx starts
+its NCO at the IF phase of its first window, the channel's has run from sample 0), so the first
+second after it is a transient that says nothing about tracking.
 
 | Loop around | Doppler, RMS difference | Code-period start, largest difference |
 |---|---|---|
