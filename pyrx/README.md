@@ -495,7 +495,9 @@ the first second (5 Hz bandwidth, then 2 Hz), after which a second-order Costas
 phase-locked loop with 5 Hz bandwidth holds the carrier. The code loop is a
 0.25 Hz delay-locked loop on 10 ms non-coherent early/late sums, with the code
 rate aided by the carrier Doppler. C/N0 is estimated from prompt versus noise-tap
-power over 1 s, and a channel is dropped below 25 dB-Hz. Every channel's carrier
+power over 1 s, with the phase-lock indicator over the same window, and a channel is
+dropped after two consecutive windows with C/N0 below 25 dB-Hz or the indicator
+below 0.25. Every channel's carrier
 NCO starts at the receiver's IF phase at sample 0 (modulo one cycle), so the
 accumulated carrier phases of different channels share one origin. These constants match
 Pocket SDR's so the two trackers can be compared number for number on the same
