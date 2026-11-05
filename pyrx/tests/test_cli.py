@@ -78,9 +78,10 @@ def test_trk_main_tracks_and_logs(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "PRN  7" in out and "LOCK" in out and "PRN  9" not in out
+    assert "PLI 0." in out
     assert out.strip().endswith("s")
     lines = log.read_text().splitlines()
-    assert lines[0] == "time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles"
+    assert lines[0] == "time_s,prn,cn0_dbhz,phase_lock,code_offset_ms,doppler_hz,carrier_cycles"
     assert 24 <= len(lines) - 1 <= 26  # 2.5 s at 0.1 s
     assert (tmp_path / "trk_prn07.png").exists()
     check_golden("cli_trk.out", without_elapsed(out))

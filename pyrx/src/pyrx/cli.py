@@ -88,6 +88,12 @@ def _segment_label(tracks: list[TrackResult], i: int) -> str:
     return f"PRN {r.prn:2d}"
 
 
+def _last_pli(r: TrackResult) -> str:
+    """The phase-lock indicator of the last completed window, ` --` when none completed."""
+    finite = r.phase_lock[np.isfinite(r.phase_lock)]
+    return f"{finite[-1]:.2f}" if len(finite) else " --"
+
+
 def _in_segment(t_file: float, r: TrackResult, t_end: float | None) -> bool:
     """Whether an observation at `t_file` seconds into the recording belongs to segment `r`,
     which ends where the PRN's next segment starts (`t_end`, None for the last one)."""
@@ -151,7 +157,10 @@ def trk_main(argv: list[str] | None = None) -> int:
     for i, r in enumerate(results):
         state = "LOCK" if r.locked else f"LOST at {r.lost_at:.1f} s"
         label = _segment_label(results, i)
-        print(f"{label}  C/N0 {r.cn0[-1]:4.1f} dB-Hz  DOP {r.doppler[-1]:7.1f} Hz  {state}")
+        print(
+            f"{label}  C/N0 {r.cn0[-1]:4.1f} dB-Hz  PLI {_last_pli(r)}  "
+            f"DOP {r.doppler[-1]:7.1f} Hz  {state}"
+        )
     print(f"TIME = {elapsed:.3f} s")
     if args.log is not None:
         write_track_log(results, args.log)
