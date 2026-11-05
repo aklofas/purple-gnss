@@ -142,10 +142,15 @@ PRN is not being tracked, and tracks every detection through the file (`--durati
 0`, the default, means all of it) until the data ends or lock is lost; a detection
 counts only if the data-bit edges show up in a 6 s trial, which keeps noise peaks
 and cross-correlations out. Each PRN runs in its own process. A PRN lost and found
-again has several track segments; the command prints the final C/N0, Doppler and
-lock state per segment, the later segments of a PRN as `PRN nn from t s`. `--log`
-writes a CSV with columns `time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles`,
-one row per segment every 0.1 s. `--plot` writes `trk_prnNN.png` per channel
+again has several track segments; the command prints the final C/N0, the phase-lock
+indicator (`PLI`), the Doppler and the lock state per segment, the later segments of a
+PRN as `PRN nn from t s`. The indicator is cos 2φ of the prompt correlator over each
+1 s window, 1 when the Costas loop is phase-locked and near 0 when the carrier spins
+or there is only noise; a segment ends after two consecutive windows with C/N0 below
+25 dB-Hz or the indicator below 0.25 (Pocket SDR's rule at our window length). `--log`
+writes a CSV with columns
+`time_s,prn,cn0_dbhz,phase_lock,code_offset_ms,doppler_hz,carrier_cycles`, one row per
+segment every 0.1 s (`phase_lock` empty in an incomplete final window). `--plot` writes `trk_prnNN.png` per channel
 (`trk_prnNN_k.png` for a PRN's k-th segment) with four panels: prompt I and Q over the first 2 s (the navigation data bits are visible
 once the phase lock settles), Doppler, C/N0, and the early, prompt and late
 correlator magnitudes.

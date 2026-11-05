@@ -261,12 +261,13 @@ def write_track_log(results: list[TrackResult], path: str | os.PathLike, interva
     from the multiple of `interval` at or before the channel's start."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        f.write("time_s,prn,cn0_dbhz,code_offset_ms,doppler_hz,carrier_cycles\n")
+        f.write("time_s,prn,cn0_dbhz,phase_lock,code_offset_ms,doppler_hz,carrier_cycles\n")
         for r in results:
             times = np.arange(np.floor(r.t[0] / interval) * interval, r.t[-1] + 1e-9, interval)
             idx = np.searchsorted(r.t, times)
             f.writelines(
-                f"{r.t[k]:.3f},{r.prn},{r.cn0[k]:.1f},{r.code_offset[k] * 1e3:.6f},"
-                f"{r.doppler[k]:.1f},{r.carrier_phase[k]:.3f}\n"
+                f"{r.t[k]:.3f},{r.prn},{r.cn0[k]:.1f},"
+                f"{'' if np.isnan(r.phase_lock[k]) else f'{r.phase_lock[k]:.2f}'},"
+                f"{r.code_offset[k] * 1e3:.6f},{r.doppler[k]:.1f},{r.carrier_phase[k]:.3f}\n"
                 for k in idx[idx < len(r.t)]
             )
