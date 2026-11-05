@@ -96,20 +96,24 @@ def _preamble_at(b: np.ndarray, p: int) -> bool:
 
 
 def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
-    """Subframes in order from the first verified subframe start; empty when none is found.
+    """Subframes in order from the earliest verified subframe start; empty when none is found.
 
     A start is verified by the preamble appearing there and one subframe later,
     the TLM and HOW words passing parity, a valid subframe ID, and the TOW
     counts of the two subframes differing by one. From there every 300-bit
     block whose ten words all pass parity and whose TOW count is the one its
     position in the sequence requires is returned; a block with a parity
-    failure or another count is dropped on its own.
+    failure or another count is dropped on its own. Both polarities of the bits
+    are tried at every position, earliest position first: the Costas loop locks
+    on either data sign and can slip half a cycle mid-stream, so a later stretch
+    may verify in the other polarity; a verified start whose blocks all fail is
+    passed over rather than ending the search.
     """
     n = len(stream.bits)
+    polarities = (stream.bits, stream.bits ^ 1)
     # the candidate's second subframe must hold its TLM and HOW words in full
-    for invert in (0, 1):
-        b = stream.bits ^ invert
-        for p in range(n - SUBFRAME_BITS - 2 * WORD_BITS + 1):
+    for p in range(n - SUBFRAME_BITS - 2 * WORD_BITS + 1):
+        for invert, b in enumerate(polarities):
             if not (_preamble_at(b, p) and _preamble_at(b, p + SUBFRAME_BITS)):
                 continue
             d29, d30 = (int(b[p - 2]), int(b[p - 1])) if p >= 2 else (0, 0)
@@ -120,8 +124,11 @@ def frame_sync(stream: BitStream, prn: int = 0) -> list[Subframe]:
                 continue
             if not 1 <= how[1] <= 5 or how_next[0] != (how[0] + 1) % TOW_COUNTS:
                 continue
+            subframes = _decode_from(b, p, d29, d30, stream.epoch, prn, how[0])
+            if not subframes:
+                continue
             stream.inverted = bool(invert)
-            return _decode_from(b, p, d29, d30, stream.epoch, prn, how[0])
+            return subframes
     return []
 
 
