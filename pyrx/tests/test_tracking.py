@@ -323,6 +323,22 @@ def test_weak_signal_locks_after_the_pull_in():
             assert abs(r.doppler[2000:3000].mean() - 1234.0) < 1.0, case
 
 
+def test_seed_from_the_search_edge_pulls_in():
+    # the acquisition grid is ±5000 Hz in 25 Hz bins with the peak interpolated between
+    # bins, except at the two edge bins, which seed as they are: a signal 90 Hz beyond the
+    # edge seeds 5000 Hz (90 Hz off, inside the ±125 Hz fold), one just inside seeds within
+    # a bin; both must lock
+    from pyrx.acquisition import acquire_l1ca
+
+    for doppler in (5090.0, -4990.0):
+        x = synth_l1ca(7, FS, 0.0, doppler, 1000, int(FS * 3.0), 45.0, True, data_bits=True)
+        acq = acquire_l1ca(x[: int(FS * 0.020)], FS, 0.0, 7)
+        assert acq.detected and abs(acq.doppler) <= 5000.0, doppler
+        r = track_l1ca(ArraySamples(x, FS), 0.0, 7, acq.code_offset, acq.doppler, acq.cn0)
+        dop, _, _ = _steady(r)
+        assert r.locked and abs(dop.mean() - doppler) < 1.0, (doppler, acq.doppler)
+
+
 def test_track_shorter_than_two_sums_runs_no_fll_update():
     # 3 epochs: one complete 2 ms sum with no predecessor and a partial second; no update
     r = track_l1ca(_src(seconds=0.0035), 0.0, 7, 1000 / FS, 1234.0, 45.0)
