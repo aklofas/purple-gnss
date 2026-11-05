@@ -3,9 +3,12 @@
 Each 1 ms epoch correlates one code period at prompt, early, late and noise taps,
 then updates the carrier (FLL during pull-in, Costas PLL after) and the code
 offset (carrier aiding every epoch, non-coherent early/late DLL every 10 ms).
-C/N0 is estimated from prompt versus noise-tap power over 1 s. The loop
-constants follow Pocket SDR so the two trackers can be compared number for
-number; they are not tuned for the hardware receiver.
+C/N0 is estimated from prompt versus noise-tap power over 1 s, and over the same
+window a carrier phase-lock indicator, cos 2φ of the prompt (1 when phase-locked,
+near 0 when the carrier spins or there is only noise). A track ends after two
+consecutive windows with C/N0 below `CN0_LOST` or the indicator below `PLI_LOCKED`.
+The loop constants follow Pocket SDR so the two trackers can be compared number
+for number; they are not tuned for the hardware receiver.
 """
 
 import multiprocessing
@@ -28,6 +31,8 @@ T_FLL_PULLIN = 1.0  # s
 T_DLL = 0.010  # s, non-coherent early/late accumulation
 T_CN0 = 1.0  # s
 CN0_LOST = 25.0  # dB-Hz
+PLI_LOCKED = 0.25  # cos 2φ of the prompt over a C/N0 window; phase-locked above it
+LOST_WINDOWS = 2  # consecutive bad windows that end a track
 EL_SPACING = 0.25  # chips each side of prompt
 NOISE_TAP = -10.0  # chips
 TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, late, noise
@@ -53,6 +58,15 @@ class TrackResult:
         one origin and are comparable to a fraction of a cycle.
     phase[k]: cycles in [0, 1), the carrier NCO phase at t[k].
     cn0[k]: dB-Hz, estimate held between its 1 s updates.
+    phase_lock[k]: carrier phase-lock indicator of the 1 s window containing epoch k,
+        the sum over the window of I_P^2 - Q_P^2 over the sum of I_P^2 + Q_P^2 (cos 2φ
+        in [-1, 1], 1 when phase-locked of either data polarity, near 0 when the
+        carrier spins or there is only noise), written at the window's end; unlike
+        cn0 it describes the epoch's own window. nan in an incomplete final window.
+    locked, lost_at: a track ends at the epoch completing the LOST_WINDOWS-th consecutive
+        bad window, bad meaning cn0 below CN0_LOST or, from the second window on (the
+        first is the FLL pull-in), phase_lock below PLI_LOCKED; lost_at is that epoch's
+        t, None when the track ran to the end of the data.
     carrier_error[k]: cycles, the carrier discriminator of epoch k: the FLL's
         frequency discriminator (minus the phase change over one epoch) during pull-in, the
         Costas phase error after it; nan on the first epoch and where the
@@ -71,6 +85,7 @@ class TrackResult:
     carrier_phase: np.ndarray
     phase: np.ndarray
     cn0: np.ndarray
+    phase_lock: np.ndarray
     locked: bool
     lost_at: float | None
     carrier_error: np.ndarray
@@ -108,6 +123,7 @@ def track_l1ca(
     out_adr = np.empty(n_max)
     out_phase = np.empty(n_max)
     out_cn0 = np.empty(n_max)
+    out_pli = np.full(n_max, np.nan)
     out_err_carrier = np.full(n_max, np.nan)
     out_err_code = np.full(n_max, np.nan)
 
@@ -124,9 +140,11 @@ def track_l1ca(
     adr = 0.0
     err_phase_prev = 0.0
     prompt_prev = 0j
-    sum_e = sum_l = sum_p = sum_n = 0.0
+    sum_e = sum_l = sum_p = sum_n = sum_d = 0.0
     n_dll = round(T_DLL / t)
     n_cn0 = round(T_CN0 / t)
+    bad_windows = 0
+    lost = False
     lost_at = None
     k = 0
     while True:
@@ -176,14 +194,20 @@ def track_l1ca(
                 t_code -= B_DLL / 0.25 * err_code * t * n_dll
             sum_e = sum_l = 0.0
 
-        # C/N0 every T_CN0
+        # C/N0 and the phase-lock indicator every T_CN0; the loss rule at the window end
         sum_p += abs(prompt) ** 2
         sum_n += float(abs(c[3])) ** 2
+        sum_d += prompt.real**2 - prompt.imag**2
         if epoch % n_cn0 == 0:
             if sum_p > 0.0 and sum_n > 0.0:
                 s = max(sum_p - sum_n, 0.01 * sum_n)
                 cn0 += 0.5 * (10.0 * log10(s / sum_n / t) - cn0)
-            sum_p = sum_n = 0.0
+            pli = sum_d / sum_p if sum_p > 0.0 else np.nan
+            out_pli[k - n_cn0 + 1 : k + 1] = pli
+            bad = cn0 < CN0_LOST or (epoch > n_cn0 and pli < PLI_LOCKED)
+            bad_windows = bad_windows + 1 if bad else 0
+            lost = bad_windows >= LOST_WINDOWS
+            sum_p = sum_n = sum_d = 0.0
 
         # advance one code period with carrier aiding; the epoch spacing is the
         # Doppler-scaled code period, and the carrier phase integrates over it
@@ -199,7 +223,7 @@ def track_l1ca(
         out_adr[k] = adr
         out_cn0[k] = cn0
         k += 1
-        if cn0 < CN0_LOST:
+        if lost:
             lost_at = start / fs
             break
 
@@ -212,6 +236,7 @@ def track_l1ca(
         carrier_phase=out_adr[:k],
         phase=out_phase[:k],
         cn0=out_cn0[:k],
+        phase_lock=out_pli[:k],
         locked=lost_at is None,
         lost_at=lost_at,
         carrier_error=out_err_carrier[:k],

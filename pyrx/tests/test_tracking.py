@@ -9,6 +9,7 @@ from pyrx.synth import synth_l1ca
 from pyrx.tracking import (
     B_FLL,
     CN0_LOST,
+    PLI_LOCKED,
     T_DLL,
     T_FLL_PULLIN,
     track_channels,
@@ -73,14 +74,58 @@ def test_track_real_if():
     assert r.locked and abs(dop.mean() + 2000.0) < 1.0 and abs(cn0[-1] - 45.0) < 2.0
 
 
+def test_track_phase_lock_is_the_windows_indicator():
+    r = track_l1ca(_src(seconds=3.5), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert r.locked and r.phase_lock.shape == r.t.shape
+    w1, w2, w3 = r.phase_lock[500], r.phase_lock[1500], r.phase_lock[2500]
+    assert np.all(r.phase_lock[:1000] == w1) and np.all(r.phase_lock[1000:2000] == w2)
+    assert np.all(r.phase_lock[2000:3000] == w3)
+    assert w2 > 0.8 and w3 > 0.9  # 45 dB-Hz: rho/(1+rho) = 0.97; the PLL settles inside window 2
+    assert np.isfinite(w1)  # the pull-in window is recorded too
+    assert np.all(np.isnan(r.phase_lock[3000:]))  # incomplete last window
+
+
+def test_track_shorter_than_a_window_has_no_indicator_and_no_loss():
+    r = track_l1ca(_src(seconds=0.8), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert r.locked and r.lost_at is None and np.all(np.isnan(r.phase_lock))
+
+
 def test_track_declares_loss():
-    # Track PRN 9 where only PRN 7 is present: C/N0 must fall below the loss threshold.
+    # Track PRN 9 where only PRN 7 is present: two bad windows after the pull-in window.
     r = track_l1ca(_src(prn=7, seconds=4.0), 0.0, 9, 1000 / FS, 1234.0, 45.0)
-    assert not r.locked and r.lost_at is not None and r.lost_at <= 3.5
+    assert not r.locked and r.lost_at is not None and 2.95 <= r.lost_at <= 3.05
     assert r.cn0[-1] < CN0_LOST
-    assert len(r.t) < 4000
-    assert r.carrier_error.shape == r.code_error.shape == r.t.shape  # the losing epoch kept
+    assert r.phase_lock[1500] < PLI_LOCKED and r.phase_lock[2500] < PLI_LOCKED
+    assert len(r.t) == 3000  # the losing epoch kept, nothing after it
+    assert r.carrier_error.shape == r.code_error.shape == r.t.shape
     assert np.isfinite(r.carrier_error[-1])
+
+
+def test_one_bad_cn0_window_is_not_a_loss():
+    # seed 4 dB-Hz on a 45 dB-Hz signal: the first window updates C/N0 to 24.5 (bad),
+    # the second to 34.75 (good); the seed alone must not end the track
+    r = track_l1ca(_src(seconds=4.0), 0.0, 7, 1000 / FS, 1234.0, 4.0)
+    assert r.locked and r.cn0[999] < CN0_LOST < r.cn0[1999]
+    assert r.cn0[-1] > 38.0  # climbing toward 45 by half the gap per window
+
+
+def test_phase_lock_rule_drops_a_spinning_carrier_at_full_cn0(monkeypatch):
+    # a correlator double whose prompt rotates 0.3 cycle per epoch whatever the NCO does:
+    # prompt power stays high, so C/N0 is high, while I**2 - Q**2 averages to zero
+    from pyrx import tracking
+
+    k = 0
+
+    def spinning(samples, fs, fc, phi, code, chip_rate, residual, taps):
+        nonlocal k
+        k += 1
+        p = 1000.0 * np.exp(2j * np.pi * 0.3 * k)
+        return np.array([p, 500.0, 500.0, 1.0], dtype=np.complex64)
+
+    monkeypatch.setattr(tracking, "correlate", spinning)
+    r = track_l1ca(_src(seconds=5.0), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert not r.locked and 2.95 <= r.lost_at <= 3.05
+    assert r.cn0[-1] > 60.0 and abs(r.phase_lock[2500]) < PLI_LOCKED
 
 
 def test_track_stops_at_end_of_data():
