@@ -13,8 +13,8 @@ turns them into the NCO step words a channel takes. Four deliberate differences 
    uses the second and fourth moments of the prompt magnitude instead, which data bits and
    the residual carrier of pull-in leave alone, and it does not declare a loss of lock from
    a window that overlaps pull-in.
-4. The FLL pull-in is the 1 ms two-stage one (5 Hz, then 2 Hz); pyrx pulls in on 5 ms
-   coherent sums, so the two Dopplers agree only from the handover on.
+4. The FLL pull-in is the 1 ms two-stage one (5 Hz, then 2 Hz); pyrx pulls in on 2 ms then
+   5 ms coherent sums, so the two Dopplers agree only from the handover on.
 """
 
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ from pyrx.tracking import B_DLL, B_PLL, CN0_LOST, T_CN0, T_DLL, T_FLL_PULLIN
 
 from fpgamodel.channel import Channel, Dump, nco_step
 
-B_FLL = (5.0, 2.0)  # Hz, first and second half of a 1 ms two-stage pull-in (pyrx sums 5 ms instead)
+B_FLL = (5.0, 2.0)  # Hz, halves of a 1 ms two-stage pull-in (pyrx sums 2 ms then 5 ms instead)
 
 
 @dataclass(frozen=True)

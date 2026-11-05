@@ -7,8 +7,8 @@ from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
 from pyrx.synth import synth_l1ca
 from pyrx.tracking import (
-    B_FLL,
     CN0_LOST,
+    FLL_STAGES,
     PLI_LOCKED,
     T_DLL,
     T_FLL_PULLIN,
@@ -55,7 +55,9 @@ def test_track_synthetic_with_data_bits():
 
 
 def test_track_pulls_in_from_coarse_seed():
-    r = track_l1ca(_src(), 0.0, 7, (1000 + 0.5) / FS, 1234.0 + 200.0, 45.0)
+    # half a sample of code offset and 100 Hz of Doppler off: inside the ±125 Hz fold of the
+    # 2 ms sums of the first FLL stage (a weak satellite's acquisition peak can be 100 Hz off)
+    r = track_l1ca(_src(), 0.0, 7, (1000 + 0.5) / FS, 1234.0 + 100.0, 45.0)
     dop, _, _ = _steady(r)
     assert r.locked and abs(dop.mean() - 1234.0) < 1.0
 
@@ -243,11 +245,22 @@ def test_discriminators_are_recorded_and_settle():
     assert np.isnan(track.carrier_error[0])
     # each recorded value is the discriminator of the recorded correlator sums
     p = track.corr[:, 0].astype(np.complex128)
-    fll = np.arange(1, n)[(np.arange(2, n + 1) * CA_PERIOD) <= T_FLL_PULLIN]
-    dot = (p[fll] * p[fll - 1].conj()).real
-    cross = (p[fll - 1] * p[fll].conj()).imag
-    np.testing.assert_allclose(track.carrier_error[fll], np.arctan(cross / dot) / (2 * np.pi))
-    pll = np.arange(fll[-1] + 1, n)
+    n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
+    k0 = 0
+    finite = []
+    for seconds, _, n_sum in FLL_STAGES:
+        n_stage = round(seconds / CA_PERIOD)
+        sums = p[k0 : k0 + n_stage].reshape(-1, n_sum).sum(axis=1)
+        fll = k0 + np.arange(2 * n_sum - 1, n_stage, n_sum)  # sums with a predecessor
+        dot = (sums[1:] * sums[:-1].conj()).real
+        cross = (sums[:-1] * sums[1:].conj()).imag
+        np.testing.assert_allclose(track.carrier_error[fll], np.arctan(cross / dot) / (2 * np.pi))
+        finite.extend(fll)
+        k0 += n_stage
+    assert k0 == n_pullin
+    others = np.setdiff1d(np.arange(n_pullin), finite)  # first sums, between updates
+    assert np.isnan(track.carrier_error[others]).all()
+    pll = np.arange(n_pullin, n)
     np.testing.assert_allclose(
         track.carrier_error[pll], np.arctan(p[pll].imag / p[pll].real) / (2 * np.pi)
     )
@@ -265,23 +278,53 @@ def test_discriminators_are_recorded_and_settle():
 
 
 def test_pull_in_doppler_follows_the_fll_update_exactly():
-    # rebuilt from the recorded prompts in the loop's own order of operations, so that
-    # recording the discriminator cannot reassociate the update even by one ulp; a Doppler
-    # near zero keeps an ulp of the update from being absorbed into the Doppler
+    # rebuilt from the recorded prompts in the loop's own order of operations: per stage the
+    # sums of its epochs, the dot/cross of consecutive sums, one update per completed sum,
+    # the sums restarted at each stage; a Doppler near zero keeps an ulp of the update from
+    # being absorbed into the Doppler
     fs, seed = 2.5e6, 4.0
     x = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 1.2), 45.0, True)
     track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, seed, 45.0)
     fd = seed
-    assert track.doppler[0] == fd
-    for k in range(1, len(track.t)):
-        epoch = k + 1
-        if epoch * CA_PERIOD > T_FLL_PULLIN:
-            break
-        p, q = complex(track.corr[k, 0]), complex(track.corr[k - 1, 0])
-        dot = p.real * q.real + p.imag * q.imag
-        cross = p.real * q.imag - p.imag * q.real
-        if dot != 0.0:
-            b = B_FLL[0] if epoch * CA_PERIOD < T_FLL_PULLIN / 2 else B_FLL[1]
-            fd -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
-        assert track.doppler[k] == fd, k
-    assert k > 990  # the whole pull-in was checked
+    k = 0
+    checked = 0
+    for seconds, b, n_sum in FLL_STAGES:
+        acc, prev, n_in = 0j, None, 0
+        for _ in range(round(seconds / CA_PERIOD)):
+            acc += complex(track.corr[k, 0])
+            n_in += 1
+            if n_in == n_sum:
+                if prev is not None:
+                    dot = acc.real * prev.real + acc.imag * prev.imag
+                    cross = acc.real * prev.imag - acc.imag * prev.real
+                    if dot != 0.0:
+                        fd -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
+                prev, acc, n_in = acc, 0j, 0
+            assert track.doppler[k] == fd, k
+            checked = k
+            k += 1
+    assert checked == round(T_FLL_PULLIN / CA_PERIOD) - 1  # the whole pull-in was checked
+    assert track.doppler[k] != fd  # the Costas loop takes over on the next epoch
+
+
+def test_weak_signal_locks_after_the_pull_in():
+    # 30 dB-Hz with data bits and a seed 10 Hz off, and 33 dB-Hz with a seed 90 Hz off (a weak
+    # satellite's acquisition peak can be that biased): phase-locked by 3 s with the Doppler
+    # right. The 1 ms two-stage FLL this replaces handed the 30 dB-Hz seeds 1 and 2 over 9.9
+    # and 4.1 Hz off and they never locked (seed 0 handed over 0.4 Hz off and locked)
+    for cn0, seed_error in ((30.0, 10.0), (33.0, 90.0)):
+        for seed in (0, 1, 2):
+            n = int(FS * 3.2)
+            x = synth_l1ca(7, FS, 0.0, 1234.0, 1000, n, cn0, True, seed=seed, data_bits=True)
+            r = track_l1ca(ArraySamples(x, FS), 0.0, 7, 1000 / FS, 1234.0 + seed_error, cn0)
+            rho = 10 ** (cn0 / 10) * 1e-3
+            case = (cn0, seed_error, seed)
+            assert r.phase_lock[2999] >= 0.6 * rho / (1 + rho), case  # the window ending at 3 s
+            assert abs(r.doppler[2000:3000].mean() - 1234.0) < 1.0, case
+
+
+def test_track_shorter_than_two_sums_runs_no_fll_update():
+    # 3 epochs: one complete 2 ms sum with no predecessor and a partial second; no update
+    r = track_l1ca(_src(seconds=0.0035), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    assert 2 <= len(r.t) <= 3 and r.locked
+    assert np.all(r.doppler == 1234.0) and np.all(np.isnan(r.carrier_error))
