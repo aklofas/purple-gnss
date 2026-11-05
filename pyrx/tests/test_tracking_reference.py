@@ -12,7 +12,7 @@ from pocketsdr_log import load_pocketsdr_trk
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE
 from pyrx.samples import read_samples
-from pyrx.tracking import track_channels
+from pyrx.tracking import PLI_LOCKED, track_channels
 
 CASES = [
     ("L1_20211226_082401_24MHz_I.bin", 24e6, 6.0e6, [4, 16, 18, 26, 27, 29, 31]),
@@ -45,6 +45,13 @@ def test_tracking_matches_pocketsdr(captures, name, fs, f_if, prns):
         idx = _at(r, tt)
         assert r.t[-1] >= tt[-1] - 0.2, prn  # tracked to the end
         assert abs(np.mean(r.cn0[idx]) - np.mean(theirs[m, 1])) <= 2.0, prn
+        # phase-locked: the indicator is rho / (1 + rho) with rho the linear C/N0 over one
+        # 1 ms epoch (0.86 at 38 dB-Hz, 0.98 at 47), within 0.1
+        rho = 10 ** (np.mean(theirs[m, 1]) / 10) * 1e-3
+        pli = r.phase_lock[idx]
+        pli = pli[np.isfinite(pli)]
+        assert abs(np.mean(pli) - rho / (1 + rho)) <= 0.1, prn
+        assert pli.min() > PLI_LOCKED, prn
         d_dop = r.doppler[idx] - theirs[m, 3]
         assert abs(np.mean(d_dop)) <= 5.0, prn
         assert np.max(np.abs(d_dop)) <= 10.0, prn
