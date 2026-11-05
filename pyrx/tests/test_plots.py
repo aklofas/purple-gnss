@@ -77,7 +77,7 @@ def _long_track(seconds=30.0):
     corr = np.ones((n, 4), dtype=np.complex64)
     nan = np.full(n, np.nan)
     t = np.arange(n) * CA_PERIOD
-    return TrackResult(7, t, corr, z, z + 1000.0, z, z, z + 45.0, True, None, nan, nan)
+    return TrackResult(7, t, corr, z, z + 1000.0, z, z, z + 45.0, z + 1.0, True, None, nan, nan)
 
 
 def test_tracking_plot_gives_the_pull_in_its_own_time_axis(monkeypatch, tmp_path):
