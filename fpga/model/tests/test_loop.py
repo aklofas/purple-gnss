@@ -123,7 +123,8 @@ def test_model_loop_tracks_like_pyrx(captures):
     # channel's ran from sample 0), so the first second after it is a transient
     dopp_rms, code_max_chips = compare_with_pyrx(history, ref, FS, t_from=2.0)
     print(f"PRN {best.prn}: Doppler RMS {dopp_rms:.3f} Hz, code max {code_max_chips:.4f} chips")
-    # measured 0.067 Hz and 0.0006 chips; a PLL gain of x2 gives 0.20 Hz, of x0.5 0.10 Hz,
+    # measured 0.072 Hz and 0.0005 chips with the third-order loop (0.067 Hz and 0.0006 chips
+    # with the second-order one); a PLL gain of x2 gives 0.20 Hz, of x0.5 0.10 Hz,
     # an FLL gain of x2 0.10 Hz, a DLL gain of x2 0.0015 chips and a dead DLL 0.0057 chips
     assert dopp_rms < 0.1
     assert code_max_chips < 0.001

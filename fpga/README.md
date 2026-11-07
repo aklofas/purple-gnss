@@ -229,7 +229,7 @@ dummy stays 8 cycles there, whatever the lane count.
 ## Closed-loop tracking
 
 `fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
-will: FLL pull-in then a Costas PLL on the carrier, a non-coherent early-minus-late DLL every
+will: FLL pull-in then a third-order Costas PLL on the carrier, a non-coherent early-minus-late DLL every
 10 ms, the PLL, DLL and C/N0 constants of `pyrx.tracking`. Fed pyrx's own correlator sums, it
 reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
 (`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
@@ -254,8 +254,8 @@ second after it is a transient that says nothing about tracking.
 
 | Loop around | Doppler, RMS difference | Code-period start, largest difference |
 |---|---|---|
-| the model (`fpga/model/tests/test_loop.py`) | 0.07 Hz | 0.0006 chips |
-| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.07 Hz | 0.0006 chips |
+| the model (`fpga/model/tests/test_loop.py`) | 0.07 Hz | 0.0005 chips |
+| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.07 Hz | 0.0005 chips |
 
 Bounds: 0.1 Hz RMS and 0.001 chips, set from measured failures (a PLL gain of twice or half
 the value reaches 0.20 or 0.10 Hz, a doubled FLL gain 0.10 Hz, a doubled DLL gain 0.0015

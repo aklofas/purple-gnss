@@ -1,7 +1,8 @@
 """Tracking loops closed around the channel's dumps, the way the MCU will close them.
 
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
-Costas PLL for the carrier, a non-coherent early-minus-late DLL every 10 ms for the code) and
+third-order Costas PLL for the carrier, a non-coherent early-minus-late DLL every 10 ms for
+the code) and
 turns them into the NCO step words a channel takes. Four deliberate differences from pyrx:
 
 1. pyrx moves its correlation window in time at each DLL update, while a channel can only
@@ -59,6 +60,7 @@ class Tracker:
         self._skip = skip_first
         self._prompt_prev = 0j
         self._err_phase_prev = 0.0
+        self._phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
         self._sum_e = self._sum_l = 0.0
         self._prompt_mag2: list[float] = []
         self._n_dll = round(T_DLL / CA_PERIOD)
@@ -87,9 +89,16 @@ class Tracker:
                     b = B_FLL[0] if self.epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
                     self.doppler -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
         elif prompt.real != 0.0:
+            # third-order Costas loop as pyrx (Pocket SDR's C tracker: a3 = 1.1, b3 = 2.4,
+            # Bn = W / 0.7845), the same expression order so the increments match bit for bit
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
-            w = B_PLL / 0.53
-            self.doppler += 1.4 * w * (err_phase - self._err_phase_prev) + w * w * err_phase * t
+            w = B_PLL / 0.7845
+            self._phase_acc += w * w * w * err_phase * t
+            self.doppler += (
+                2.4 * w * (err_phase - self._err_phase_prev)
+                + 1.1 * w * w * err_phase * t
+                + self._phase_acc * t
+            )
             self._err_phase_prev = err_phase
         self._prompt_prev = prompt
 
