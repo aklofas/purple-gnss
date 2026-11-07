@@ -498,7 +498,9 @@ discriminator's noise, so a 30 dB-Hz channel hands over within a hertz where sin
 epochs left 10 Hz). A third-order Costas phase-locked loop with 5 Hz bandwidth (Pocket
 SDR's C tracker's constants) then holds the carrier: third order because a moving
 antenna's Doppler rate would otherwise lag the phase, 0.11 cycle at the 10 Hz/s a car
-produces, and lose the satellite. The code loop is a
+produces, and lose the satellite. While the prompt power drops below half its recent
+mean (an obstruction's onset) the loop's integrator is held, since on the faded signal
+it would wind up and slip the carrier. The code loop is a
 0.25 Hz delay-locked loop on 10 ms non-coherent early/late sums, with the code
 rate aided by the carrier Doppler. C/N0 is estimated from prompt versus noise-tap
 power over 1 s, with the phase-lock indicator over the same window, and a channel is
