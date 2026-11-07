@@ -11,7 +11,7 @@ import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.ephemeris import Ionosphere
 from pyrx.signals import L1_FREQ
-from pyrx.synth import USUD, ambiguities, as_galileo, constellation
+from pyrx.synth import USUD, ambiguities, as_galileo, constellation, synth_l1ca
 
 IONO = Ionosphere(
     (1.1176e-08, -7.4506e-09, -5.9605e-08, 1.1921e-07),
@@ -93,4 +93,35 @@ def synth_l1ca_ramp(
         signal = code[np.floor(ch).astype(np.int64) % len(code)] * np.cos(2.0 * np.pi * (c % 1.0))
         signal *= sym[(k - code_offset) // (20 * period) + 1]
         out[k] = signal + noise_std * rng.standard_normal(len(k))
+    return out
+
+
+def synth_l1ca_faded(
+    prn: int,
+    fs: float,
+    doppler: float,
+    code_offset: int,
+    n: int,
+    cn0_dbhz: float,
+    fade_from: float,
+    fade_len: float,
+    fade_db: float,
+    seed: int = 0,
+) -> np.ndarray:
+    """`synth_l1ca`'s real signal with data bits whose signal, not its noise, is `fade_db`
+    down for `fade_len` seconds from `fade_from`.
+
+    The noiseless signal comes from the same call at a very high C/N0: the bits are drawn
+    after the noise with the same count, so they agree.
+    """
+    noisy = synth_l1ca(
+        prn, fs, 0.0, doppler, code_offset, n, cn0_dbhz, False, seed=seed, data_bits=True
+    )
+    clean = synth_l1ca(
+        prn, fs, 0.0, doppler, code_offset, n, 200.0, False, seed=seed, data_bits=True
+    )
+    t = np.arange(n) / fs
+    fade = (t >= fade_from) & (t < fade_from + fade_len)
+    out = noisy.copy()
+    out[fade] -= clean[fade] * (1.0 - 10 ** (-fade_db / 20.0))
     return out

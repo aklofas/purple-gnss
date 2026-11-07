@@ -11,8 +11,8 @@ from pocketsdr_log import load_pocketsdr_trk
 
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE
-from pyrx.samples import read_samples
-from pyrx.tracking import PLI_LOCKED, track_channels
+from pyrx.samples import SampleFile, read_samples
+from pyrx.tracking import PLI_LOCKED, track_channels, track_l1ca
 
 CASES = [
     ("L1_20211226_082401_24MHz_I.bin", 24e6, 6.0e6, [4, 16, 18, 26, 27, 29, 31]),
@@ -71,3 +71,25 @@ def test_tracking_matches_pocketsdr(captures, name, fs, f_if, prns):
     # keeps its estimate near 30 dB-Hz, which is why a tracker alone cannot be the gate.
     absent = results[-1]
     assert not absent.locked or np.max(absent.cn0[absent.t >= 2.0]) < 35.0
+
+
+def test_pll_holds_through_the_driving_onset(captures):
+    # the car-roof driving capture's G12 at the second obstruction's onset (222 s, C/N0 47 to 41 dB-Hz):
+    # the loop without the integrator hold slipped and was lost at 224 s; with it the window ending at
+    # 224 s reads below the threshold alone and the track holds
+    path = capture_file(captures, "sky/20261103_031515_carroof-driving/ch1.bin")
+    acq = acquire_l1ca(read_samples(path, 24e6, False, 210.0, 0.020), 24e6, 6.0e6, 12)
+    assert acq.detected
+    r = track_l1ca(
+        SampleFile(path, 24e6, False),
+        6.0e6,
+        12,
+        acq.code_offset,
+        acq.doppler,
+        acq.cn0,
+        t_start=210.0,
+        duration=20.0,
+    )
+    assert r.locked, r.lost_at
+    bad = r.phase_lock[np.arange(999, len(r.t), 1000)] < PLI_LOCKED
+    assert not np.any(bad[:-1] & bad[1:])
