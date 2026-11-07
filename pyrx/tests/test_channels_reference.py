@@ -6,9 +6,10 @@ and its `$CH` lines give the instant each PRN locked again. Our tracker's C/N0 d
 31 to 35 dB-Hz on the six strong satellites and its code loop holds, but the Costas
 loop comes out of the event unlocked at full C/N0, so the phase-lock rule ends each
 first segment in the event and a later probe brings the satellite back; its Doppler
-then agrees with Pocket SDR's. G22's first segment never settles into phase lock and
-ends before the next probe; G22 and G25 are then acquired within one probe interval
-of Pocket SDR's lock (G25, at 36 dB-Hz, unlocks again later). The observations carry
+then agrees with Pocket SDR's. G22 holds phase lock from the start for 17 s (a
+second-order Costas loop lost it at 6 s under the car's Doppler rate), its second
+segment from the 20 s probe ends in the event; G22 and G25 are then acquired within
+one probe interval of Pocket SDR's lock (G25, at 36 dB-Hz, unlocks again later). The observations carry
 no G06 carrier phase between its segments and flag the first phase of the new
 segment as a slip. Minutes long: marked slow, run with `-m slow`.
 """
@@ -66,7 +67,9 @@ def test_cold_start_obstruction_against_pocket_sdr(captures):
         ours = back.doppler[np.searchsorted(back.t, t_log)]
         assert abs(ours - theirs) < 2.0, (prn, ours, theirs)
     g22 = by_prn[22]
-    assert g22[0].t[0] < 0.1 and not g22[0].locked and g22[0].lost_at <= REACQ_INTERVAL
+    assert g22[0].t[0] < 0.1 and not g22[0].locked and 15.0 <= g22[0].lost_at <= 2 * REACQ_INTERVAL
+    # its second segment, from the 20 s probe, ends in the event
+    assert g22[1].t[0] <= 2 * REACQ_INTERVAL + 0.1 and 36.0 <= g22[1].lost_at <= 52.0
     relock = [s for s in g22[1:] if 50.0 <= s.t[0] <= 70.1 and s.t[-1] - s.t[0] >= 10.0]
     assert relock, [(s.t[0], s.lost_at) for s in g22]
     back25 = [s for s in by_prn[25] if s.t[0] > 40.0]  # its 10 s segment dies in the event
