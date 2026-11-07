@@ -65,6 +65,29 @@ def test_tracker_matches_pyrx_on_its_correlator_outputs():
     assert tracker.locked
 
 
+def test_tracker_holds_the_integrator_like_pyrx_through_a_fade():
+    # the same prompts through a 10 dB fade: the hold must decide on the same sums and epochs as
+    # pyrx, else the increments diverge from the first held epoch
+    fs, n = FS_SYN, int(FS_SYN * 12.0)
+    noisy = synth_l1ca(7, fs, F_IF_SYN, DOPPLER_SYN, 0, n, 36.0, False, seed=0, data_bits=True)
+    clean = synth_l1ca(7, fs, F_IF_SYN, DOPPLER_SYN, 0, n, 200.0, False, seed=0, data_bits=True)
+    k = np.arange(n) / fs
+    x = noisy - clean * (1.0 - 10 ** (-10.0 / 20.0)) * ((k >= 8.0) & (k < 10.0))
+    ref = track_l1ca(ArraySamples(x, fs), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 36.0)
+    assert ref.locked
+    tracker = Tracker(fs, F_IF_SYN, DOPPLER_SYN + 5.0, 36.0)
+    ours = []
+    for i in range(len(ref.t)):
+        prompt, early, late = ref.corr[i][:3]
+        sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
+        tracker.update(Dump(i + 1, *sums, 0))
+        ours.append(tracker.doppler)
+    n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
+    np.testing.assert_allclose(
+        np.diff(ours[n_pullin:]), np.diff(ref.doppler[n_pullin:]), rtol=0, atol=1e-9
+    )
+
+
 @pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
 def test_cn0_estimate_holds_lock_through_data_bits(cn0):
     # seeded 5 Hz and 5 dB off, through pull-in and data bits: the estimate settles within

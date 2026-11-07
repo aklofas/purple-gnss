@@ -1,8 +1,8 @@
 """Tracking loops closed around the channel's dumps, the way the MCU will close them.
 
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
-third-order Costas PLL for the carrier, a non-coherent early-minus-late DLL every 10 ms for
-the code) and
+third-order Costas PLL for the carrier, its integrator held while the prompt power is down,
+a non-coherent early-minus-late DLL every 10 ms for the code) and
 turns them into the NCO step words a channel takes. Four deliberate differences from pyrx:
 
 1. pyrx moves its correlation window in time at each DLL update, while a channel can only
@@ -24,7 +24,16 @@ from math import atan, log10, pi, sqrt
 import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD
 from pyrx.signals import L1_FREQ
-from pyrx.tracking import B_DLL, B_PLL, CN0_LOST, T_CN0, T_DLL, T_FLL_PULLIN
+from pyrx.tracking import (
+    B_DLL,
+    B_PLL,
+    CN0_LOST,
+    FADE_HOLD,
+    FADE_REF_GAIN,
+    T_CN0,
+    T_DLL,
+    T_FLL_PULLIN,
+)
 
 from fpgamodel.channel import Channel, Dump, nco_step
 
@@ -61,6 +70,8 @@ class Tracker:
         self._prompt_prev = 0j
         self._err_phase_prev = 0.0
         self._phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
+        self._fade_sum = self._fade_ref = 0.0  # 10 ms prompt power and its running mean
+        self._fading = False
         self._sum_e = self._sum_l = 0.0
         self._prompt_mag2: list[float] = []
         self._n_dll = round(T_DLL / CA_PERIOD)
@@ -92,8 +103,20 @@ class Tracker:
             # third-order Costas loop as pyrx (Pocket SDR's C tracker: a3 = 1.1, b3 = 2.4,
             # Bn = W / 0.7845), the same expression order so the increments match bit for bit
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+            # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
+            # running mean, as pyrx does: an obstruction's onset would wind it up
+            self._fade_sum += abs(prompt) ** 2
+            if self.epoch % self._n_dll == 0:
+                self._fading = self._fade_ref > 0.0 and self._fade_sum < FADE_HOLD * self._fade_ref
+                self._fade_ref = (
+                    self._fade_sum
+                    if self._fade_ref == 0.0
+                    else self._fade_ref + FADE_REF_GAIN * (self._fade_sum - self._fade_ref)
+                )
+                self._fade_sum = 0.0
             w = B_PLL / 0.7845
-            self._phase_acc += w * w * w * err_phase * t
+            if not self._fading:
+                self._phase_acc += w * w * w * err_phase * t
             self.doppler += (
                 2.4 * w * (err_phase - self._err_phase_prev)
                 + 1.1 * w * w * err_phase * t
