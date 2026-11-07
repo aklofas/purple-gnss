@@ -2,11 +2,13 @@ from math import atan, pi
 
 import numpy as np
 import pytest
+from support import synth_l1ca_ramp
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
 from pyrx.synth import synth_l1ca
 from pyrx.tracking import (
+    B_PLL,
     CN0_LOST,
     FLL_STAGES,
     PLI_LOCKED,
@@ -210,14 +212,16 @@ def test_track_result_phase_is_nco_phase_at_window_start():
 def test_carrier_phase_origin_common_across_start_times():
     # the same signal tracked from its first code period and from the next one: with a
     # common origin the accumulated Doppler phases agree to a fraction of a cycle (mod 0.5,
-    # Costas); with a per-channel origin they differ by frac(f_if * 1 ms) = 0.1 cycles
+    # Costas); with a per-channel origin they differ by frac(f_if * 1 ms) = 0.1 cycles.
+    # Compared from 4 s: the third-order loop rings for 2 to 4 s after the handover (the two
+    # starts differ by 0.059 cycle over 2 to 3 s, 0.006 from 4 s)
     fs, f_if = 8e6, 2.0001e6
-    src = _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0)
+    src = _src(f_if=f_if, iq=False, fs=fs, code_offset=3000, doppler=-2000.0, seconds=5.0)
     a = track_l1ca(src, f_if, 7, 3000 / fs, -2000.0, 45.0)
     b = track_l1ca(src, f_if, 7, 3000 / fs, -2000.0, 45.0, t_start=CA_PERIOD)
     assert b.t[0] == pytest.approx(a.t[1], abs=1 / fs)
     ta, tb = a.t[1:], b.t[1:]  # carrier_phase[k] is the phase at the end of epoch k
-    k = slice(2000, 2980)
+    k = slice(4000, 4980)
     pb = np.interp(ta[k], tb, b.carrier_phase[1:])
     d = (a.carrier_phase[1:][k] - pb + 0.25) % 0.5 - 0.25
     assert np.abs(d).max() < 0.03
@@ -344,3 +348,41 @@ def test_track_shorter_than_two_sums_runs_no_fll_update():
     r = track_l1ca(_src(seconds=0.0035), 0.0, 7, 1000 / FS, 1234.0, 45.0)
     assert 2 <= len(r.t) <= 3 and r.locked
     assert np.all(r.doppler == 1234.0) and np.all(np.isnan(r.carrier_error))
+
+
+def test_pll_update_is_pocket_sdr_third_order():
+    # rebuilt from the recorded Costas errors in the loop's own order of operations: Pocket
+    # SDR's C tracker, a3 = 1.1, b3 = 2.4, W = B_PLL / 0.7845, an integrated phase term that
+    # starts at zero at the handover; a Doppler near zero keeps an ulp of the update from
+    # being absorbed into the Doppler
+    fs = 2.5e6
+    x = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 2.0), 45.0, True)
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, 3.0, 45.0)
+    k0 = round(T_FLL_PULLIN / CA_PERIOD)  # the first Costas epoch
+    fd = track.doppler[k0 - 1]
+    w = B_PLL / 0.7845
+    acc, prev = 0.0, 0.0
+    for k in range(k0, len(track.t)):
+        e = track.carrier_error[k]
+        if np.isfinite(e):
+            acc += w * w * w * e * CA_PERIOD
+            fd += 2.4 * w * (e - prev) + 1.1 * w * w * e * CA_PERIOD + acc * CA_PERIOD
+            prev = e
+        assert track.doppler[k] == fd, k
+    assert k0 < len(track.t) - 100  # the loop ran well past the handover
+
+
+def test_pll_tracks_a_doppler_ramp_without_lag():
+    # a car's Doppler rate reaches 10 Hz/s; a 5 Hz second-order loop lagged that by 0.11
+    # cycle and lost the satellite. Third-order: no steady-state lag on a ramp. Judged from
+    # 4 s, after the handover transient (the loop rings for 2 to 4 s). The second-order loop
+    # read a mean error of 0.09 cycle and window indicators of 0.69 here.
+    fs, rate = 4e6, 8.0
+    x = synth_l1ca_ramp(7, fs, 1000.0, rate, 1000, int(fs * 6.2), 40.0, seed=1)
+    r = track_l1ca(ArraySamples(x, fs), 0.0, 7, 1000 / fs, 1005.0, 40.0)
+    m = r.t >= 4.0
+    assert abs(np.nanmean(r.carrier_error[m])) < 0.01
+    windows = r.phase_lock[np.arange(999, len(r.t), 1000)][4:6]  # the windows ending at 5 and 6 s
+    assert len(windows) == 2 and windows.min() > 0.8
+    truth = 1000.0 + rate * r.t[m]
+    assert abs(np.mean(r.doppler[m] - truth)) < 0.5

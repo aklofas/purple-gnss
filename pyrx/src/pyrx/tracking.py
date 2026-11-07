@@ -3,8 +3,9 @@
 Each 1 ms epoch correlates one code period at prompt, early, late and noise taps,
 then updates the carrier (FLL during pull-in, its discriminator on coherent sums of
 2 then 5 epochs, `FLL_STAGES`, so that a weak channel hands over within a hertz;
-Costas PLL after) and the code offset (carrier aiding every epoch, non-coherent
-early/late DLL every 10 ms).
+third-order Costas PLL after, so that a moving antenna's Doppler rate leaves no
+phase lag) and the code offset (carrier aiding every epoch, non-coherent early/late
+DLL every 10 ms).
 C/N0 is estimated from prompt versus noise-tap power over 1 s, and over the same
 window a carrier phase-lock indicator, cos 2φ of the prompt (1 when phase-locked,
 near 0 when the carrier spins or there is only noise). A track ends after two
@@ -26,7 +27,7 @@ from pyrx.correlator import correlate
 from pyrx.samples import SampleFile
 from pyrx.signals import L1_FREQ
 
-B_PLL = 5.0  # Hz
+B_PLL = 5.0  # Hz, the third-order Costas loop's noise bandwidth
 # FLL pull-in stages: (seconds, bandwidth Hz, epochs summed coherently before the discriminator).
 # The sum length sets the pull-in range, ±1/(4 sum) = ±125 Hz then ±50 Hz, and divides the
 # discriminator's noise: a weak satellite's acquisition seed can be 100 Hz off, and at 30 dB-Hz
@@ -146,6 +147,7 @@ def track_l1ca(
     phi = (f_if * round(t_code * fs) / fs) % 1.0
     adr = 0.0
     err_phase_prev = 0.0
+    phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
     # pull-in stages as (last epoch, bandwidth, epochs per sum); the sums restart at each stage
     fll_stages = []
     n_end = 0
@@ -200,10 +202,15 @@ def track_l1ca(
                         fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
                 fll_prev, fll_acc, fll_n = fll_acc, 0j, 0
         elif prompt.real != 0.0:
+            # Costas PLL, third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4,
+            # Bn = W / 0.7845): no steady-state lag on a Doppler ramp
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
             out_err_carrier[k] = err_phase
-            w = B_PLL / 0.53
-            fd += 1.4 * w * (err_phase - err_phase_prev) + w * w * err_phase * t
+            w = B_PLL / 0.7845
+            phase_acc += w * w * w * err_phase * t
+            fd += (
+                2.4 * w * (err_phase - err_phase_prev) + 1.1 * w * w * err_phase * t + phase_acc * t
+            )
             err_phase_prev = err_phase
 
         # code: non-coherent early/late DLL every T_DLL

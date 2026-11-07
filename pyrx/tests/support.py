@@ -8,7 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
+from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.ephemeris import Ionosphere
+from pyrx.signals import L1_FREQ
 from pyrx.synth import USUD, ambiguities, as_galileo, constellation
 
 IONO = Ionosphere(
@@ -55,3 +57,40 @@ def without_date(text: str) -> str:
 def without_elapsed(text: str) -> str:
     """The text with the value of its `TIME = x.xxx s` lines replaced."""
     return re.sub(r"^TIME = \d+\.\d{3} s$", "TIME = <t> s", text, flags=re.MULTILINE)
+
+
+def synth_l1ca_ramp(
+    prn: int,
+    fs: float,
+    doppler: float,
+    doppler_rate: float,
+    code_offset: int,
+    n: int,
+    cn0_dbhz: float,
+    seed: int = 0,
+) -> np.ndarray:
+    """`n` real float32 samples of a GPS L1 C/A signal at IF 0 whose Doppler ramps.
+
+    The carrier sits at `doppler + doppler_rate * t` Hz and the code rate is scaled to
+    match at every sample; random data bits every 20 code periods from `code_offset`;
+    noise as `synth_l1ca`'s real case.
+    """
+    rng = np.random.default_rng(seed)
+    code = gps_ca(prn)
+    period = round(fs * CA_PERIOD)
+    sym = rng.choice([-1.0, 1.0], size=(n - code_offset) // (20 * period) + 2)
+    noise_std = np.sqrt(fs / 10 ** (cn0_dbhz / 10.0) / 4.0)
+    out = np.empty(n, dtype=np.float32)
+    cycles = 0.0  # carrier phase (cycles) and code phase (chips) carried across blocks
+    chips = -code_offset * CA_CHIP_RATE * (1.0 + doppler / L1_FREQ) / fs
+    block = 1 << 20
+    for start in range(0, n, block):
+        k = np.arange(start, min(start + block, n))
+        fd = doppler + doppler_rate * k / fs
+        c = cycles + np.cumsum(fd) / fs
+        ch = chips + np.cumsum(CA_CHIP_RATE * (1.0 + fd / L1_FREQ)) / fs
+        cycles, chips = c[-1], ch[-1]
+        signal = code[np.floor(ch).astype(np.int64) % len(code)] * np.cos(2.0 * np.pi * (c % 1.0))
+        signal *= sym[(k - code_offset) // (20 * period) + 1]
+        out[k] = signal + noise_std * rng.standard_normal(len(k))
+    return out
