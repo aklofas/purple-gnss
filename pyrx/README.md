@@ -495,8 +495,10 @@ the first second, its discriminator on coherent sums of the prompt: 2 ms sums at
 5 Hz bandwidth for 0.3 s (pull-in range ±125 Hz, since a weak satellite's acquisition
 peak can be 100 Hz off), then 5 ms sums at 2 Hz for 0.7 s (the sums divide the
 discriminator's noise, so a 30 dB-Hz channel hands over within a hertz where single
-epochs left 10 Hz). A second-order Costas phase-locked loop with 5 Hz bandwidth then
-holds the carrier. The code loop is a
+epochs left 10 Hz). A third-order Costas phase-locked loop with 5 Hz bandwidth (Pocket
+SDR's C tracker's constants) then holds the carrier: third order because a moving
+antenna's Doppler rate would otherwise lag the phase, 0.11 cycle at the 10 Hz/s a car
+produces, and lose the satellite. The code loop is a
 0.25 Hz delay-locked loop on 10 ms non-coherent early/late sums, with the code
 rate aided by the carrier Doppler. C/N0 is estimated from prompt versus noise-tap
 power over 1 s, with the phase-lock indicator over the same window, and a channel is
