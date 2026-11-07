@@ -229,7 +229,8 @@ dummy stays 8 cycles there, whatever the lane count.
 ## Closed-loop tracking
 
 `fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
-will: FLL pull-in then a third-order Costas PLL on the carrier, a non-coherent early-minus-late DLL every
+will: FLL pull-in then a third-order Costas PLL on the carrier (its integrator held while the prompt
+power is down), a non-coherent early-minus-late DLL every
 10 ms, the PLL, DLL and C/N0 constants of `pyrx.tracking`. Fed pyrx's own correlator sums, it
 reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
 (`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
