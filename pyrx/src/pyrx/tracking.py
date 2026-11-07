@@ -4,8 +4,9 @@ Each 1 ms epoch correlates one code period at prompt, early, late and noise taps
 then updates the carrier (FLL during pull-in, its discriminator on coherent sums of
 2 then 5 epochs, `FLL_STAGES`, so that a weak channel hands over within a hertz;
 third-order Costas PLL after, so that a moving antenna's Doppler rate leaves no
-phase lag) and the code offset (carrier aiding every epoch, non-coherent early/late
-DLL every 10 ms).
+phase lag, its integrator held while the prompt power is down so that an obstruction's
+onset does not wind it up) and the code offset (carrier aiding every epoch, non-coherent
+early/late DLL every 10 ms).
 C/N0 is estimated from prompt versus noise-tap power over 1 s, and over the same
 window a carrier phase-lock indicator, cos 2φ of the prompt (1 when phase-locked,
 near 0 when the carrier spins or there is only noise). A track ends after two
@@ -28,6 +29,11 @@ from pyrx.samples import SampleFile
 from pyrx.signals import L1_FREQ
 
 B_PLL = 5.0  # Hz, the third-order Costas loop's noise bandwidth
+# The PLL's integrator is held while the prompt power summed over T_DLL is below FADE_HOLD of
+# its running mean (exponential, time constant T_FADE_REF): an obstruction's onset otherwise
+# winds it up on the faded signal and slips a strong channel.
+FADE_HOLD = 0.5
+T_FADE_REF = 0.5  # s
 # FLL pull-in stages: (seconds, bandwidth Hz, epochs summed coherently before the discriminator).
 # The sum length sets the pull-in range, ±1/(4 sum) = ±125 Hz then ±50 Hz, and divides the
 # discriminator's noise: a weak satellite's acquisition seed can be 100 Hz off, and at 30 dB-Hz
@@ -36,6 +42,7 @@ FLL_STAGES = ((0.3, 5.0, 2), (0.7, 2.0, 5))
 B_DLL = 0.25  # Hz
 T_FLL_PULLIN = 1.0  # s
 T_DLL = 0.010  # s, non-coherent early/late accumulation
+FADE_REF_GAIN = T_DLL / T_FADE_REF  # the running mean's update per 10 ms sum
 T_CN0 = 1.0  # s
 CN0_LOST = 25.0  # dB-Hz
 PLI_LOCKED = 0.25  # cos 2φ of the prompt over a C/N0 window; phase-locked above it
@@ -148,6 +155,8 @@ def track_l1ca(
     adr = 0.0
     err_phase_prev = 0.0
     phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
+    fade_sum = fade_ref = 0.0  # 10 ms prompt power and its running mean, Costas epochs only
+    fading = False
     # pull-in stages as (last epoch, bandwidth, epochs per sum); the sums restart at each stage
     fll_stages = []
     n_end = 0
@@ -206,8 +215,21 @@ def track_l1ca(
             # Bn = W / 0.7845): no steady-state lag on a Doppler ramp
             err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
             out_err_carrier[k] = err_phase
+            # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
+            # running mean: at an obstruction's onset it would wind up on the faded signal
+            # and slip the loop
+            fade_sum += abs(prompt) ** 2
+            if epoch % n_dll == 0:
+                fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
+                fade_ref = (
+                    fade_sum
+                    if fade_ref == 0.0
+                    else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
+                )
+                fade_sum = 0.0
             w = B_PLL / 0.7845
-            phase_acc += w * w * w * err_phase * t
+            if not fading:
+                phase_acc += w * w * w * err_phase * t
             fd += (
                 2.4 * w * (err_phase - err_phase_prev) + 1.1 * w * w * err_phase * t + phase_acc * t
             )

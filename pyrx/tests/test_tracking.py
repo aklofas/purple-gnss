@@ -2,7 +2,7 @@ from math import atan, pi
 
 import numpy as np
 import pytest
-from support import synth_l1ca_ramp
+from support import synth_l1ca_faded, synth_l1ca_ramp
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
@@ -10,6 +10,8 @@ from pyrx.synth import synth_l1ca
 from pyrx.tracking import (
     B_PLL,
     CN0_LOST,
+    FADE_HOLD,
+    FADE_REF_GAIN,
     FLL_STAGES,
     PLI_LOCKED,
     T_DLL,
@@ -386,3 +388,59 @@ def test_pll_tracks_a_doppler_ramp_without_lag():
     assert len(windows) == 2 and windows.min() > 0.8
     truth = 1000.0 + rate * r.t[m]
     assert abs(np.mean(r.doppler[m] - truth)) < 0.5
+
+
+def _rebuild_third_order(track, hold=True):
+    # the Costas loop's Doppler rebuilt from the recorded prompts and errors in the loop's own order
+    # of operations: Pocket SDR's third-order update with the integrator held while the 10 ms prompt
+    # power is below FADE_HOLD of its running mean (reference seeded by the first sum after the
+    # handover, then FADE_REF_GAIN per sum). Returns the Doppler per epoch and the held-epoch mask.
+    k0 = round(T_FLL_PULLIN / CA_PERIOD)
+    n_dll = round(T_DLL / CA_PERIOD)
+    fd = track.doppler[k0 - 1]
+    w = B_PLL / 0.7845
+    acc = prev = fade_sum = fade_ref = 0.0
+    fading = False
+    out, held = np.full(len(track.t), np.nan), np.zeros(len(track.t), bool)
+    for k in range(k0, len(track.t)):
+        e = track.carrier_error[k]
+        if np.isfinite(e):
+            fade_sum += abs(complex(track.corr[k, 0])) ** 2
+            if (k + 1) % n_dll == 0:
+                fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
+                fade_ref = (
+                    fade_sum
+                    if fade_ref == 0.0
+                    else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
+                )
+                fade_sum = 0.0
+            if not (hold and fading):
+                acc += w * w * w * e * CA_PERIOD
+            held[k] = hold and fading
+            fd += 2.4 * w * (e - prev) + 1.1 * w * w * e * CA_PERIOD + acc * CA_PERIOD
+            prev = e
+        out[k] = fd
+    return out, held
+
+
+def test_pll_hold_rule_is_rebuilt_from_the_prompts():
+    # a 40 dB-Hz signal with a 10 dB fade for 2 s from 8 s (30 dB-Hz inside it, above the loss rule):
+    # the hold triggers inside the fade and releases before it ends (the reference adapts with a
+    # 0.5 s time constant); every Costas epoch's Doppler equals the rebuilt rule bit for bit. Without
+    # a fade at the same C/N0 the rule never holds.
+    fs = 2.5e6
+    x = synth_l1ca_faded(4, fs, 0.0, 500, int(fs * 12.0), 40.0, 8.0, 2.0, 10.0, seed=0)
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
+    assert track.locked
+    fd, held = _rebuild_third_order(track)
+    k0 = round(T_FLL_PULLIN / CA_PERIOD)
+    np.testing.assert_array_equal(track.doppler[k0:], fd[k0:])
+    # nothing held before the reference is seeded
+    assert not held[: k0 + round(T_DLL / CA_PERIOD)].any()
+    t_held = track.t[held]
+    # set in the fade, released inside it
+    assert len(t_held) and 8.0 <= t_held.min() < 8.2 and t_held.max() < 10.0
+    y = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 4.0), 40.0, False, seed=0, data_bits=True)
+    steady = track_l1ca(ArraySamples(y, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
+    _, held_steady = _rebuild_third_order(steady)
+    assert not held_steady.any()
