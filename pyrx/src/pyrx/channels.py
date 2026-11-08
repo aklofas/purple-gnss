@@ -21,7 +21,6 @@ segments do not depend on the worker count.
 import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
-from math import ceil
 
 import numpy as np
 
@@ -65,8 +64,8 @@ def track_prn(
     if duration is not None:
         end = min(end, t_start + duration)
     segments: list[TrackResult] = []
-    t = t_start
-    while t + window <= end:
+    k = 0  # probe index on the grid
+    while (t := t_start + interval * k) + window <= end:
         acq = acquire_l1ca(read_samples(path, fs, iq, t, window), fs, f_if, prn)
         if acq.detected:
             seed = (acq.code_offset, acq.doppler, acq.cn0)
@@ -76,9 +75,13 @@ def track_prn(
                 segments.append(seg)
                 if seg.lost_at is None:
                     break
-                t = t_start + interval * ceil((seg.lost_at - t_start) / interval)
+                # the first grid instant at or after the loss; a ceil of the float quotient
+                # overshoots when the loss lands on a grid instant
+                k = int((seg.lost_at - t_start) // interval)
+                if t_start + interval * k < seg.lost_at:
+                    k += 1
                 continue
-        t += interval
+        k += 1
     return segments
 
 

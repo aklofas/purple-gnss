@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -45,9 +47,6 @@ def test_absent_prn_is_probed_on_every_grid_instant(gap_file, monkeypatch):
 
 def test_false_alarm_seed_is_dropped_and_the_grid_kept(gap_file, monkeypatch):
     # a "detection" of the absent PRN 9 at every probe: the trial never bit-syncs
-    def always(samples, fs, f_if, prn, **kw):
-        return AcqResult(prn, 0.0005, 0.0, 36.0, True, np.zeros((1, 1), np.float32), np.zeros(1))
-
     tracked = []
     real = channels.track_l1ca
 
@@ -55,7 +54,7 @@ def test_false_alarm_seed_is_dropped_and_the_grid_kept(gap_file, monkeypatch):
         tracked.append(kw["t_start"])
         return real(*a, **kw)
 
-    monkeypatch.setattr(channels, "acquire_l1ca", always)
+    monkeypatch.setattr(channels, "acquire_l1ca", lambda *a, **k: _always_detected(9))
     monkeypatch.setattr(channels, "track_l1ca", recording)
     assert track_prn(gap_file, FS, True, 0.0, 9, duration=22.0) == []
     assert tracked == [0.0, 10.0, 20.0]  # one trial per grid instant, no full track
@@ -77,6 +76,29 @@ def test_probe_grid_anchors_at_t_start(gap_file, monkeypatch):
     monkeypatch.setattr(channels, "read_samples", recording)
     track_prn(gap_file, FS, True, 0.0, 9, t_start=3.0, interval=10.0)
     assert starts == [3.0, 13.0, 23.0, 33.0]
+
+
+def test_a_loss_exactly_on_a_grid_instant_is_probed_there(gap_file, monkeypatch):
+    # (32.002 - 2.002) / 10 is 3.0000000000000004 in floating point: a ceil of that quotient
+    # skipped the probe at 32.002 s and went to 42.002 s
+    starts = []
+    real = channels.read_samples
+
+    def recording(path, fs, iq, t, d):
+        starts.append(t)
+        return real(path, fs, iq, t, d)
+
+    lost = iter([32.002, 32.002, None, None])  # trial and segment per accepted probe
+    monkeypatch.setattr(channels, "read_samples", recording)
+    monkeypatch.setattr(channels, "acquire_l1ca", lambda *a, **k: _always_detected(9))
+    monkeypatch.setattr(channels, "track_l1ca", lambda *a, **k: SimpleNamespace(lost_at=next(lost)))
+    monkeypatch.setattr(channels, "_bit_syncs", lambda trial: True)
+    track_prn(gap_file, FS, True, 0.0, 9, t_start=2.002, interval=10.0)
+    assert starts == [2.002, 32.002]
+
+
+def _always_detected(prn):
+    return AcqResult(prn, 0.0005, 0.0, 36.0, True, np.zeros((1, 1), np.float32), np.zeros(1))
 
 
 def test_ephemeris_assembles_across_the_gap(gap_file):
