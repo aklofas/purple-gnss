@@ -84,18 +84,25 @@ def test_transmit_time_matches_pocketsdr(captures, case):
 
 def _check_fix(captures, tmp_path, case, obs):
     """RTKLIB's single-point fix from the observation file `obs` against its fix from Pocket
-    SDR's observations; returns the solution, its residuals and the reference epochs."""
-    nav_name, fix_name = case[4], case[7]
+    SDR's observations: epoch by epoch when the case has them, in the mean otherwise (another
+    day at the same site). Returns the solution and its residuals."""
+    nav_name, fix_name, psdr_obs_name = case[4], case[7], case[8]
     brdc = capture_file(captures, nav_name)
     sol, resid = rnx2rtkp_single(obs, brdc, tmp_path / "brdc")
     assert len(sol) >= 25 and all(s["q"] == Q_SINGLE and s["ns"] >= 5 for s in sol)
     ref = {s["time"]: s for s in parse_pos(capture_file(captures, fix_name)) if s["ns"] == 5}
     assert len(ref) == 7
-    common = [(s, ref[s["time"]]) for s in sol if s["time"] in ref]
-    assert len(common) == 7
-    for s, r in common:
-        assert horizontal(s, r) < 5.0 and abs(s["height"] - r["height"]) < 10.0, s["time"]
-    return sol, resid, ref
+    if psdr_obs_name is None:
+        keys = ("lat", "lon", "height")
+        mean = {k: float(np.mean([s[k] for s in sol])) for k in keys}
+        ref_mean = {k: float(np.mean([r[k] for r in ref.values()])) for k in keys}
+        assert horizontal(mean, ref_mean) < 5.0 and abs(mean["height"] - ref_mean["height"]) < 10.0
+    else:
+        common = [(s, ref[s["time"]]) for s in sol if s["time"] in ref]
+        assert len(common) == 7
+        for s, r in common:
+            assert horizontal(s, r) < 5.0 and abs(s["height"] - r["height"]) < 10.0, s["time"]
+    return sol, resid
 
 
 def test_rtklib_fix_from_the_command(captures, tmp_path):
@@ -120,13 +127,8 @@ def test_rtklib_fix(captures, tmp_path, case):
     epochs = make_observables(tracks, lnavs, week=week)
     obs = tmp_path / "pyrx.obs"
     write_rinex_obs(obs, epochs)
-    sol, resid, ref = _check_fix(captures, tmp_path, case, obs)
+    sol, resid = _check_fix(captures, tmp_path, case, obs)
     if psdr_obs_name is None:
-        # another day at the same site: compare the mean positions
-        keys = ("lat", "lon", "height")
-        mean = {k: float(np.mean([s[k] for s in sol])) for k in keys}
-        ref_mean = {k: float(np.mean([r[k] for r in ref.values()])) for k in keys}
-        assert horizontal(mean, ref_mean) < 5.0 and abs(mean["height"] - ref_mean["height"]) < 10.0
         return
     # pseudorange residuals over those epochs, ours against Pocket SDR's observations
     _, ref_resid = rnx2rtkp_single(capture_file(captures, psdr_obs_name), brdc, tmp_path / "psdr")
