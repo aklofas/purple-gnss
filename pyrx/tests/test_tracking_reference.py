@@ -91,5 +91,6 @@ def test_pll_holds_through_the_driving_onset(captures):
         duration=20.0,
     )
     assert r.locked, r.lost_at
+    assert r.t[-1] > 229.99  # tracked through the event to the end of the 20 s
     bad = r.phase_lock[np.arange(999, len(r.t), 1000)] < PLI_LOCKED
     assert not np.any(bad[:-1] & bad[1:])

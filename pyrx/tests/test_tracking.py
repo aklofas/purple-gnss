@@ -401,7 +401,7 @@ def test_pll_tracks_a_doppler_ramp_without_lag():
     assert abs(np.mean(r.doppler[m] - truth)) < 0.5
 
 
-def _rebuild_third_order(track, hold=True):
+def _rebuild_third_order(track):
     # the Costas loop's Doppler rebuilt from the recorded prompts and errors in the loop's own order
     # of operations: Pocket SDR's third-order update with the integrator held while the 10 ms prompt
     # power is below FADE_HOLD of its running mean (reference seeded by the first sum after the
@@ -424,9 +424,9 @@ def _rebuild_third_order(track, hold=True):
             )
             fade_sum = 0.0
         if np.isfinite(e):  # the discriminator is undefined on a zero in-phase prompt
-            if not (hold and fading):
+            if not fading:
                 acc += w * w * w * e * CA_PERIOD
-            held[k] = hold and fading
+            held[k] = fading
             fd += 2.4 * w * (e - prev) + 1.1 * w * w * e * CA_PERIOD + acc * CA_PERIOD
             prev = e
         out[k] = fd
@@ -467,7 +467,7 @@ def test_pll_hold_rule_is_rebuilt_from_the_prompts():
     t_held = track.t[held]
     # set in the fade, released inside it
     assert len(t_held) and 8.0 <= t_held.min() < 8.2 and t_held.max() < 10.0
-    y = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 4.0), 40.0, False, seed=0, data_bits=True)
+    y = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 4.0), 40.0, True, seed=0, data_bits=True)
     steady = track_l1ca(ArraySamples(y, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
     _, held_steady = _rebuild_third_order(steady)
     assert not held_steady.any()
