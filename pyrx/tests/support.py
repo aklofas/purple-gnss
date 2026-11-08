@@ -1,6 +1,7 @@
 """Shared test helpers: fixed ambiguity sets, the golden-file comparison and the
 normalizers of dated or timed output."""
 
+import dataclasses
 import difflib
 import os
 import re
@@ -127,3 +128,14 @@ def synth_l1ca_faded(
     out = noisy.copy()
     out[fade] -= clean[fade] * (1.0 - 10 ** (-fade_db / 20.0))
     return out
+
+
+def assert_tracks_equal(a, b) -> None:
+    """Every field of two TrackResults equal: arrays element for element, scalars by value."""
+    assert type(a) is type(b)
+    for f in dataclasses.fields(a):
+        x, y = getattr(a, f.name), getattr(b, f.name)
+        if isinstance(x, np.ndarray):
+            np.testing.assert_array_equal(x, y, err_msg=f.name)
+        else:
+            assert x == y, f.name

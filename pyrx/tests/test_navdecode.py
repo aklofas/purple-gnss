@@ -86,7 +86,11 @@ def test_tow1_by_prn_is_the_subframe_1_of_the_selected_ephemeris():
     assert tow1_by_prn([a, a]) == {4: 5045 * 6 - 6} and tow1_by_prn([b]) == {}
 
 
-def test_ionosphere_of_takes_the_first_present():
+def test_ionosphere_of_takes_the_first_present_in_list_order():
     iono = Ionosphere((1.0, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0))
+    other = Ionosphere((1.5, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0))
     assert ionosphere_of([_lnav(4, []), LnavResult(7, None, [], None, iono)]) is iono
+    # two segments with a set: the first in list order wins, whatever their times
+    assert ionosphere_of([LnavResult(7, None, [], None, iono), LnavResult(4, None, [], None, other)]) is iono
+    assert ionosphere_of([LnavResult(4, None, [], None, other), LnavResult(7, None, [], None, iono)]) is other
     assert ionosphere_of([_lnav(4, [])]) is None

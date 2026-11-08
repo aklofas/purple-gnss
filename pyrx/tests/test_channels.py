@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from support import assert_tracks_equal
 
 from pyrx import channels
 from pyrx.acquisition import AcqResult, acquire_l1ca
@@ -26,10 +27,10 @@ def test_track_prn_returns_two_segments_around_a_gap(gap_file):
 def test_track_prns_is_independent_of_the_worker_count(gap_file):
     one = track_prns(gap_file, FS, True, 0.0, [4, 9], workers=1, interval=5.0)
     two = track_prns(gap_file, FS, True, 0.0, [4, 9], workers=2, interval=5.0)
-    assert [(s.prn, s.t[0]) for s in one] == [(s.prn, s.t[0]) for s in two]
-    for s1, s2 in zip(one, two):
-        np.testing.assert_array_equal(s1.doppler, s2.doppler)
     assert [s.prn for s in one] == [4, 4]  # PRN 9 is not in the file
+    assert len(two) == len(one)
+    for s1, s2 in zip(one, two):
+        assert_tracks_equal(s1, s2)
 
 
 def test_absent_prn_is_probed_on_every_grid_instant(gap_file, monkeypatch):
@@ -76,6 +77,12 @@ def test_probe_grid_anchors_at_t_start(gap_file, monkeypatch):
     monkeypatch.setattr(channels, "read_samples", recording)
     track_prn(gap_file, FS, True, 0.0, 9, t_start=3.0, interval=10.0)
     assert starts == [3.0, 13.0, 23.0, 33.0]
+    # after a lost segment the walk resumes on the same grid: PRN 4 found at 3 s is lost near
+    # 16 s, 23 s falls in the gap, 33 s finds it again
+    starts.clear()
+    segs = track_prn(gap_file, FS, True, 0.0, 4, t_start=3.0, interval=10.0)
+    assert starts == [3.0, 23.0, 33.0]
+    assert [round(s.t[0]) for s in segs] == [3, 33] and 15.0 <= segs[0].lost_at <= 18.0
 
 
 def test_a_loss_exactly_on_a_grid_instant_is_probed_there(gap_file, monkeypatch):

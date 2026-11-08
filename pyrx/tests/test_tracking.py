@@ -2,7 +2,7 @@ from math import atan, pi
 
 import numpy as np
 import pytest
-from support import synth_l1ca_faded, synth_l1ca_ramp
+from support import assert_tracks_equal, synth_l1ca_faded, synth_l1ca_ramp
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
@@ -165,8 +165,7 @@ def test_track_channels_matches_sequential(tmp_path):
     assert [r.prn for r in results] == [7, 9]
     for r, (prn, coff, dop, cn0) in zip(results, seeds):
         single = track_l1ca(SampleFile(path, fs, True), 0.0, prn, coff, dop, cn0)
-        np.testing.assert_array_equal(r.doppler, single.doppler)
-        np.testing.assert_array_equal(r.code_offset, single.code_offset)
+        assert_tracks_equal(r, single)
         assert r.locked and abs(r.doppler[-1] - dop) < 2.0
 
 

@@ -72,5 +72,6 @@ def tow1_by_prn(lnavs: list[LnavResult]) -> dict[int, int]:
 
 
 def ionosphere_of(lnavs: list[LnavResult]) -> Ionosphere | None:
-    """The first ionosphere parameter set any segment decoded."""
+    """The ionosphere parameter set of the first segment in `lnavs` that decoded one: list
+    order, which is the requested PRN order and then time, not the earliest in time."""
     return next((ln.ionosphere for ln in lnavs if ln.ionosphere is not None), None)
