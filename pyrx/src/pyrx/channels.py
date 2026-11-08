@@ -9,10 +9,11 @@ so the walk ends after at most one probe per grid instant.
 
 A detection is accepted only after a trial: the seed is tracked for `TRIAL`
 seconds and kept when `bit_sync` finds the data-bit edges in that stretch. The
-tracker's own loss rule cannot filter a false alarm, because its C/N0 estimate on
-an absent PRN settles near 30 dB-Hz and never crosses `CN0_LOST`, so a phantom
-seed would otherwise run to the end of the file. An accepted seed is tracked again
-from the same seed, so the segment does not depend on the trial.
+trial validates a detection beyond the tracker's own loss rule: the tracker's C/N0
+estimate on an absent PRN settles near 30 dB-Hz, above `CN0_LOST`, and while its
+phase-lock rule ends a noise seed after about 3 s, the data-bit edges are the
+direct test of a real signal at the probe. An accepted seed is tracked again from
+the same seed, so the segment does not depend on the trial.
 
 PRNs run in parallel processes; within a PRN everything is sequential, so the
 segments do not depend on the worker count.
