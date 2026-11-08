@@ -15,7 +15,7 @@ fpga/
 
 | Target | Board | Notes |
 |---|---|---|
-| [`targets/evn`](targets/evn/README.md) | Lattice LIFCL-40-EVN | SPI and sample pins on the PMOD headers, fabric clock from the internal oscillator, GPLL as a lock check |
+| [`targets/evn`](targets/evn/README.md) | Lattice LIFCL-40-EVN | SPI on the Raspberry Pi header, sample pins on a PMOD header, fabric clock from the internal oscillator, GPLL as a lock check |
 
 Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 31,680 LUT4,
 84 EBR):

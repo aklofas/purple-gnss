@@ -1,7 +1,8 @@
 # LIFCL-40-EVN target
 
 `top.v` wraps `rx_spi` for the Lattice CrossLink-NX evaluation board (FPGA-EB-02028): SPI and
-the dump interrupt on PMOD header J18, two sample pins on J17, five LEDs, SW2 as reset.
+the dump interrupt on the Raspberry Pi header JP5, two sample pins on PMOD header J17, five
+LEDs, SW2 as reset.
 
 ## Build and load
 
@@ -62,20 +63,20 @@ and LiteX's `NXPLL` do; the PLL locks with them.
 
 ## Wiring to the Nucleo
 
-J18 is PMOD1 (bank 7, fixed 3.3 V). Standard PMOD numbering: 5 and 11 ground, 6 and 12 3.3 V.
-The board test drives it from the NUCLEO-H723ZG's OCTOSPI1 in single-line indirect mode, the
-peripheral the later quad-SPI link uses, so the register driver written for the board test
-carries over. Every solder bridge on the Nucleo stays at its default (SB59 and SB63 route NCS
-and CLK to CN10).
+JP5 is the Raspberry Pi header (bank 6; 3.3 V with J42 on 1-2, the default). The SPI lines sit
+on the Pi's SPI0 positions. The board test drives them from the NUCLEO-H723ZG's OCTOSPI1 in
+single-line indirect mode, the peripheral the later quad-SPI link uses, so the register driver
+written for the board test carries over. Every solder bridge on the Nucleo stays at its default
+(SB59 and SB63 route NCS and CLK to CN10).
 
-| J18 pin | Ball | Signal | Direction | Nucleo CN10 pin | STM32 pin | OCTOSPI1 signal |
+| JP5 pin | Ball | Signal | Direction | Nucleo CN10 pin | STM32 pin | OCTOSPI1 signal |
 |---|---|---|---|---|---|---|
-| 1 | E10 | SPI SCK (pulled down) | in | 15 | PB2 | CLK |
-| 2 | E9 | SPI MOSI (pulled down) | in | 23 | PD11 | IO0 |
-| 3 | E7 | SPI MISO | out | 21 | PD12 | IO1 |
-| 4 | E8 | SPI CS (active low, pulled up) | in | 13 | PG6 | NCS |
-| 7 | E4 | DUMP_IRQ (high while any dump is unread) | out | any free GPIO | | |
-| 5 | | GND | | 17 | GND | |
+| 23 | N7 | SPI SCK (pulled down) | in | 15 | PB2 | CLK |
+| 19 | N4 | SPI MOSI (pulled down) | in | 23 | PD11 | IO0 |
+| 21 | K6 | SPI MISO | out | 21 | PD12 | IO1 |
+| 24 | P6 | SPI CS (active low, pulled up) | in | 13 | PG6 | NCS |
+| 22 | K5 | DUMP_IRQ (high while any dump is unread) | out | any free GPIO | | |
+| 25 | | GND | | 17 | GND | |
 
 Join the grounds; do not join the two boards' 3.3 V supplies. The fallback, if the OCTOSPI does
 not come up, is SPI1 on the CN7 Arduino header (SCK D13 / PA5, MISO D12 / PA6, MOSI D11 / PB5
