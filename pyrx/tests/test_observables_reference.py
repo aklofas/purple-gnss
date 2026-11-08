@@ -133,7 +133,8 @@ def test_rtklib_fix(captures, tmp_path, case):
     ours = rms([v for prn in ref_resid for v in resid[prn][-7:]])
     theirs = rms([v for prn in ref_resid for v in ref_resid[prn][-7:]])
     assert ours < 2 * theirs, (ours, theirs)
-    # our own navigation file gives a fix within the spec thresholds of the broadcast-nav one
+    # our own navigation file gives a fix within 5 m horizontal and 10 m vertical of the
+    # broadcast-nav one
     # (RTKLIB uses the day file's 08:00 records, nearest in toe; ours holds the 10:00 ones)
     ephs = [ln.ephemeris for ln in lnavs if ln.ephemeris is not None]
     tow1 = {ln.prn: sf.tow_s for ln in lnavs for sf in ln.subframes if sf.sf_id == 1}

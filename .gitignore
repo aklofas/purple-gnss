@@ -1,4 +1,4 @@
-# Claude Code worktree scratch (tooling creates these; never content)
+# Local tooling scratch directories (never content)
 /.claude/
 /.worktrees/
 /.superpowers/
