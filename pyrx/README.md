@@ -172,7 +172,7 @@ ephemerides only.
 ## RINEX output from the command line
 
 ```sh
-pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] --obs out.obs [--nav out.nav]
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav]
 ```
 
 Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
@@ -180,7 +180,10 @@ whole multiple of `--interval` seconds of GPS time, and writes them as a RINEX 3
 observation file with `C1C L1C D1C S1C` for every channel that has a decoded
 subframe. With `--nav`, the decoded ephemerides (and the ionosphere parameters when
 seen) are written as a RINEX navigation file. The GPS week comes from subframe 1;
-when the recording holds none, give it with `--week`. One line per PRN reports how
+when the recording holds none, give it with `--week`. `--marker-type` writes the
+`MARKER TYPE` header record, which RINEX 3.05 requires for markers other than geodetic
+and non-geodetic ones (`GROUND_CRAFT` for a receiver on a vehicle); without it the
+record is omitted. One line per PRN reports how
 many epochs the channel contributed to and its first pseudorange and Doppler, then
 the number of epochs and their span.
 

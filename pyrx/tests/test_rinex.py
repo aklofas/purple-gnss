@@ -307,6 +307,17 @@ def test_read_rinex_nav_drops_a_record_with_a_blank_field(tmp_path):
     assert [e.system for e in ephs] == ["E"]
 
 
+@pytest.mark.parametrize("write", [write_rinex_obs, write_rinex_observations])
+def test_writers_put_the_marker_type_after_the_marker_name_when_given(tmp_path, write):
+    write(tmp_path / "a.obs", [], "MARK")
+    assert "MARKER TYPE" not in (tmp_path / "a.obs").read_text()
+    write(tmp_path / "b.obs", [], "MARK", marker_type="GROUND_CRAFT")
+    lines = (tmp_path / "b.obs").read_text().splitlines()
+    i = lines.index("MARK".ljust(60) + "MARKER NAME")
+    assert lines[i + 1] == "GROUND_CRAFT".ljust(60) + "MARKER TYPE"
+    assert read_rinex_header(tmp_path / "b.obs").marker == "MARK"
+
+
 def test_write_rinex_obs_golden(tmp_path):
     ephs = constellation()
     epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(3)]
