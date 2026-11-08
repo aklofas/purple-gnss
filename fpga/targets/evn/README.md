@@ -43,19 +43,20 @@ J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
 
 ### PLL settings
 
-Three settings of the `PLL` primitive had to change from the open toolchain's defaults before
-the GPLL locked on the board, found one bitstream at a time (locked: LED0 on and LED4 blinking
-at 1.6 to 1.8 Hz, 34.9 to 40.1 MHz × 3 / 2^26; LED1 blinks either way, since the fabric runs
-from the oscillator):
+With the open toolchain's defaults for the `PLL` primitive the GPLL did not lock on the board:
+LED0 stayed off and LED4 dark, so CLKOP was not running at all. The settings below were found
+one bitstream at a time (locked: LED0 on and LED4 blinking at 1.6 to 1.8 Hz, 34.9 to 40.1 MHz
+× 3 / 2^26; LED1 blinks either way, since the fabric runs from the oscillator):
 
 | Setting | Default | `top.v` | Why |
 |---|---|---|---|
-| `PLLPD_N` | `UNUSED` | `USED` | the PLL power bit (TN-02095 `lmmi_pllpd_n`, "0: PLL is not used"); with the default the PLL stays powered down and CLKOP never runs, whatever the other settings |
-| `FBK_MASK` | 0b00001000 | 0b00000000 | the feedback divider's minimum-ratio mask; with the default the feedback divides by 8 instead of `FBK_MMD_DIG` = 3 (TN-02095 Table C.3) and the PLL locks with CLKOP at 300 MHz, LED4 near 4.5 Hz; `FBK_MMD_PULS_CTL` 0b0001 is the pulse width the table gives for ratios above 2 |
-| `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values Lattice's reference files use for a 1.0 V core (the defaults are the 0.9 V set); the EVN's core runs at 1.0 V. Not separately tested: the PLL was only tried with and without all three changes together |
+| `PLLPD_N` | `UNUSED` | `USED` | the PLL power bit (TN-02095 `lmmi_pllpd_n`, "0: PLL is not used"); with the default the PLL stays powered down and CLKOP never runs, whatever the other settings. Adding this alone to the as-built configuration made the PLL lock |
+| `FBK_MASK` | 0b00001000 | 0b00000000 | the feedback divider's minimum-ratio mask (TN-02095 Table C.3); it binds only for ratios below 8, and with the default the feedback divides by 8 instead of `FBK_MMD_DIG` = 3. With `PLLPD_N` alone the PLL locked with LED4 visibly faster than with the mask cleared; the rate was not measured, and a ratio of 8 would put CLKOP at 300 MHz and the VCO at 3 GHz, above its 800 to 1600 MHz range, so what the PLL settled on is not known. `FBK_MMD_PULS_CTL` 0b0001 is the pulse width the table gives for ratios above 2 |
+| `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values LiteX's `NXPLL` (`litex/soc/cores/clock/lattice_nx.py`) uses for a 1.0 V core, which it says are the defaults in Lattice's reference designs though not the primitive's; the EVN's core runs at 1.0 V. TN-02095's own register table gives other `lmmi_v2i_kvco_sel` defaults, 4'b1001 for 0.9 V and 4'b0100 for 1 V, 55 and 30 by its "10 + Dec × 5" formula; `KP_VCO` and `V2I_1V_EN` agree with it. Not separately tested: the PLL locked with these values and was not tried without them once `PLLPD_N` was set |
 
-`PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. The
-first two also hold for any other LIFCL design built with this toolchain. `SEL_FBK` is not in
+`PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. `PLLPD_N`
+holds for any other LIFCL design built with this toolchain; `FBK_MASK` matters only when the
+feedback ratio is below 8. `SEL_FBK` is not in
 prjoxide's database and is dropped from the bitstream without a warning; the feedback path is
 set by `CLKMUX_FB` alone. The loop-filter constants (`CSET`, `CRIPPLE`, the charge-pump
 currents) are the toolchain defaults, not values computed for this frequency plan as Radiant
@@ -107,8 +108,9 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
 ## First test on the board
 
 1. Load `build/n1/top.bit` over the board's FTDI JTAG. LED1 blinking shows the fabric running;
-   LED0 on with LED4 blinking shows the PLL locked. If LED0 stays off, load the next PLL
-   variant (above) and note which one locks.
+   LED0 on with LED4 blinking shows the PLL locked. If LED0 stays off, check that the PLL
+   settings above reached the bitstream (`grep IP_PLL_ build/n1/top.fasm` shows `PLLPD_N` and
+   `FBK_MASK`) and whether LED4 runs at all, and note what was seen.
 2. Configure OCTOSPI1 for indirect mode on one line (IMODE, ADMODE and DMODE = 1 line):
    instruction 8 bits, address 16 bits, 8 dummy cycles on reads and none on writes, DLR =
    4n − 1 for n words, CKMODE 0 (clock idle low), SSHIFT 0, DLYBYP 1 (no delay block), DEVSIZE
