@@ -115,6 +115,19 @@ def test_an_empty_early_late_window_applies_no_dll_offset():
     assert tracker.rate_offset == 0.0
 
 
+def test_tracker_rejects_a_dump_out_of_sequence():
+    # the schedules count epochs and the FLL differences consecutive prompts, so a missed,
+    # repeated or reordered dump is an error for the caller to handle (the firmware ends the
+    # segment and re-acquires); the first dump may carry any epoch
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0, skip_first=True)
+    tracker.update(_steady(7))
+    tracker.update(_steady(8))
+    for bad in (8, 10, 7):
+        with pytest.raises(ValueError, match="dump epoch"):
+            tracker.update(_steady(bad))
+    tracker.update(_steady(9))
+
+
 @pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
 def test_cn0_estimate_holds_lock_through_data_bits(cn0):
     # seeded 5 Hz and 5 dB off, through pull-in and data bits: the estimate settles within

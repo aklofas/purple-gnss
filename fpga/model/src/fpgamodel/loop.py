@@ -67,6 +67,7 @@ class Tracker:
         self.locked = True
         self.rate_offset = 0.0  # chips per second added to the Doppler-scaled chip rate
         self._skip = skip_first
+        self._last_epoch: int | None = None
         self._prompt_prev = 0j
         self._err_phase_prev = 0.0
         self._phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
@@ -84,8 +85,18 @@ class Tracker:
         return nco_step(self.f_if + self.doppler, self.fs), nco_step(4.0 * self.chip_rate(), self.fs)
 
     def update(self, dump: Dump) -> tuple[int, int]:
-        """Take one dump, update the loops, return the next (carrier step, code step)."""
+        """Take one dump, update the loops, return the next (carrier step, code step).
+
+        The dumps must come in order with none missing (the schedules count epochs and the
+        FLL differences consecutive prompts): a dump whose epoch is not the previous one
+        plus one raises ValueError, and the caller ends the track there.
+        """
         t = CA_PERIOD
+        if self._last_epoch is not None and dump.epoch != self._last_epoch + 1:
+            raise ValueError(
+                f"dump epoch {dump.epoch} after {self._last_epoch}: the loops need every dump in order"
+            )
+        self._last_epoch = dump.epoch
         if self._skip:
             self._skip = False  # the partial first period: no update, no epoch
             return self.steps()
