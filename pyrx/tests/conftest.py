@@ -37,7 +37,7 @@ def captures() -> Path:
 
 @pytest.fixture(scope="session")
 def gap_file(tmp_path_factory) -> Path:
-    """38.6 s of PRN 4 at 2.5 MHz with the signal replaced by noise from 14.5 s to 24 s.
+    """39.8 s of PRN 4 at 2.5 MHz with the signal replaced by noise from 14.5 s to 24 s.
 
     Two frames of subframes 1 to 3 (TOW counts 5044.. and 5047..) after a 2 s lead-in,
     then the TLM and HOW words of a third frame (frame sync verifies a subframe start by
