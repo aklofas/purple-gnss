@@ -42,32 +42,47 @@ def _track_synthetic(codes, doppler_seed, cn0_seed):
     return tracker
 
 
+def _mirror(ref, tracker):
+    """Feed pyrx's correlator sums to the tracker epoch by epoch. At the handover the tracker's
+    Doppler is set to pyrx's, so from there on the two run the same arithmetic on the same
+    numbers (the pull-ins differ by design and leave the absolute Dopplers apart, which would
+    round the last addition differently). Returns the tracker's Doppler per epoch and whether
+    its integrator was held."""
+    n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
+    dopplers, held = [], []
+    for k in range(len(ref.t)):
+        if k == n_pullin:
+            tracker.doppler = float(ref.doppler[k - 1])
+        prompt, early, late = ref.corr[k][:3]
+        sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
+        tracker.update(Dump(k + 1, *sums, 0))
+        dopplers.append(tracker.doppler)
+        held.append(tracker.fading)
+    return np.array(dopplers), np.array(held)
+
+
 def test_tracker_matches_pyrx_on_its_correlator_outputs():
     # fed pyrx's own prompt, early and late sums epoch by epoch, the tracker's Costas loop
-    # must reproduce pyrx's Doppler increments from the FLL-to-PLL handover on (the same
-    # arithmetic on the same sums; the pull-ins may differ, the tracker keeps its own), and its
-    # C/N0 estimate, built without pyrx's noise tap, must agree with pyrx's to the dB
+    # must reproduce pyrx's Doppler bit for bit from the FLL-to-PLL handover on (the same
+    # arithmetic on the same sums), and its C/N0 estimate, built without pyrx's noise tap,
+    # must agree with pyrx's to the dB
     x, _ = _synthetic(40.0)
     ref = track_l1ca(ArraySamples(x, FS_SYN), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 45.0)
     assert ref.locked and len(ref.t) >= 2000
     tracker = Tracker(FS_SYN, F_IF_SYN, DOPPLER_SYN + 5.0, 45.0)
-    ours = []
-    for k in range(len(ref.t)):
-        prompt, early, late = ref.corr[k][:3]
-        sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
-        tracker.update(Dump(k + 1, *sums, 0))
-        ours.append(tracker.doppler)
+    ours, held = _mirror(ref, tracker)
     n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
-    np.testing.assert_allclose(
-        np.diff(ours[n_pullin:]), np.diff(ref.doppler[n_pullin:]), rtol=0, atol=1e-9
-    )
+    np.testing.assert_array_equal(ours[n_pullin:], ref.doppler[n_pullin:])
+    assert not held.any()
     assert abs(tracker.cn0 - ref.cn0[-1]) < 1.0
     assert tracker.locked
 
 
 def test_tracker_holds_the_integrator_like_pyrx_through_a_fade():
     # the same prompts through a 10 dB fade: the hold must decide on the same sums and epochs as
-    # pyrx, else the increments diverge from the first held epoch
+    # pyrx, else the Dopplers diverge from the first held epoch; and it must actually engage,
+    # inside the fade and almost nowhere else (measured 650 of the fade's 2000 epochs, 10 of
+    # the 10 000 outside it, the first window after the handover)
     fs, n = FS_SYN, int(FS_SYN * 12.0)
     noisy = synth_l1ca(7, fs, F_IF_SYN, DOPPLER_SYN, 0, n, 36.0, False, seed=0, data_bits=True)
     clean = synth_l1ca(7, fs, F_IF_SYN, DOPPLER_SYN, 0, n, 200.0, False, seed=0, data_bits=True)
@@ -76,16 +91,12 @@ def test_tracker_holds_the_integrator_like_pyrx_through_a_fade():
     ref = track_l1ca(ArraySamples(x, fs), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 36.0)
     assert ref.locked
     tracker = Tracker(fs, F_IF_SYN, DOPPLER_SYN + 5.0, 36.0)
-    ours = []
-    for i in range(len(ref.t)):
-        prompt, early, late = ref.corr[i][:3]
-        sums = (early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag)
-        tracker.update(Dump(i + 1, *sums, 0))
-        ours.append(tracker.doppler)
+    ours, held = _mirror(ref, tracker)
     n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
-    np.testing.assert_allclose(
-        np.diff(ours[n_pullin:]), np.diff(ref.doppler[n_pullin:]), rtol=0, atol=1e-9
-    )
+    np.testing.assert_array_equal(ours[n_pullin:], ref.doppler[n_pullin:])
+    fade = (ref.t >= 8.0) & (ref.t < 10.0)
+    assert held[fade].sum() > 400
+    assert held[~fade].sum() < 50
 
 
 def _steady(k, ip=1000, ie=0, il=0):
