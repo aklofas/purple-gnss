@@ -282,9 +282,11 @@ def test_rinex_main_writes_one_nav_record_from_two_segments(gap_file, tmp_path, 
     obs, nav = tmp_path / "g.obs", tmp_path / "g.nav"
     rc = rinex_main(
         [str(gap_file), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--nav", str(nav)]
+        + ["--marker-type", "GROUND_CRAFT"]
     )
     out = capsys.readouterr().out
     assert rc == 0
     lines = [line for line in out.splitlines() if line.startswith("PRN  4")]
     assert len(lines) == 2 and lines[1].startswith("PRN  4 from 30.0 s  epochs")
     assert nav.read_text().count("\nG04 ") == 1
+    assert "GROUND_CRAFT".ljust(60) + "MARKER TYPE" in obs.read_text()

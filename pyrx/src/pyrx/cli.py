@@ -236,6 +236,11 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
     p.add_argument("--week", type=int, default=None, help="GPS week (needed without subframe 1)")
     p.add_argument("--marker", default="PYRX", help="RINEX marker name")
+    p.add_argument(
+        "--marker-type",
+        default=None,
+        help="RINEX marker type, e.g. GROUND_CRAFT for a receiver on a vehicle; omitted by default",
+    )
     p.add_argument("--obs", required=True, help="RINEX observation file to write")
     p.add_argument("--nav", default=None, help="RINEX navigation file to write")
     args = p.parse_args(argv)
@@ -269,7 +274,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
         print(f"{what}, nothing written", file=sys.stderr)
         return 2
     week = epochs[0].week
-    write_rinex_obs(args.obs, epochs, args.marker)
+    write_rinex_obs(args.obs, epochs, args.marker, marker_type=args.marker_type)
     print(
         f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "
         f"to {gps_datetime(week, epochs[-1].tow)}"

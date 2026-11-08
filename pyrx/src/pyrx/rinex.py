@@ -92,8 +92,13 @@ def write_rinex_obs(
     epochs: list[Epoch],
     marker: str = "PYRX",
     program: str = "pyrx",
+    marker_type: str | None = None,
 ) -> None:
     """Write GPS L1 C/A observations (C1C L1C D1C S1C) as a RINEX 3.05 observation file.
+
+    `marker_type` is written as the MARKER TYPE record when given (RINEX 3.05 requires
+    it for markers other than geodetic and non-geodetic ones, e.g. GROUND_CRAFT for a
+    receiver on a vehicle).
     """
     epochs = [e for e in epochs if e.obs]
     if any(e.week is None for e in epochs):
@@ -104,6 +109,7 @@ def write_rinex_obs(
         ),
         _pgm_line(program),
         _line(marker, "MARKER NAME"),
+        *([_line(marker_type, "MARKER TYPE")] if marker_type else []),
         _line("", "OBSERVER / AGENCY"),
         _line(f"{'':<20s}{program:<20s}", "REC # / TYPE / VERS"),
         _line("", "ANT # / TYPE"),
@@ -453,6 +459,7 @@ def write_rinex_observations(
     epochs: list[Observations],
     marker: str = "PYRX",
     program: str = "pyrx",
+    marker_type: str | None = None,
 ) -> None:
     """Write multi-signal observations as a RINEX 3.05 observation file.
 
@@ -461,6 +468,7 @@ def write_rinex_observations(
     already aligned to their band's reference signal, so a code Table A23 shifts
     carries a 0.00000 correction and a reference code a blank one; a `nan` leaves
     its field blank; a nonzero loss-of-lock indicator is written after the phase.
+    `marker_type` as in `write_rinex_obs`.
     """
     epochs = [e for e in epochs if e.sats]
     signals = epochs[0].signals if epochs else ()
@@ -474,6 +482,7 @@ def write_rinex_observations(
         ),
         _pgm_line(program),
         _line(marker, "MARKER NAME"),
+        *([_line(marker_type, "MARKER TYPE")] if marker_type else []),
         _line("", "OBSERVER / AGENCY"),
         _line(f"{'':<20s}{program:<20s}", "REC # / TYPE / VERS"),
         _line("", "ANT # / TYPE"),
