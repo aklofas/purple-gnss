@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-// LIFCL-40-EVN top level: rx_spi behind the board's PMOD headers.
+// LIFCL-40-EVN top level: rx_spi behind the board's Raspberry Pi and PMOD headers.
 //
 // Clocking. The board's only fabric clock input is a 12 MHz oscillator, below the GPLL's
 // 18 MHz minimum reference (FPGA-DS-02049, fIN), so the fabric runs from the device's
