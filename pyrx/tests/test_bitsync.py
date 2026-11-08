@@ -1,7 +1,7 @@
 import numpy as np
 
 from pyrx.bitsync import BitStream, bit_sync, frame_sync
-from pyrx.lnav import encode_subframe
+from pyrx.lnav import PREAMBLE, encode_subframe
 from pyrx.synth import SF1, SF2, SF3
 
 rng = np.random.default_rng(1)
@@ -10,7 +10,7 @@ rng = np.random.default_rng(1)
 def _frame_bits(tow0=5044, n_sf=3, d29=0, d30=0):
     out = []
     for i, f in zip(range(1, n_sf + 1), (SF1, SF2, SF3, SF1, SF2)):
-        sf = encode_subframe(i if i <= 3 else 1, (tow0 + i - 1) % 100800, f, d29, d30)
+        sf = encode_subframe((i - 1) % 3 + 1, (tow0 + i - 1) % 100800, f, d29, d30)
         d29, d30 = int(sf[28 + 270]), int(sf[29 + 270])
         out.append(sf)
     return np.concatenate(out)
@@ -205,3 +205,33 @@ def test_bit_sync_returns_nothing_when_no_window_agrees_on_the_summed_phase():
     flips = np.zeros(4000)
     flips[edges] = 1
     assert bit_sync(np.where(np.cumsum(flips) % 2 == 0, 1.0, -1.0), 0) is None
+
+
+def test_frame_sync_prefers_the_earlier_start_over_the_plain_polarity():
+    # two clean stretches that both decode: the first complemented, the second plain with
+    # its own TOW sequence. The earliest verified start must win whatever its polarity, so
+    # the complemented head is decoded and the stream reported inverted; a scan that tried
+    # the plain polarity at every position first would return the tail instead
+    head = _frame_bits() ^ 1
+    tail = _frame_bits(tow0=5054, n_sf=3)
+    bits = np.concatenate([head, tail])
+    stream = BitStream(bits, np.arange(len(bits)) * 20, 0, 1.0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.tow_s for s in sfs] == [5044 * 6 - 6, 5045 * 6 - 6, 5046 * 6 - 6]
+    assert stream.inverted is True
+
+
+def test_frame_sync_decodes_through_a_half_cycle_slip_in_one_tow_sequence():
+    # one TOW-continuous frame sequence whose suffix arrives complemented, as after a Costas
+    # half-cycle slip mid-stream: parity is invariant under complementing a word together with
+    # the two bits it chains from, so the later subframes still decode, in the complemented
+    # polarity (their raw bits flipped against the preamble, which the observables read as the
+    # half-cycle indicator); the one whose first word chains from the plain tail fails parity
+    # and is dropped
+    bits = _frame_bits(n_sf=5)  # subframes 1 2 3 1 2 with TOW counts 5044..5048
+    bits[900:] ^= 1  # the slip at the start of the fourth subframe
+    stream = BitStream(bits, np.arange(len(bits)) * 20, 0, 1.0)
+    sfs = frame_sync(stream, prn=4)
+    assert [s.tow_s for s in sfs] == [5044 * 6 - 6, 5045 * 6 - 6, 5046 * 6 - 6, 5048 * 6 - 6]
+    assert stream.inverted is False
+    assert [bool(np.array_equal(s.bits[:8], PREAMBLE)) for s in sfs] == [True, True, True, False]
