@@ -20,14 +20,14 @@ approaching satellite, as tracking reports it.
 Carrier validity: an epoch whose 1 s window is not phase-locked (the channel's
 `phase_lock` below `PLI_LOCKED`, or unknown) has no carrier phase (nan, a blank in
 RINEX), as receivers that report a phase-lock flag withhold the phase; its
-pseudorange, Doppler and C/N0 stay. RINEX loss-of-lock indicator (bit 1 after
-Pocket SDR's rules): on a channel's first observation and on those within its
+pseudorange, Doppler and C/N0 stay. RINEX loss-of-lock indicator (value 1, bit 0,
+after Pocket SDR's rules): on a channel's first observation and on those within its
 first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
 re-acquired after a gap begins with a slip), on the first observation with a phase
 after any epoch without phase lock since the previous one with a phase (an unlocked
 window can lie wholly between sparse observations), and on the first observation
 after the data polarity changed,
-that is after a half-cycle slip of the Costas loop; bit 2 where the polarity is not
+that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the polarity is not
 established by a decoded subframe: before the first subframe, and from the end of
 the last subframe before a polarity change to the start of the first subframe
 after it. The bits are kept on an observation without a phase too, so the slip is

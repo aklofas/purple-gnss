@@ -188,7 +188,7 @@ class Rtk:
 
     @staticmethod
     def _flagged(last, key, lli):
-        """Whether one receiver's loss-of-lock indicator marks a slip: bit 1 set, or the
+        """Whether one receiver's loss-of-lock indicator marks a slip: value 1 (bit 0) set, or the
         half-cycle bit changed since that receiver's previous indicator (RTKLIB detslp_ll)."""
         prev = last.get(key, lli)
         last[key] = lli
