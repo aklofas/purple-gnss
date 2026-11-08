@@ -72,7 +72,7 @@ class Tracker:
         self._err_phase_prev = 0.0
         self._phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
         self._fade_sum = self._fade_ref = 0.0  # 10 ms prompt power and its running mean
-        self._fading = False
+        self.fading = False  # the integrator is held over the current 10 ms window
         self._sum_e = self._sum_l = 0.0
         self._prompt_mag2: list[float] = []
         self._n_dll = round(T_DLL / CA_PERIOD)
@@ -110,30 +110,32 @@ class Tracker:
                 if dot != 0.0:
                     b = B_FLL[0] if self.epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
                     self.doppler -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
-        elif prompt.real != 0.0:
-            # third-order Costas loop as pyrx (Pocket SDR's C tracker: a3 = 1.1, b3 = 2.4,
-            # Bn = W / 0.7845), the same expression order so the increments match bit for bit
-            err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+        else:
             # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
-            # running mean, as pyrx does: an obstruction's onset would wind it up
+            # running mean, as pyrx does: an obstruction's onset would wind it up. The window
+            # closes on schedule whatever the prompt; integer dumps with ip == 0 are routine.
             self._fade_sum += abs(prompt) ** 2
             if self.epoch % self._n_dll == 0:
-                self._fading = self._fade_ref > 0.0 and self._fade_sum < FADE_HOLD * self._fade_ref
+                self.fading = self._fade_ref > 0.0 and self._fade_sum < FADE_HOLD * self._fade_ref
                 self._fade_ref = (
                     self._fade_sum
                     if self._fade_ref == 0.0
                     else self._fade_ref + FADE_REF_GAIN * (self._fade_sum - self._fade_ref)
                 )
                 self._fade_sum = 0.0
-            w = B_PLL / 0.7845
-            if not self._fading:
-                self._phase_acc += w * w * w * err_phase * t
-            self.doppler += (
-                2.4 * w * (err_phase - self._err_phase_prev)
-                + 1.1 * w * w * err_phase * t
-                + self._phase_acc * t
-            )
-            self._err_phase_prev = err_phase
+            if prompt.real != 0.0:  # the discriminator is undefined on a zero in-phase sum
+                # third-order Costas loop as pyrx (Pocket SDR's C tracker: a3 = 1.1, b3 = 2.4,
+                # W = Bn / 0.7845), the same expression order so the increments match bit for bit
+                err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+                w = B_PLL / 0.7845
+                if not self.fading:
+                    self._phase_acc += w * w * w * err_phase * t
+                self.doppler += (
+                    2.4 * w * (err_phase - self._err_phase_prev)
+                    + 1.1 * w * w * err_phase * t
+                    + self._phase_acc * t
+                )
+                self._err_phase_prev = err_phase
         self._prompt_prev = prompt
 
         self._sum_e += abs(complex(dump.ie, dump.qe))
