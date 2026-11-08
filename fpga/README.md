@@ -22,8 +22,8 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax | Bitstream (compressed) |
 |---|---|---|---|---|---|
-| 1 | 2,385 | 1,513 | 19 | 151.3 MHz | 248 KB |
-| 12 | 14,175 | 10,412 | 30 | 104.3 MHz | 504 KB |
+| 1 | 2,385 | 1,513 | 19 | 147.8 MHz | 249 KB |
+| 12 | 14,175 | 10,412 | 30 | 104.4 MHz | 506 KB |
 
 The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
 so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
