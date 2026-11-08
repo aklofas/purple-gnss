@@ -257,16 +257,18 @@ PLL at 1 s, and the two loops enter that handover from different carrier phases 
 its NCO at the IF phase of its first window, the channel's has run from sample 0), so the first
 second after it is a transient that says nothing about tracking.
 
-| Loop around | Doppler, RMS difference | Code-period start, largest difference |
-|---|---|---|
-| the model (`fpga/model/tests/test_loop.py`) | 0.07 Hz | 0.0005 chips |
-| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | 0.07 Hz | 0.0005 chips |
+| Loop around | Doppler compared with pyrx's | Doppler, RMS difference | Code-period start, largest difference |
+|---|---|---|---|
+| the model (`fpga/model/tests/test_loop.py`) | the loop's own value, `Tracker.doppler` | 0.072 Hz | 0.0005 chips |
+| the RTL over SPI (`fpga/tb/test_loop.py`, `FPGA_SLOW=1 SIM=verilator`, 2 min) | the value the carrier step word written after each dump implies (one step is 0.0056 Hz at 24 Msps) | 0.072 Hz | 0.0005 chips |
 
-Bounds: 0.1 Hz RMS and 0.001 chips, set from measured failures (a PLL gain of twice or half
+Both rows were measured with the integrator hold in the loop. Bounds: 0.1 Hz RMS and 0.001
+chips, set from measured failures (a PLL gain of twice or half
 the value reaches 0.20 or 0.10 Hz, a doubled FLL gain 0.10 Hz, a doubled DLL gain 0.0015
 chips, a dead DLL 0.0057 chips). The RTL run also replays the same samples and the same step
 schedule through the model and requires every dump to be equal: the closed loop is bit-exact
-too, which is why the two rows agree to the digit.
+too, and the step word's quantization is far below the difference, which is why the two rows
+agree to the digit.
 
 ## Quantization loss
 
