@@ -3,7 +3,7 @@
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
 third-order Costas PLL for the carrier, its integrator held while the prompt power is down,
 a non-coherent early-minus-late DLL every 10 ms for the code) and
-turns them into the NCO step words a channel takes. Four deliberate differences from pyrx:
+turns them into the NCO step words a channel takes. Five deliberate differences from pyrx:
 
 1. pyrx moves its correlation window in time at each DLL update, while a channel can only
    change its code NCO rate, so the DLL output becomes a chip-rate offset applied over the
@@ -16,6 +16,11 @@ turns them into the NCO step words a channel takes. Four deliberate differences 
    a window that overlaps pull-in.
 4. The FLL pull-in is the 1 ms two-stage one (5 Hz, then 2 Hz); pyrx pulls in on 2 ms then
    5 ms coherent sums, so the two Dopplers agree only from the handover on.
+5. pyrx ends a track after two consecutive 1 s windows that are bad by C/N0 (below CN0_LOST)
+   or by its phase-lock indicator (cos 2φ of the prompt below PLI_LOCKED); the tracker has
+   no indicator and ends a track at the first window after pull-in whose smoothed C/N0 is
+   below CN0_LOST. The firmware is to take the moments C/N0 of difference 3 together with
+   pyrx's indicator and two-window rule, which the dumps' prompt I/Q allow.
 """
 
 from dataclasses import dataclass
@@ -152,8 +157,9 @@ class Tracker:
         # in complex noise of power N, E|z|^2 = S + N and E|z|^4 = S^2 + 4SN + 2N^2, so
         # S = sqrt(2 M2^2 - M4); independent of data bits and of the carrier phase. Noisier
         # than a noise tap near the loss threshold (about 1.6 dB per window at 28 dB-Hz, 0.3 dB
-        # at 35), so a satellite near 28 dB-Hz reads below CN0_LOST a few percent of the time
-        # and the smoothing then needs two such windows in a row to declare the loss.
+        # at 35), so a satellite near 28 dB-Hz reads below CN0_LOST a few percent of the time;
+        # with the half-gain smoothing the estimate itself crosses CN0_LOST only after about
+        # two low readings in a row, and one crossing ends the track (difference 5 above).
         self._prompt_mag2.append(abs(prompt) ** 2)
         if self.epoch % self._n_cn0 == 0:
             mag2 = np.array(self._prompt_mag2)
