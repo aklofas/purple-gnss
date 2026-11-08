@@ -504,8 +504,8 @@ Each channel integrates 1 ms (one C/A code period) with early and late taps at
 the first second, its discriminator on coherent sums of the prompt: 2 ms sums at
 5 Hz bandwidth for 0.3 s (pull-in range ±125 Hz, since a weak satellite's acquisition
 peak can be 100 Hz off), then 5 ms sums at 2 Hz for 0.7 s (the sums divide the
-discriminator's noise, so a 30 dB-Hz channel hands over within a hertz where single
-epochs left 10 Hz). A third-order Costas phase-locked loop with 5 Hz bandwidth (Pocket
+discriminator's noise, so a 30 dB-Hz channel hands over about a hertz off, 1.1 Hz at
+worst measured, where single epochs left 10 Hz). A third-order Costas phase-locked loop with 5 Hz bandwidth (Pocket
 SDR's C tracker's constants) then holds the carrier: third order because a moving
 antenna's Doppler rate would otherwise lag the phase, 0.11 cycle at the 10 Hz/s a car
 produces, and lose the satellite. While the prompt power drops below half its recent
