@@ -245,9 +245,9 @@ async def start_playback(bus: RegAccess, n_samples: int) -> None:
     await bus.write(R.PLAYBACK_CTRL, 1)
 
 
-async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> tuple[Dump | None, bool]:
+async def read_dump(bus: RegAccess, k: int) -> tuple[Dump | None, bool]:
     """The channel's holding registers as a Dump (sample = -1: the core does not know it),
-    and whether to read again at once.
+    cleared, and whether to read again at once.
 
     A dump that lands during the read replaces the registers the moment it does, EPOCH with
     them. EPOCH is read before and after the sums: a change means the sums could mix two
@@ -260,8 +260,6 @@ async def read_dump(bus: RegAccess, k: int, clear: bool = True) -> tuple[Dump | 
     sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
     if await bus.read(R.ch(k, R.EPOCH)) != epoch:
         return None, True
-    if not clear:
-        return Dump(epoch, *sums, -1), False
     await bus.write(R.DUMP_CLEAR, 1 << k)
     return Dump(epoch, *sums, -1), await bus.read(R.ch(k, R.EPOCH)) != epoch
 
