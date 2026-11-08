@@ -63,7 +63,12 @@ and LiteX's `NXPLL` do; the PLL locks with them.
 
 ## Wiring to the Nucleo
 
-JP5 is the Raspberry Pi header (bank 6; 3.3 V with J42 on 1-2, the default). The SPI lines sit
+JP5 is the Raspberry Pi header (bank 6; 3.3 V with J33 on 1-2, the default; EB-02028's Table 3.1
+calls that jumper J42, a typo: J42 is the core-current header across R162). The board ships with
+JP5 unpopulated (its 2 × 20 receptacle is "DNL" in the bill of materials), so solder a header on
+first. The pins are numbered as on the Pi: pin 1 is the 3.3 V supply and pin 2 the 5 V supply
+(Table 8.3), odd pins in one row and even in the other, so a meter on those two pins of the powered board tells the
+orientation before anything is wired. The SPI lines sit
 on the Pi's SPI0 positions. The board test drives them from the NUCLEO-H723ZG's OCTOSPI1 in
 single-line indirect mode, the peripheral the later quad-SPI link uses, so the register driver
 written for the board test carries over. Every solder bridge on the Nucleo stays at its default

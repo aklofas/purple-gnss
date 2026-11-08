@@ -1,5 +1,5 @@
 # LIFCL-40-EVN pins (FPGA-EB-02028 v1.7). All on 3.3 V banks: the Raspberry Pi header JP5 is
-# bank 6 (3.3 V with J42 at 1-2, the default), PMOD header J17 bank 7 (fixed 3.3 V), LEDs and
+# bank 6 (3.3 V with J33 on 1-2, the default), PMOD header J17 bank 7 (fixed 3.3 V), LEDs and
 # SW2 bank 1 (fixed 3.3 V).
 #
 # JP5 (Raspberry Pi header), the Pi's SPI0 positions: 19 MOSI, 21 MISO, 23 SCK, 24 CS_N,
