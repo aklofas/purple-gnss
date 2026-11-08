@@ -52,12 +52,14 @@ def track_prn(
     duration: float | None = None,
     interval: float = REACQ_INTERVAL,
     window: float = DEFAULT_WINDOW,
+    rejected: list[tuple[int, float]] | None = None,
 ) -> list[TrackResult]:
     """Segments of PRN `prn` in the recording at `path`, in time order.
 
     Probes start at `t_start` and fall on the grid `t_start + interval * k`; each
     integrates `window` seconds. `duration` limits the walk to that many seconds
-    from `t_start` (the whole file when None).
+    from `t_start` (the whole file when None). When `rejected` is given, every
+    detection the trial turned down is appended to it as `(prn, probe instant)`.
     """
     source = SampleFile(path, fs, iq)
     end = source.n_samples / fs
@@ -81,13 +83,16 @@ def track_prn(
                 if t_start + interval * k < seg.lost_at:
                     k += 1
                 continue
+            if rejected is not None:
+                rejected.append((prn, t))
         k += 1
     return segments
 
 
 def _prn_job(args):
     path, fs, iq, f_if, prn, kwargs = args
-    return track_prn(path, fs, iq, f_if, prn, **kwargs)
+    rejected: list[tuple[int, float]] = []
+    return track_prn(path, fs, iq, f_if, prn, rejected=rejected, **kwargs), rejected
 
 
 def track_prns(
@@ -97,12 +102,13 @@ def track_prns(
     f_if: float,
     prns: list[int],
     workers: int | None = None,
+    rejected: list[tuple[int, float]] | None = None,
     **kwargs,
 ) -> list[TrackResult]:
     """All segments of the given PRNs, PRNs in the given order and segments in time order.
 
-    `kwargs` go to `track_prn`. Each worker process reopens the file, so nothing
-    large is pickled in.
+    `kwargs` and `rejected` go to `track_prn`. Each worker process reopens the file,
+    so nothing large is pickled in.
     """
     jobs = [(os.fspath(path), fs, iq, f_if, prn, kwargs) for prn in prns]
     if workers is None:
@@ -114,4 +120,6 @@ def track_prns(
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
             per_prn = list(pool.map(_prn_job, jobs))
-    return [seg for segs in per_prn for seg in segs]
+    if rejected is not None:
+        rejected.extend(r for _, rej in per_prn for r in rej)
+    return [seg for segs, _ in per_prn for seg in segs]

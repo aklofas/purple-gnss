@@ -7,6 +7,8 @@ import numpy as np
 import pytest
 from support import AMB_B, AMB_R, ROVER, SIGNALS, check_golden, without_date, without_elapsed
 
+from pyrx import channels
+from pyrx.acquisition import AcqResult
 from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, rtk_main, trk_main
 from pyrx.rinex import write_rinex_nav, write_rinex_obs, write_rinex_observations
 from pyrx.synth import (
@@ -184,6 +186,30 @@ def test_mains_report_no_detection_with_exit_2(tmp_path, capsys):
     assert err.count("no PRN detected") == 3 and "--f-if" in err
     assert not (tmp_path / "o.obs").exists()
     check_golden("cli_no_detection.err", err)
+
+
+def test_mains_say_why_nothing_was_tracked(tmp_path, capsys, monkeypatch):
+    fs = 4e6
+    x = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 0.02), 45.0, True)
+    f = tmp_path / "s.bin"
+    write_iq_int8(x, f)
+    common = [str(f), "--fs", "4e6", "--iq", "--prn", "9"]
+    # no 20 ms window fits between --t-start and the end of a 20 ms file
+    assert trk_main([*common, "--t-start", "0.01"]) == 2
+    err = capsys.readouterr().err
+    assert "no 20 ms acquisition window fits between --t-start 0.01 s and the end" in err
+    # a detection on every probe that the bit-sync trial turns down
+    monkeypatch.setattr(
+        channels, "acquire_l1ca", lambda samples, fs, f_if, prn, **kw: _always_detected(prn)
+    )
+    assert trk_main(common) == 2
+    err = capsys.readouterr().err
+    assert "every detection failed the 6 s bit-sync trial (PRN 9 at 0 s)" in err
+    assert "no PRN detected" not in err
+
+
+def _always_detected(prn):
+    return AcqResult(prn, 0.0005, 0.0, 36.0, True, np.zeros((1, 1), np.float32), np.zeros(1))
 
 
 def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
