@@ -384,7 +384,10 @@ async def step_pair_commits_on_the_code_step_write(dut):
     await start_playback(bus, len(codes))
     carr_new, code_new = steps(3000.0)
     dumps = []
+    budget = 40 * len(codes)  # clocks; playback ends after len(codes), so fewer dumps would hang here
     while len(dumps) < 12:
+        assert budget > 0, f"only {len(dumps)} dumps arrived"
+        budget -= 20
         if await bus.read(R.DUMP_PENDING) & 1:
             dumps.extend(await read_dumps_now(bus, 0))
             if len(dumps) == 4:
@@ -444,8 +447,12 @@ async def meas_seq_counts_strobes_and_guards_the_latch_read(dut):
     await bus.write(R.MEAS_TRIG, 1)
     await ClockCycles(dut.clk, 10)
     assert await bus.read(R.MEAS_SEQ) == 1
-    while int(dut.sample_cnt.value) < 4990:  # the first periodic strobe lands at sample 5000
+    for _ in range(6000):  # the first periodic strobe lands at sample 5000
+        if int(dut.sample_cnt.value) >= 4990:
+            break
         await RisingEdge(dut.clk)
+    else:
+        raise AssertionError(f"sample count stuck at {int(dut.sample_cnt.value)}")
     seq_before = await bus.read(R.MEAS_SEQ)
     await ClockCycles(dut.clk, 20)
     seq_after = await bus.read(R.MEAS_SEQ)
