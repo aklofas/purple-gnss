@@ -288,5 +288,9 @@ def test_rinex_main_writes_one_nav_record_from_two_segments(gap_file, tmp_path, 
     assert rc == 0
     lines = [line for line in out.splitlines() if line.startswith("PRN  4")]
     assert len(lines) == 2 and lines[1].startswith("PRN  4 from 30.0 s  epochs")
+    # each line counts its own segment's observations: together they are the file's G04
+    # records (16 and 8 of 24 measured; one count for both would double it)
+    n1, n2 = (int(re.search(r"epochs (\d+)", line).group(1)) for line in lines)
+    assert n1 > 0 and n2 > 0 and n1 + n2 == obs.read_text().count("\nG04 ")
     assert nav.read_text().count("\nG04 ") == 1
     assert "GROUND_CRAFT".ljust(60) + "MARKER TYPE" in obs.read_text()
