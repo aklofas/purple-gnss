@@ -11,8 +11,11 @@ C/N0 is estimated from prompt versus noise-tap power over 1 s, and over the same
 window a carrier phase-lock indicator, cos 2φ of the prompt (1 when phase-locked,
 near 0 when the carrier spins or there is only noise). A track ends after two
 consecutive windows with C/N0 below `CN0_LOST` or the indicator below `PLI_LOCKED`.
-The loop constants follow Pocket SDR so the two trackers can be compared number
-for number; they are not tuned for the hardware receiver.
+The constants follow Pocket SDR's trackers (the DLL and the C/N0 window its Python
+tracker's, the third-order PLL its C tracker's) so the loops can be compared with
+them number for number; the FLL on coherent sums, the integrator hold and the
+two-window loss rule are this receiver's own. Nothing is tuned for the hardware
+receiver yet.
 """
 
 import multiprocessing
