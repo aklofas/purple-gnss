@@ -149,7 +149,9 @@ indicator (`PLI`), the Doppler and the lock state per segment, the later segment
 PRN as `PRN nn from t s`. The indicator is cos 2φ of the prompt correlator over each
 1 s window, 1 when the Costas loop is phase-locked and near 0 when the carrier spins
 or there is only noise; a segment ends after two consecutive windows with C/N0 below
-25 dB-Hz or the indicator below 0.25 (Pocket SDR's rule at our window length). `--log`
+25 dB-Hz or the indicator below 0.25 (Pocket SDR's rule at our window length; the
+first window's indicator is reported but not counted, since the FLL pull-in spins the
+carrier through it). `--log`
 writes a CSV with columns
 `time_s,prn,cn0_dbhz,phase_lock,code_offset_ms,doppler_hz,carrier_cycles`, one row per
 segment every 0.1 s (`phase_lock` empty in an incomplete final window). `--plot` writes `trk_prnNN.png` per channel
@@ -512,7 +514,8 @@ it would wind up and slip the carrier. The code loop is a
 rate aided by the carrier Doppler. C/N0 is estimated from prompt versus noise-tap
 power over 1 s, with the phase-lock indicator over the same window, and a channel is
 dropped after two consecutive windows with C/N0 below 25 dB-Hz or the indicator
-below 0.25. Every channel's carrier
+below 0.25, the first window judged on C/N0 alone because the pull-in spins the
+carrier through it. Every channel's carrier
 NCO starts at the receiver's IF phase at sample 0 (modulo one cycle), so the
 accumulated carrier phases of different channels share one origin. The constants come
 from Pocket SDR's two trackers: the DLL and the C/N0 window match its Python tracker,
