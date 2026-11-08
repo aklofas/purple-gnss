@@ -47,7 +47,7 @@ from pyrx.observations import Epoch, Observation
 from pyrx.tracking import PLI_LOCKED, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
-T_LOCK = 2.0  # s a channel must have run before its carrier phase counts as locked
+T_LOCK = 2.0  # s into a channel over which its observations carry the slip flag
 SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
