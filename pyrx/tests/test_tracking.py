@@ -340,7 +340,7 @@ def test_weak_signal_locks_after_the_pull_in():
 
 
 def test_seed_from_the_search_edge_pulls_in():
-    # the acquisition grid is ±5000 Hz in 25 Hz bins with the peak interpolated between
+    # the acquisition grid is ±5000 Hz in 500 Hz bins with the peak interpolated between
     # bins, except at the two edge bins, which seed as they are: a signal 90 Hz beyond the
     # edge seeds 5000 Hz (90 Hz off, inside the ±125 Hz fold), one just inside seeds within
     # a bin; both must lock
