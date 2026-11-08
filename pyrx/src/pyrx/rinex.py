@@ -143,11 +143,17 @@ def read_rinex_header(path) -> RinexHeader:
                 break
             if label == "MARKER NAME":
                 marker = line[:60].strip()
-            elif label == "APPROX POSITION XYZ":
-                position = np.array([float(v) for v in line[:42].split()])
-            elif label == "ANTENNA: DELTA H/E/N":
-                h, e, n = (float(v) for v in line[:42].split())
-                delta = np.array([e, n, h])
+            elif label in ("APPROX POSITION XYZ", "ANTENNA: DELTA H/E/N"):
+                try:
+                    values = np.array([float(v) for v in line[:42].split()])
+                    if len(values) != 3:
+                        raise ValueError
+                except ValueError:
+                    raise ValueError(f"{path}: malformed {label} header record") from None
+                if label == "APPROX POSITION XYZ":
+                    position = values
+                else:
+                    delta = values[[1, 2, 0]]  # H, E, N in the file; (E, N, U) here
             elif label == "ANT # / TYPE":
                 antenna = line[20:40].rstrip()
             elif label == "REC # / TYPE / VERS":
