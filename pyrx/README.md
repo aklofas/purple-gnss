@@ -460,7 +460,10 @@ with a phase that was not phase-locked (an unlocked window can lie between spars
 observations), and on the first observation after a polarity change; value 2 (bit 1, half-cycle ambiguity) where no
 decoded subframe establishes the polarity, that is before a channel's first
 subframe and between the last subframe before a polarity change and the first
-after it. A slip that leaves the polarity unchanged (a whole cycle) is not detected
+after it. An RTK engine restarts the satellite's ambiguity at every change of that
+flag (RTKLIB's rule), so a polarity change costs the ambiguity twice, when the flag is
+set and when it clears; the phase is written flagged rather than blanked or flagged for
+the whole interval. A slip that leaves the polarity unchanged (a whole cycle) is not detected
 inside a file. No signal-strength flags are written. The standalone solution does
 not use the carrier phase.
 
