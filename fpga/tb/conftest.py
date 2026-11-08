@@ -24,9 +24,11 @@ CAPTURES = os.environ.get("PYRX_CAPTURES")
 if CAPTURES:
     # the simulator runs in its own directory, so a relative path has to be made absolute here
     CAPTURES = os.environ["PYRX_CAPTURES"] = str(Path(CAPTURES).resolve())
+_have_recording = bool(CAPTURES and (Path(CAPTURES) / RECORDING).is_file())
+if os.environ.get("PYRX_REQUIRE_CAPTURES") and not _have_recording:
+    raise RuntimeError("PYRX_REQUIRE_CAPTURES is set and PYRX_CAPTURES does not name the recording")
 needs_captures = pytest.mark.skipif(
-    not (CAPTURES and (Path(CAPTURES) / RECORDING).is_file()),
-    reason="PYRX_CAPTURES does not name the directory holding the recording",
+    not _have_recording, reason="PYRX_CAPTURES does not name the directory holding the recording"
 )
 
 _built: dict[Path, Runner] = {}

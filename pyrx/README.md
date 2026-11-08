@@ -50,7 +50,9 @@ standalone fix with RTKLIB on the recordings and on a day of an IGS station
 coordinates on two station pairs (`test_rtk_reference.py`). They need the
 environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
 and skip when it is unset; the observables, positioning and RTK tests also skip
-when `rnx2rtkp` is not on the path, and the RTK tests take a few minutes:
+when `rnx2rtkp` is not on the path, and the RTK tests take a few minutes. With
+`PYRX_REQUIRE_CAPTURES=1` those skips become failures, so a gate run cannot pass by
+skipping them (the `fpga` benches refuse to start without the recording then):
 
 | File | Source | SHA-256 |
 |---|---|---|
