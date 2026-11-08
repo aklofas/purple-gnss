@@ -379,9 +379,9 @@ def rtk_main(argv: list[str] | None = None) -> int:
     signals = tuple(args.signals.split(","))
     tlim = _time_limits(args.ts, args.te)
     t0 = time.perf_counter()
-    rover_delta = args.rover_delta or read_rinex_header(args.rover).delta_enu
-    base_delta = args.base_delta or read_rinex_header(args.base).delta_enu
     try:
+        rover_delta = args.rover_delta or read_rinex_header(args.rover).delta_enu
+        base_delta = args.base_delta or read_rinex_header(args.base).delta_enu
         rover = read_rinex_observations(args.rover, signals, tlim)
         base = read_rinex_observations(args.base, signals, tlim)
         ephs, iono = read_rinex_nav(args.nav)

@@ -225,6 +225,19 @@ def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
     check_golden("cli_rejected.err", err)
 
 
+def test_rtk_reports_a_malformed_header_with_exit_2(tmp_path, capsys):
+    ephs = constellation()
+    obs, nav = tmp_path / "s.obs", tmp_path / "s.nav"
+    write_rinex_obs(obs, [truth_epoch(ephs, USUD, 1e-3, tow=28800.0)])
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
+    text = obs.read_text()
+    assert "        0.0000        0.0000        0.0000                  ANTENNA: DELTA H/E/N" in text
+    obs.write_text(text.replace("        0.0000        0.0000        0.0000                  ANTENNA", "        0.0000        x.xxxx        0.0000                  ANTENNA", 1))
+    assert rtk_main([str(obs), str(obs), str(nav), "--base-xyz", *map(str, USUD)]) == 2
+    err = capsys.readouterr().err
+    assert "malformed ANTENNA: DELTA H/E/N header record" in err and "Traceback" not in err
+
+
 @pytest.mark.parametrize("main", [acq_main, trk_main, nav_main, rinex_main, pvt_main, rtk_main])
 def test_help_golden(main, capsys, monkeypatch):
     if sys.version_info[:2] != (3, 12):
