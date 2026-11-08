@@ -54,9 +54,9 @@ one bitstream at a time (locked: LED0 on and LED4 blinking at 1.6 to 1.8 Hz, 34.
 | `FBK_MASK` | 0b00001000 | 0b00000000 | the feedback divider's minimum-ratio mask (TN-02095 Table C.3); it binds only for ratios below 8, and with the default the feedback divides by 8 instead of `FBK_MMD_DIG` = 3. With `PLLPD_N` alone the PLL locked with LED4 visibly faster than with the mask cleared; the rate was not measured, and a ratio of 8 would put CLKOP at 300 MHz and the VCO at 3 GHz, above its 800 to 1600 MHz range, so what the PLL settled on is not known. `FBK_MMD_PULS_CTL` 0b0001 is the pulse width the table gives for ratios above 2 |
 | `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values LiteX's `NXPLL` (`litex/soc/cores/clock/lattice_nx.py`) uses for a 1.0 V core, which it says are the defaults in Lattice's reference designs though not the primitive's; the EVN's core runs at 1.0 V. TN-02095's own register table gives other `lmmi_v2i_kvco_sel` defaults, 4'b1001 for 0.9 V and 4'b0100 for 1 V, 55 and 30 by its "10 + Dec × 5" formula; `KP_VCO` and `V2I_1V_EN` agree with it. Not needed for lock: the variant with `PLLPD_N` alone kept the primitive's 0.9 V defaults and locked too; the set is kept because the EVN's core runs at 1.0 V, and whether it changes anything measurable (jitter, lock range) is untested |
 
-`PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. `PLLPD_N`
-holds for any other LIFCL design built with this toolchain; `FBK_MASK` matters only when the
-feedback ratio is below 8. `SEL_FBK` is not in
+`PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. What was
+shown is that the toolchain's default leaves the PLL powered down, so any LIFCL design built with
+it needs `PLLPD_N` set; `FBK_MASK` matters only when the feedback ratio is below 8. `SEL_FBK` is not in
 prjoxide's database and is dropped from the bitstream without a warning; the feedback path is
 set by `CLKMUX_FB` alone. The loop-filter constants (`CSET`, `CRIPPLE`, the charge-pump
 currents) are the toolchain defaults, not values computed for this frequency plan as Radiant
