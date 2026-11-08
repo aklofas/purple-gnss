@@ -8,7 +8,6 @@ the dump interrupt on PMOD header J18, two sample pins on J17, five LEDs, SW2 as
 ```
 ./build.sh            # one channel: build/n1/top.bit, report.txt
 ./build.sh 12         # twelve channels: build/n12/
-./build.sh 1 fbkdiv   # a PLL variant (below): build/n1-fbkdiv/, likewise analog
 openFPGALoader -b crosslinknx_evn build/n1/top.bit
 ```
 
@@ -19,7 +18,7 @@ packs without complaint, so the script also requires nextpnr's closing log line 
 PLL and oscillator sections; and because nextpnr drops a port constraint whose selector matches
 nothing without a warning, it counts the pull-ups and pull-downs in the FASM against the ones
 `evn.pdc` asks for. `report.py` prints the utilization and the fabric clock's fmax; `report.txt`
-also records the source commit and the PLL variant.
+also records the source commit.
 
 Lint, with `lint_stubs.v` standing in for the two Lattice primitives and allowing their many
 unused ports and the registers that start from an initial value at configuration:
@@ -41,29 +40,25 @@ alongside, 37.5 MHz × 3 = 112.5 MHz on CLKOP with a 1125 MHz VCO, only to check
 bitstream from the open toolchain configures a PLL that locks. For a precise clock later,
 J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
 
-### PLL bitstreams
+### PLL settings
 
-Whether that GPLL locks is the one thing here only the board can tell, and two of its settings
-are in doubt. The feedback divider's minimum-ratio mask (`FBK_MASK`) defaults to 8 while the
-ratio is 3; TN-02095 Table C.3 says the mask then sets the ratio, which would ask for a 3 GHz
-VCO and never lock. And the analog settings the open toolchain defaults to (`V2I_KVCO_SEL` 85,
-`KP_VCO` 0b11001, `V2I_1V_EN` off) are the values Lattice's reference files use for a 0.9 V
-core; the EVN's core runs at 1.0 V, where those files use 60, 0b00011 and on. `build.sh`
-builds three variants of `top.v`, selected with `-D`; load them in this order and stop at the
-first that locks:
+Three settings of the `PLL` primitive had to change from the open toolchain's defaults before
+the GPLL locked on the board, found one bitstream at a time (locked: LED0 on and LED4 blinking
+at 1.6 to 1.8 Hz, 34.9 to 40.1 MHz × 3 / 2^26; LED1 blinks either way, since the fabric runs
+from the oscillator):
 
-| Variant | Changes | Bitstream |
-|---|---|---|
-| `asbuilt` | none | `build/n1/top.bit` |
-| `fbkdiv` | `FBK_MASK` cleared; `FBK_MMD_PULS_CTL` 0b0001, the pulse width Table C.3 gives for ratios above 2; `PLLRESET_ENA` on, so the power-on reset `top.v` drives reaches the PLL | `build/n1-fbkdiv/top.bit` |
-| `analog` | `fbkdiv` plus the 1.0 V analog set | `build/n1-analog/top.bit` |
+| Setting | Default | `top.v` | Why |
+|---|---|---|---|
+| `PLLPD_N` | `UNUSED` | `USED` | the PLL power bit (TN-02095 `lmmi_pllpd_n`, "0: PLL is not used"); with the default the PLL stays powered down and CLKOP never runs, whatever the other settings |
+| `FBK_MASK` | 0b00001000 | 0b00000000 | the feedback divider's minimum-ratio mask; with the default the feedback divides by 8 instead of `FBK_MMD_DIG` = 3 (TN-02095 Table C.3) and the PLL locks with CLKOP at 300 MHz, LED4 near 4.5 Hz; `FBK_MMD_PULS_CTL` 0b0001 is the pulse width the table gives for ratios above 2 |
+| `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values Lattice's reference files use for a 1.0 V core (the defaults are the 0.9 V set); the EVN's core runs at 1.0 V. Not separately tested: the PLL was only tried with and without all three changes together |
 
-Locked: LED0 on and LED4 blinking at 1.6 to 1.8 Hz (34.9 to 40.1 MHz × 3 / 2^26). Not locked:
-LED0 off and LED4 dark or at another rate. LED1 blinks either way, since the fabric runs from
-the oscillator. Once a variant locks, make its settings the defaults in `top.v`. If none does,
-the next things to try are the remaining difference from the reference files (`V2I_PP_ICTRL`
-0b11111) and a ratio of 8 (`FBK_MMD_DIG` 8, `DIVA` 2), which stays above the mask without
-clearing it and raises the LED4 rate by 8/3, to about 4.5 Hz.
+`PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. The
+first two also hold for any other LIFCL design built with this toolchain. `SEL_FBK` is not in
+prjoxide's database and is dropped from the bitstream without a warning; the feedback path is
+set by `CLKMUX_FB` alone. The loop-filter constants (`CSET`, `CRIPPLE`, the charge-pump
+currents) are the toolchain defaults, not values computed for this frequency plan as Radiant
+and LiteX's `NXPLL` do; the PLL locks with them.
 
 ## Wiring to the Nucleo
 
