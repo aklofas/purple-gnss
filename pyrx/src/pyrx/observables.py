@@ -197,8 +197,9 @@ def make_observables(
             inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
             # unlocked (or unknown, nan) at this epoch or at any epoch since the previous
             # observation with a phase: an unlocked window can lie between sparse observations
+            # (the slice is empty when several observations fall in one tracking epoch)
             since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
-            locked = bool(since_phase[-1])
+            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
             if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
                 lli |= LLI_SLIP
             phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
