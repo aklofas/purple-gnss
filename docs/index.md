@@ -5,7 +5,9 @@ processing hardware, the firmware on it, and the positioning math that turns
 raw satellite measurements into a centimeter-level fix. The project is early.
 What exists today is `pyrx`, an offline receiver in Python that takes recorded
 radio samples all the way to an RTK fix and is checked against Pocket SDR and
-RTKLIB at every stage.
+RTKLIB at every stage, and `fpga`, the first hardware piece: an L1 C/A tracking
+channel in Verilog with a register interface, a bit-true model of it, and benches
+that check both against `pyrx`.
 
 These pages are mostly about GNSS itself. If you are technical but have never
 worked with radio or satellite navigation, and you want to understand every
@@ -44,4 +46,5 @@ the end collects the terms and further reading.
 
 - **Understand how it works:** the fundamentals series above. Conceptual, few equations, no code.
 - **Run something:** [`pyrx/README.md`](../pyrx/README.md) documents every command, the recordings it was checked on, and the algorithms as implemented.
+- **Build the FPGA channel:** [`fpga/README.md`](../fpga/README.md) documents the channel, its register map, the model, the benches and the evaluation-board target.
 - **Hardware and firmware:** not yet. The processing board and firmware are being designed; their documentation will appear here when there is something to document.
