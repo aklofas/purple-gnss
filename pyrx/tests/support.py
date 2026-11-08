@@ -108,17 +108,19 @@ def synth_l1ca_faded(
     fade_db: float,
     seed: int = 0,
 ) -> np.ndarray:
-    """`synth_l1ca`'s real signal with data bits whose signal, not its noise, is `fade_db`
+    """`synth_l1ca`'s I/Q signal with data bits whose signal, not its noise, is `fade_db`
     down for `fade_len` seconds from `fade_from`.
 
     The noiseless signal comes from the same call at a very high C/N0: the bits are drawn
-    after the noise with the same count, so they agree.
+    after the noise with the same count, so they agree. I/Q at IF 0 because a real signal
+    at IF 0 folds its noise onto the in-phase axis: it tracks 6 dB above the stated C/N0
+    with almost no Costas phase noise, which is not the signal the hold is for.
     """
     noisy = synth_l1ca(
-        prn, fs, 0.0, doppler, code_offset, n, cn0_dbhz, False, seed=seed, data_bits=True
+        prn, fs, 0.0, doppler, code_offset, n, cn0_dbhz, True, seed=seed, data_bits=True
     )
     clean = synth_l1ca(
-        prn, fs, 0.0, doppler, code_offset, n, 200.0, False, seed=seed, data_bits=True
+        prn, fs, 0.0, doppler, code_offset, n, 200.0, True, seed=seed, data_bits=True
     )
     t = np.arange(n) / fs
     fade = (t >= fade_from) & (t < fade_from + fade_len)
