@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pytest
+from conftest import skip_or_fail
 
 # RTKLIB single-point mode with the models pyrx applies: GPS only, 15 deg mask, Klobuchar
 # from the navigation file, Saastamoinen; ECEF output with the time as week and seconds
@@ -59,7 +59,7 @@ def rnx2rtkp_single(obs, nav, out_dir) -> tuple[list[dict], dict[int, list[float
     """Single-point solutions and pseudorange residuals from rnx2rtkp; skips without the tool."""
     exe = shutil.which("rnx2rtkp")
     if exe is None:
-        pytest.skip("rnx2rtkp not on the path")
+        skip_or_fail("rnx2rtkp not on the path")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     pos = out_dir / "fix.pos"
@@ -108,7 +108,7 @@ def rnx2rtkp_models(
     """
     exe = shutil.which("rnx2rtkp")
     if exe is None:
-        pytest.skip("rnx2rtkp not on the path")
+        skip_or_fail("rnx2rtkp not on the path")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     conf = out_dir / "single.conf"
@@ -179,7 +179,7 @@ ant2-antdelu={base_up}
 def _rtk_run(rover, base, nav, out_dir, conf, name, ts, te) -> dict[tuple[int, float], dict]:
     exe = shutil.which("rnx2rtkp")
     if exe is None:
-        pytest.skip("rnx2rtkp not on the path")
+        skip_or_fail("rnx2rtkp not on the path")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     conf_path = out_dir / "rtk.conf"
