@@ -221,7 +221,9 @@ epoch, from two RINEX observation files (plain, gzip or Hatanaka compressed, our
 or public) and a navigation file. `--base-xyz` is the base marker; the
 marker-to-antenna offsets are taken from each file's `ANTENNA: DELTA H/E/N` unless
 given. `--signals` lists the signals to use as system letter plus RINEX attribute
-(GPS `G1C G2W G5Q`, Galileo `E1C E5Q E7Q`); the seed needs a GPS L1 signal. The
+(GPS `G1C G2W G5Q`, Galileo `E1C E5Q E7Q`); the single-point seed solves on GPS L1
+C/A when it is listed and otherwise on the first GPS signal given (it is an L1 solver,
+so a GPS signal must be listed). The
 command prints the numbers of fixed and float epochs, the mean fixed baseline in
 the base's east-north-up frame and the median ratio, then the run time; `-v`
 prints one line per solved epoch; `-o` writes those lines with the header
