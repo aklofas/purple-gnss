@@ -14,6 +14,7 @@ from pyrx.tracking import (
     FADE_REF_GAIN,
     FLL_STAGES,
     PLI_LOCKED,
+    T_CN0,
     T_DLL,
     T_FLL_PULLIN,
     track_channels,
@@ -281,6 +282,16 @@ def test_discriminators_are_recorded_and_settle():
     late = track.t > track.t[0] + 2.0
     assert np.nanmean(np.abs(track.carrier_error[late])) < 0.02  # cycles
     assert np.nanmean(np.abs(track.code_error[late])) < 0.1 / CA_CHIP_RATE  # a tenth of a chip
+
+
+def test_loop_timing_constants_keep_their_relations():
+    # pinned here as well as asserted at import: the loss rule exempts only the first C/N0
+    # window from the phase-lock test (the pull-in lies within it) and the first fade sum
+    # after the handover is a whole DLL period (the pull-in ends on a DLL boundary)
+    n_pullin = round(T_FLL_PULLIN / CA_PERIOD)
+    assert sum(round(s / CA_PERIOD) for s, _, _ in FLL_STAGES) == n_pullin
+    assert n_pullin <= round(T_CN0 / CA_PERIOD)
+    assert n_pullin % round(T_DLL / CA_PERIOD) == 0
 
 
 def test_pull_in_doppler_follows_the_fll_update_exactly():

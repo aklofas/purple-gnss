@@ -51,6 +51,15 @@ EL_SPACING = 0.25  # chips each side of prompt
 NOISE_TAP = -10.0  # chips
 TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, late, noise
 
+# Relations the loop relies on: the stages make up the pull-in; the loss rule exempts only the
+# first C/N0 window from the phase-lock test because the pull-in lies within it; the first
+# fade-power sum after the handover covers a whole DLL period because the pull-in ends on a
+# DLL boundary.
+_N_PULLIN = round(T_FLL_PULLIN / CA_PERIOD)
+assert sum(round(seconds / CA_PERIOD) for seconds, _, _ in FLL_STAGES) == _N_PULLIN
+assert _N_PULLIN <= round(T_CN0 / CA_PERIOD)
+assert _N_PULLIN % round(T_DLL / CA_PERIOD) == 0
+
 
 @dataclass
 class TrackResult:
