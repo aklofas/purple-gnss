@@ -11,9 +11,9 @@ G   12 C1C L1C D1C S1C C2W L2W D2W S2W C5Q L5Q D5Q S5Q      SYS / # / OBS TYPES
   2021    12    26     8     0    0.0000000     GPS         TIME OF FIRST OBS
 G L1C                                                       SYS / PHASE SHIFT
 G L2W                                                       SYS / PHASE SHIFT
-G L5Q                                                       SYS / PHASE SHIFT
-E L1C                                                       SYS / PHASE SHIFT
-E L5Q                                                       SYS / PHASE SHIFT
+G L5Q  0.00000                                              SYS / PHASE SHIFT
+E L1C  0.00000                                              SYS / PHASE SHIFT
+E L5Q  0.00000                                              SYS / PHASE SHIFT
                                                             END OF HEADER
 > 2021 12 26 08 00  0.0000000  0 12
 E11  20460918.164   107522973.711                          45.000    20460918.760    80293910.850                          45.000

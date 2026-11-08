@@ -71,8 +71,30 @@ def _e19(value: float) -> str:
     return f"{value:19.12E}"
 
 
-def write_rinex_obs(path, epochs: list[Epoch], marker: str = "PYRX", program: str = "pyrx") -> None:
-    """Write GPS L1 C/A observations (C1C L1C D1C S1C) as a RINEX 3.05 observation file."""
+# RINEX 3.05 Table A23: the phase codes whose phase is shifted against their band's reference
+# signal (by a fraction of a cycle, or "must be aligned" to it). The writers take aligned
+# phases, so these codes get a 0.00000 correction in SYS / PHASE SHIFT and the reference and
+# unshifted codes a blank one, as the standard's example header has it.
+PHASE_SHIFTED = {
+    "G": {"1S", "1L", "1X", "1P", "1W", "1N", "2C", "2S", "2L", "2X", "5Q", "5X"},
+    "E": {"1C", "1X", "5Q", "5X", "7Q", "7X", "8Q", "8X", "6C", "6X"},
+}
+
+
+def _phase_shift_line(signal: str) -> str:
+    system, code = signal[0], signal[1:]
+    value = f" {0.0:8.5f}" if code in PHASE_SHIFTED.get(system, ()) else ""
+    return _line(f"{system} L{code}{value}", "SYS / PHASE SHIFT")
+
+
+def write_rinex_obs(
+    path,
+    epochs: list[Epoch],
+    marker: str = "PYRX",
+    program: str = "pyrx",
+) -> None:
+    """Write GPS L1 C/A observations (C1C L1C D1C S1C) as a RINEX 3.05 observation file.
+    """
     epochs = [e for e in epochs if e.obs]
     if any(e.week is None for e in epochs):
         raise ValueError("week unknown: no ephemeris decoded and none given")
@@ -94,7 +116,7 @@ def write_rinex_obs(path, epochs: list[Epoch], marker: str = "PYRX", program: st
         sec = t.second + t.microsecond * 1e-6
         stamp = f"{t.year:6d}{t.month:6d}{t.day:6d}{t.hour:6d}{t.minute:6d}{sec:13.7f}     GPS"
         out.append(_line(stamp, "TIME OF FIRST OBS"))
-    out.append(_line("G L1C", "SYS / PHASE SHIFT"))
+    out.append(_phase_shift_line("G1C"))
     out.append(_line("", "END OF HEADER"))
     for e in epochs:
         t = gps_datetime(e.week, e.tow)
@@ -427,14 +449,18 @@ def read_rinex_nav(path) -> tuple[list[Ephemeris], Ionosphere | None]:
 
 
 def write_rinex_observations(
-    path, epochs: list[Observations], marker: str = "PYRX", program: str = "pyrx"
+    path,
+    epochs: list[Observations],
+    marker: str = "PYRX",
+    program: str = "pyrx",
 ) -> None:
     """Write multi-signal observations as a RINEX 3.05 observation file.
 
     One `SYS / # / OBS TYPES` line per system with the C, L, D and S codes of its
-    signals and a zero-shift `SYS / PHASE SHIFT` line per phase code (no phase is
-    shifted here); a `nan` leaves its field blank; a nonzero loss-of-lock indicator
-    is written after the phase.
+    signals and a `SYS / PHASE SHIFT` line per phase code: the phases are taken as
+    already aligned to their band's reference signal, so a code Table A23 shifts
+    carries a 0.00000 correction and a reference code a blank one; a `nan` leaves
+    its field blank; a nonzero loss-of-lock indicator is written after the phase.
     """
     epochs = [e for e in epochs if e.sats]
     signals = epochs[0].signals if epochs else ()
@@ -464,8 +490,7 @@ def write_rinex_observations(
         sec = t.second + t.microsecond * 1e-6
         stamp = f"{t.year:6d}{t.month:6d}{t.day:6d}{t.hour:6d}{t.minute:6d}{sec:13.7f}     GPS"
         out.append(_line(stamp, "TIME OF FIRST OBS"))
-    for sig in signals:
-        out.append(_line(f"{sig[0]} L{sig[1:]}", "SYS / PHASE SHIFT"))
+    out.extend(_phase_shift_line(sig) for sig in signals)
     out.append(_line("", "END OF HEADER"))
     for e in epochs:
         t = gps_datetime(e.week, e.tow)
