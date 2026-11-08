@@ -512,7 +512,10 @@ power over 1 s, with the phase-lock indicator over the same window, and a channe
 dropped after two consecutive windows with C/N0 below 25 dB-Hz or the indicator
 below 0.25. Every channel's carrier
 NCO starts at the receiver's IF phase at sample 0 (modulo one cycle), so the
-accumulated carrier phases of different channels share one origin. The PLL, DLL and C/N0
-constants match Pocket SDR's Python tracker so the two can be compared number for number
-on the same recording once locked; the pull-in sums 2 ms then 5 ms where Pocket SDR's
-works epoch by epoch. None of them are the final choices for the hardware receiver.
+accumulated carrier phases of different channels share one origin. The constants come
+from Pocket SDR's two trackers: the DLL and the C/N0 window match its Python tracker,
+the PLL is the third-order loop of its C tracker (a3 = 1.1, b3 = 2.4, W = Bn / 0.7845),
+so a locked channel can be compared with them number for number on the same recording;
+the FLL on coherent sums (Pocket SDR's works epoch by epoch), the integrator hold and
+the two-window loss rule are this receiver's own. None of them are the final choices
+for the hardware receiver.
