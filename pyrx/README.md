@@ -118,9 +118,10 @@ of the Pocket SDR front-end.
 
 ```sh
 pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--prn 1-32] [--duration 0.02] [--plot DIR]
-
-By default the first 20 ms of the file are integrated (`--duration 0` for the whole file).
 ```
+
+By default the first 20 ms of the file are integrated (`--duration 0` for the whole
+file), and a PRN counts as detected when its peak reads 36 dB-Hz or more.
 
 Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so the
 two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
