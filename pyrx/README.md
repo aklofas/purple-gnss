@@ -30,7 +30,7 @@ pytest
 ```
 
 The suite runs across all cores (pytest-xdist); `pytest -n 0` runs it serially. Tests
-marked `slow` (minutes on a long recording) are left out by default; `pytest -m slow`
+marked `slow` (minutes on a long recording) are left out by default; `pytest -m slow -n 0`
 runs them.
 
 The files under `tests/golden/` pin the exact output of the RINEX writers and of every
@@ -79,6 +79,9 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.obs` | generated: Pocket SDR's observations of the 2021-12-26 recording as RINEX 3.05, converted from the C tracker's RTCM3 output with `convbin`; command below | `42c66c39f6c62753aa4dae481a72de42f6fd2958018412abae270cee4ee07cb1` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | generated: RTKLIB 2.4.3 b34 `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix; command below | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
 | `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
+| `sky/20261103_031515_carroof-driving/ch1.bin` | project recording, not distributed (50 GB per capture; the test reads 20 s of it): Pocket SDR FE 4CH on a car roof, driven through two obstructions, GPS L1, 24 MHz real, 6 MHz IF, 300 s; `test_tracking_reference.py` tracks G12 through the 222 s onset | `3662ffb99bcc61068af4322b766d2be1d2a678feb2fa1b01cef9b2d306ee0113` |
+| `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; the `slow` test in `test_channels_reference.py` walks its first 90 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
+| `sky/20261103_032110_carroof-coldstart/trk_l1ca.log` | generated: Pocket SDR `pocket_trk` L1 C/A log of that recording, the reference of the `slow` test | `4dc83bc579867286d6e938cdc91628f5d9c413723d832c86c9475f1ae85de9d5` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
