@@ -128,6 +128,24 @@ def test_tracker_rejects_a_dump_out_of_sequence():
     tracker.update(_steady(9))
 
 
+def test_fade_window_closes_on_schedule_through_a_zero_in_phase_dump():
+    # an integer dump with ip == 0 skips the Costas update only: the 10 ms power window still
+    # closes on schedule, as pyrx's does, so the reference is seeded and a later window of
+    # low power reads as a fade
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _through_pull_in(tracker)
+    for _ in range(9):
+        k += 1
+        tracker.update(_steady(k))
+    k += 1
+    tracker.update(Dump(k, 0, 0, 0, 50, 0, 0, 0))  # closes the first window
+    assert not tracker.fading
+    for _ in range(10):
+        k += 1
+        tracker.update(Dump(k, 0, 0, 0, 50, 0, 0, 0))
+    assert tracker.fading
+
+
 @pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
 def test_cn0_estimate_holds_lock_through_data_bits(cn0):
     # seeded 5 Hz and 5 dB off, through pull-in and data bits: the estimate settles within

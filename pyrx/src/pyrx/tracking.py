@@ -219,14 +219,10 @@ def track_l1ca(
                         out_err_carrier[k] = angle / (2.0 * pi)
                         fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
                 fll_prev, fll_acc, fll_n = fll_acc, 0j, 0
-        elif prompt.real != 0.0:
-            # Costas PLL, third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4,
-            # Bn = W / 0.7845): no steady-state lag on a Doppler ramp
-            err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
-            out_err_carrier[k] = err_phase
+        else:
             # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
             # running mean: at an obstruction's onset it would wind up on the faded signal
-            # and slip the loop
+            # and slip the loop. The window closes on schedule whatever the prompt.
             fade_sum += abs(prompt) ** 2
             if epoch % n_dll == 0:
                 fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
@@ -236,13 +232,20 @@ def track_l1ca(
                     else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
                 )
                 fade_sum = 0.0
-            w = B_PLL / 0.7845
-            if not fading:
-                phase_acc += w * w * w * err_phase * t
-            fd += (
-                2.4 * w * (err_phase - err_phase_prev) + 1.1 * w * w * err_phase * t + phase_acc * t
-            )
-            err_phase_prev = err_phase
+            if prompt.real != 0.0:  # the discriminator is undefined on a zero in-phase prompt
+                # Costas PLL, third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4,
+                # W = Bn / 0.7845): no steady-state lag on a Doppler ramp
+                err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+                out_err_carrier[k] = err_phase
+                w = B_PLL / 0.7845
+                if not fading:
+                    phase_acc += w * w * w * err_phase * t
+                fd += (
+                    2.4 * w * (err_phase - err_phase_prev)
+                    + 1.1 * w * w * err_phase * t
+                    + phase_acc * t
+                )
+                err_phase_prev = err_phase
 
         # code: non-coherent early/late DLL every T_DLL
         sum_e += float(abs(c[1]))

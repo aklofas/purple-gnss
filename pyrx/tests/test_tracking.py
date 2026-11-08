@@ -415,16 +415,15 @@ def _rebuild_third_order(track, hold=True):
     out, held = np.full(len(track.t), np.nan), np.zeros(len(track.t), bool)
     for k in range(k0, len(track.t)):
         e = track.carrier_error[k]
-        if np.isfinite(e):
-            fade_sum += abs(complex(track.corr[k, 0])) ** 2
-            if (k + 1) % n_dll == 0:
-                fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
-                fade_ref = (
-                    fade_sum
-                    if fade_ref == 0.0
-                    else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
-                )
-                fade_sum = 0.0
+        # the power window runs on every Costas epoch, a zero prompt included
+        fade_sum += abs(complex(track.corr[k, 0])) ** 2
+        if (k + 1) % n_dll == 0:
+            fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
+            fade_ref = (
+                fade_sum if fade_ref == 0.0 else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
+            )
+            fade_sum = 0.0
+        if np.isfinite(e):  # the discriminator is undefined on a zero in-phase prompt
             if not (hold and fading):
                 acc += w * w * w * e * CA_PERIOD
             held[k] = hold and fading
@@ -432,6 +431,23 @@ def _rebuild_third_order(track, hold=True):
             prev = e
         out[k] = fd
     return out, held
+
+
+def test_zero_prompts_skip_the_costas_update_but_not_the_fade_window():
+    # 57 ms of zero samples: the prompt is exactly zero there, the Costas discriminator
+    # undefined and no carrier update made, while the 10 ms power windows keep their
+    # schedule (the model mirrors this on integer dumps, where a zero in-phase sum is routine)
+    fs = 2.5e6
+    x = synth_l1ca(4, fs, 0.0, 0.0, 500, int(fs * 5.0), 40.0, False, seed=0, data_bits=True)
+    x[int(fs * 3.0) : int(fs * 3.057)] = 0.0
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
+    assert track.locked
+    zero = (track.t >= 3.0) & (track.t <= 3.0559)  # windows wholly inside the zero stretch
+    assert zero.sum() >= 52 and np.isnan(track.carrier_error[zero]).all()
+    fd, held = _rebuild_third_order(track)
+    k0 = round(T_FLL_PULLIN / CA_PERIOD)
+    np.testing.assert_array_equal(track.doppler[k0:], fd[k0:])
+    assert held[np.flatnonzero(zero)[-1] + 1]  # the hold set in the stretch outlasts it
 
 
 def test_pll_hold_rule_is_rebuilt_from_the_prompts():
