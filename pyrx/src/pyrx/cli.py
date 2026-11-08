@@ -13,7 +13,7 @@ import numpy as np
 import pymap3d as pm
 
 from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
-from pyrx.channels import track_prns
+from pyrx.channels import TRIAL, track_prns
 from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn, ionosphere_of, tow1_by_prn
@@ -29,7 +29,7 @@ from pyrx.rinex import (
     write_rinex_obs,
 )
 from pyrx.rtk import RtkOptions, solve_rtk
-from pyrx.samples import read_samples
+from pyrx.samples import SampleFile, read_samples
 from pyrx.tracking import TrackResult
 
 NO_DETECTION = (
@@ -67,17 +67,39 @@ def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
 
     Returns the segments (PRNs in the requested order, each PRN's segments in time
     order) and the instant the work started, or None after a message on stderr when
-    no PRN was detected anywhere in the run.
+    no PRN was tracked anywhere in the run: no acquisition window fits the requested
+    span, nothing was detected, or every detection failed the bit-sync trial.
     """
     duration = args.duration if args.duration > 0 else None
     t0 = time.perf_counter()
+    rejected: list[tuple[int, float]] = []
     tracks = track_prns(
-        args.file, args.fs, args.iq, args.f_if, args.prn, t_start=args.t_start, duration=duration
-    )
+        args.file, args.fs, args.iq, args.f_if, args.prn,
+        t_start=args.t_start, duration=duration, rejected=rejected,
+    )  # fmt: skip
     if not tracks:
-        print(NO_DETECTION, file=sys.stderr)
+        print(_nothing_tracked(args, duration, rejected), file=sys.stderr)
         return None
     return tracks, t0
+
+
+def _nothing_tracked(args, duration: float | None, rejected: list[tuple[int, float]]) -> str:
+    end = SampleFile(args.file, args.fs, args.iq).n_samples / args.fs
+    if duration is not None:
+        end = min(end, args.t_start + duration)
+    if args.t_start + DEFAULT_WINDOW > end:
+        return (
+            f"no {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window fits between --t-start "
+            f"{args.t_start:g} s and the end of the data at {end:g} s"
+        )
+    if rejected:
+        where = ", ".join(f"PRN {prn} at {t:g} s" for prn, t in rejected[:5])
+        more = f" and {len(rejected) - 5} more" if len(rejected) > 5 else ""
+        return (
+            f"no PRN tracked: every detection failed the {TRIAL:g} s bit-sync trial "
+            f"({where}{more}): check --fs, --f-if and --iq"
+        )
+    return NO_DETECTION
 
 
 def _segment_label(tracks: list[TrackResult], i: int) -> str:
