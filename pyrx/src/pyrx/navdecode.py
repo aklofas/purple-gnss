@@ -21,16 +21,19 @@ class LnavResult:
     ionosphere: Ionosphere | None
 
 
-def decode_lnav(track: TrackResult) -> LnavResult:
-    """Bits, subframes, ephemeris and ionosphere parameters from a tracked channel.
-
-    Bit sync starts once the PLL has settled, at the first epoch at least
-    `T_FLL_PULLIN + T_PLL_SETTLE` after the track start.
-    """
+def settled_bit_stream(track: TrackResult) -> BitStream | None:
+    """The channel's data bits, synced once the PLL has settled: from the first epoch at
+    least `T_FLL_PULLIN + T_PLL_SETTLE` after the track start; None when no window syncs."""
     start = 0
     if len(track.t):
         start = int(np.searchsorted(track.t, track.t[0] + T_FLL_PULLIN + T_PLL_SETTLE))
-    stream = bit_sync(track.corr[start:, 0].real, start)
+    return bit_sync(track.corr[start:, 0].real, start)
+
+
+def decode_lnav(track: TrackResult) -> LnavResult:
+    """Bits, subframes, ephemeris and ionosphere parameters from a tracked channel
+    (`settled_bit_stream`, then frame sync)."""
+    stream = settled_bit_stream(track)
     if stream is None:
         return LnavResult(track.prn, None, [], None, None)
     subframes = frame_sync(stream, track.prn)

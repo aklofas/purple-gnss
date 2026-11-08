@@ -22,13 +22,10 @@ import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-import numpy as np
-
 from pyrx.acquisition import DEFAULT_WINDOW, acquire_l1ca
-from pyrx.bitsync import bit_sync
-from pyrx.navdecode import T_PLL_SETTLE
+from pyrx.navdecode import settled_bit_stream
 from pyrx.samples import SampleFile, read_samples
-from pyrx.tracking import T_FLL_PULLIN, TrackResult, track_l1ca
+from pyrx.tracking import TrackResult, track_l1ca
 
 REACQ_INTERVAL = 10.0  # s between probes of a PRN that is not being tracked
 TRIAL = 6.0  # s a detection is tracked before bit sync decides whether it is real
@@ -36,10 +33,7 @@ TRIAL = 6.0  # s a detection is tracked before bit sync decides whether it is re
 
 def _bit_syncs(track: TrackResult) -> bool:
     """True when the data-bit edges stand out once the PLL has settled, as `decode_lnav` judges."""
-    if not len(track.t):
-        return False
-    start = int(np.searchsorted(track.t, track.t[0] + T_FLL_PULLIN + T_PLL_SETTLE))
-    return bit_sync(track.corr[start:, 0].real, start) is not None
+    return settled_bit_stream(track) is not None
 
 
 def track_prn(
