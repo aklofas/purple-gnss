@@ -88,6 +88,33 @@ def test_tracker_holds_the_integrator_like_pyrx_through_a_fade():
     )
 
 
+def _steady(k, ip=1000, ie=0, il=0):
+    return Dump(k, ie, 0, ip, 0, il, 0, 0)
+
+
+def _through_pull_in(tracker):
+    """Feed the pull-in with a steady in-phase prompt; returns the last epoch fed."""
+    n = round(T_FLL_PULLIN / CA_PERIOD)
+    for k in range(1, n + 1):
+        tracker.update(_steady(k))
+    return n
+
+
+def test_an_empty_early_late_window_applies_no_dll_offset():
+    # pyrx moves nothing when a 10 ms window has no early or late power; the tracker must
+    # not keep applying the previous window's rate offset through it
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _through_pull_in(tracker)
+    for _ in range(10):  # an early-heavy window moves the rate
+        k += 1
+        tracker.update(_steady(k, ie=300, il=100))
+    assert tracker.rate_offset > 0.0
+    for _ in range(10):
+        k += 1
+        tracker.update(_steady(k))
+    assert tracker.rate_offset == 0.0
+
+
 @pytest.mark.parametrize("cn0", [35.0, 40.0, 45.0])
 def test_cn0_estimate_holds_lock_through_data_bits(cn0):
     # seeded 5 Hz and 5 dB off, through pull-in and data bits: the estimate settles within

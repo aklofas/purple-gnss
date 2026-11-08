@@ -128,6 +128,7 @@ class Tracker:
         self._sum_e += abs(complex(dump.ie, dump.qe))
         self._sum_l += abs(complex(dump.il, dump.ql))
         if self.epoch % self._n_dll == 0:
+            self.rate_offset = 0.0  # a window without early or late power moves nothing, as in pyrx
             if self._sum_e + self._sum_l > 0.0:
                 err_code = (self._sum_e - self._sum_l) / (self._sum_e + self._sum_l) / 2.0 * t / CA_LENGTH
                 advance_s = B_DLL / 0.25 * err_code * t * self._n_dll  # pyrx moves t_code by this
