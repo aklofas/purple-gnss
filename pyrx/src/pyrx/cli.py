@@ -163,7 +163,7 @@ def acq_main(argv: list[str] | None = None) -> int:
 
 
 def trk_main(argv: list[str] | None = None) -> int:
-    """Acquire and track GPS L1 C/A PRNs in a recording; print one line per PRN."""
+    """Acquire and track GPS L1 C/A PRNs in a recording; print one line per track segment."""
     p = argparse.ArgumentParser(prog="pyrx-trk", description=trk_main.__doc__)
     _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to track (s), 0 = all")

@@ -163,8 +163,9 @@ correlator magnitudes.
 pyrx-nav FILE --fs 8e6 --f-if 2e6 [--iq] [--prn 1-32] [--duration 0] [--json nav.json]
 ```
 
-Acquires and tracks as `pyrx-trk` does, then decodes each channel's navigation
-message and prints one line per PRN: whether bit sync was found, the subframes
+Acquires and tracks as `pyrx-trk` does, then decodes each segment's navigation
+message and prints one line per track segment (a PRN lost and found again has several,
+the later ones labeled `PRN nn from t s`): whether bit sync was found, the subframes
 decoded as `ID@TOW` (the GPS seconds of week at the subframe's first bit), and the
 ephemeris issue of data and `toe` when subframes 1, 2 and 3 with the same issue
 were seen. `--json` writes `{"ephemeris": {"<prn>": {field: value, ...}},
@@ -185,9 +186,9 @@ seen) are written as a RINEX navigation file. The GPS week comes from subframe 1
 when the recording holds none, give it with `--week`. `--marker-type` writes the
 `MARKER TYPE` header record, which RINEX 3.05 requires for markers other than geodetic
 and non-geodetic ones (`GROUND_CRAFT` for a receiver on a vehicle); without it the
-record is omitted. One line per PRN reports how
-many epochs the channel contributed to and its first pseudorange and Doppler, then
-the number of epochs and their span.
+record is omitted. One line per track segment reports how
+many epochs it contributed to and its first pseudorange and Doppler, then the number
+of epochs and their span.
 
 ## Positioning from the command line
 

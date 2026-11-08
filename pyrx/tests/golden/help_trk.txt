@@ -3,7 +3,8 @@ usage: pyrx-trk [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
                 [--plot PLOT]
                 file
 
-Acquire and track GPS L1 C/A PRNs in a recording; print one line per PRN.
+Acquire and track GPS L1 C/A PRNs in a recording; print one line per track
+segment.
 
 positional arguments:
   file
