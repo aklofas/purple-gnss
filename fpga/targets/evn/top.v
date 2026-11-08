@@ -53,9 +53,10 @@ module top #(
     // PLL settings as found on the board (README, "PLL settings"). PLLPD_N is the PLL power
     // bit (TN-02095 lmmi_pllpd_n: 0 = PLL not used) and the toolchain's default, UNUSED, leaves
     // the PLL powered down whatever else is set. With the primitive's FBK_MASK default of 8 the
-    // feedback divides by 8, not by FBK_MMD_DIG = 3 (TN-02095 Table C.3), and the output lands
-    // at 300 MHz. The analog set is the 1.0 V-core one from Lattice's reference files (the
-    // primitive defaults to the 0.9 V values); not separately tested on the board.
+    // feedback divides by 8, not by FBK_MMD_DIG = 3 (TN-02095 Table C.3); the PLL still locked
+    // that way, with the heartbeat visibly faster (rate not measured). The analog set is the
+    // 1.0 V-core one LiteX's NXPLL uses (the primitive defaults to the 0.9 V values); not
+    // separately tested on the board.
     wire pll_clkop, pll_lock;
     PLL #(
         .REF_MMD_DIG("1"), .FBK_MMD_DIG("3"),            // 37.5 MHz x 3 = 112.5 MHz on CLKOP
