@@ -65,10 +65,11 @@ def test_tracking_matches_pocketsdr(captures, name, fs, f_if, prns):
         d = ours - theirs[m, 4]
         d -= d[0]
         assert np.abs(np.diff(d)).max() <= 0.1 and d.max() - d.min() <= 0.1, prn
-    # No false lock: acquisition rejected the absent PRN (asserted above, 38 dB-Hz
-    # threshold). A channel forced onto it stays well below that threshold but above the
-    # tracker's 25 dB-Hz loss-of-lock limit: cross-correlation from the strong satellites
-    # keeps its estimate near 30 dB-Hz, which is why a tracker alone cannot be the gate.
+    # No false lock: acquisition rejected the absent PRN (asserted above, the default
+    # 36 dB-Hz threshold on 10 ms). A channel forced onto it stays well below that threshold
+    # but above the tracker's 25 dB-Hz C/N0 limit: cross-correlation from the strong
+    # satellites keeps its estimate near 30 dB-Hz; the phase-lock rule ends such a channel
+    # after two windows, and the walk's bit-sync trial keeps it out at the probe.
     absent = results[-1]
     assert not absent.locked or np.max(absent.cn0[absent.t >= 2.0]) < 35.0
 
