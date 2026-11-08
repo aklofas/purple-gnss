@@ -314,3 +314,15 @@ def test_an_unlocked_first_observation_still_counts_as_the_lock_in():
     assert np.isnan(first.carrier_phase) and first.lli & LLI_SLIP
     with_phase = next(e.obs[0] for e in epochs if np.isfinite(e.obs[0].carrier_phase))
     assert with_phase.lli & LLI_SLIP
+
+
+@pytest.mark.parametrize("interval", [0.001, 0.0005])
+def test_observation_intervals_down_to_the_epoch_rate_and_below_work(interval):
+    # several observations can fall in one tracking epoch: the lock scan since the previous
+    # phase then has nothing new to look at
+    track, ln = _still_channel([(1500, 5044, False)], n=4000)
+    epochs = make_observables([track], [ln], interval=interval, week=2190)
+    assert len(epochs) > 2000 / (interval / CA_PERIOD) - 10
+    phases = [o.carrier_phase for e in epochs for o in e.obs]
+    assert all(np.isfinite(phases))
+    assert sum(o.lli & LLI_SLIP for e in epochs for o in e.obs if (e.tow - epochs[0].tow) > 2.1) == 0
