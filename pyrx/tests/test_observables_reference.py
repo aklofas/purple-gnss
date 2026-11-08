@@ -7,6 +7,7 @@ from pocketsdr_ctrk import load_ctrk_ch
 from rtklib import horizontal, parse_pos, rms, rnx2rtkp_single
 
 from pyrx.acquisition import acquire_l1ca
+from pyrx.cli import rinex_main
 from pyrx.navdecode import decode_lnav
 from pyrx.observables import code_starts, make_observables, transmit_times
 from pyrx.rinex import write_rinex_nav, write_rinex_obs
@@ -81,18 +82,45 @@ def test_transmit_time_matches_pocketsdr(captures, case):
         assert np.abs(ours - theirs).max() < 20e-9, (track.prn, np.abs(ours - theirs).max())
 
 
+def _check_fix(captures, tmp_path, case, obs):
+    """RTKLIB's single-point fix from the observation file `obs` against its fix from Pocket
+    SDR's observations; returns the solution, its residuals and the reference epochs."""
+    nav_name, fix_name = case[4], case[7]
+    brdc = capture_file(captures, nav_name)
+    sol, resid = rnx2rtkp_single(obs, brdc, tmp_path / "brdc")
+    assert len(sol) >= 25 and all(s["q"] == Q_SINGLE and s["ns"] >= 5 for s in sol)
+    ref = {s["time"]: s for s in parse_pos(capture_file(captures, fix_name)) if s["ns"] == 5}
+    assert len(ref) == 7
+    common = [(s, ref[s["time"]]) for s in sol if s["time"] in ref]
+    assert len(common) == 7
+    for s, r in common:
+        assert horizontal(s, r) < 5.0 and abs(s["height"] - r["height"]) < 10.0, s["time"]
+    return sol, resid, ref
+
+
+def test_rtklib_fix_from_the_command(captures, tmp_path):
+    # the whole command path on the 2021 recording: 20 ms acquisition of every PRN, the
+    # probe-and-trial walk, tracking, decode, observables and the writer, then RTKLIB's fix
+    # from the file pyrx-rinex wrote (the test above feeds the writer from the library with
+    # a hand-picked PRN list and a 10 ms acquisition)
+    case = CASES[0]
+    name, fs, f_if = case[:3]
+    path = capture_file(captures, name)
+    obs = tmp_path / "cmd.obs"
+    args = [str(path), "--fs", str(fs), "--f-if", str(f_if), "--obs", str(obs)]
+    assert rinex_main(args) == 0
+    _check_fix(captures, tmp_path, case, obs)
+
+
 @pytest.mark.parametrize("case", CASES, ids=IDS)
 def test_rtklib_fix(captures, tmp_path, case):
-    nav_name, week, fix_name, psdr_obs_name = case[4], case[6], case[7], case[8]
+    nav_name, week, psdr_obs_name = case[4], case[6], case[8]
     tracks, lnavs = _chain(captures, case)
     brdc = capture_file(captures, nav_name)
     epochs = make_observables(tracks, lnavs, week=week)
     obs = tmp_path / "pyrx.obs"
     write_rinex_obs(obs, epochs)
-    sol, resid = rnx2rtkp_single(obs, brdc, tmp_path / "brdc")
-    assert len(sol) >= 25 and all(s["q"] == Q_SINGLE and s["ns"] >= 5 for s in sol)
-    ref = {s["time"]: s for s in parse_pos(capture_file(captures, fix_name)) if s["ns"] == 5}
-    assert len(ref) == 7
+    sol, resid, ref = _check_fix(captures, tmp_path, case, obs)
     if psdr_obs_name is None:
         # another day at the same site: compare the mean positions
         keys = ("lat", "lon", "height")
@@ -100,10 +128,6 @@ def test_rtklib_fix(captures, tmp_path, case):
         ref_mean = {k: float(np.mean([r[k] for r in ref.values()])) for k in keys}
         assert horizontal(mean, ref_mean) < 5.0 and abs(mean["height"] - ref_mean["height"]) < 10.0
         return
-    common = [(s, ref[s["time"]]) for s in sol if s["time"] in ref]
-    assert len(common) == 7
-    for s, r in common:
-        assert horizontal(s, r) < 5.0 and abs(s["height"] - r["height"]) < 10.0, s["time"]
     # pseudorange residuals over those epochs, ours against Pocket SDR's observations
     _, ref_resid = rnx2rtkp_single(capture_file(captures, psdr_obs_name), brdc, tmp_path / "psdr")
     ours = rms([v for prn in ref_resid for v in resid[prn][-7:]])
