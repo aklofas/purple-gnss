@@ -5,7 +5,7 @@ from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.samples import ArraySamples, SampleFile, read_samples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
-from pyrx.tracking import T_FLL_PULLIN, track_l1ca
+from pyrx.tracking import PLI_LOCKED, T_CN0, T_FLL_PULLIN, track_l1ca
 
 from fpgamodel.channel import Channel, Dump
 from fpgamodel.compare import start_phase
@@ -16,6 +16,7 @@ FS, F_IF = 24e6, 6.0e6
 FS_SYN, F_IF_SYN, DOPPLER_SYN = 5e6, 1.25e6, 1200.0
 RECORDING = "L1_20211226_082401_24MHz_I.bin"
 DURATION = 3.0
+N_CN0 = round(T_CN0 / CA_PERIOD)
 
 
 def test_tracker_steps_follow_doppler():
@@ -167,11 +168,87 @@ def test_cn0_estimate_holds_lock_through_data_bits(cn0):
     assert abs(tracker.cn0 - cn0) < 1.5, tracker.cn0
 
 
-def test_noise_alone_loses_lock_after_pull_in():
-    _, codes = _synthetic(5.0)  # 5 dB-Hz: the signal is 20 dB under the noise per epoch
-    tracker = _track_synthetic(codes, DOPPLER_SYN, 45.0)
+def test_noise_alone_loses_lock_two_windows_after_pull_in():
+    # 5 dB-Hz: the signal is 20 dB under the noise per epoch
+    _, codes = _synthetic(5.0, duration=3.2)
+    ch = Channel(code_bits(gps_ca(7)))
+    tracker = Tracker(FS_SYN, F_IF_SYN, DOPPLER_SYN, 45.0)
+    ch.set_steps(*tracker.steps())
+    ch.enabled = True
+    history = track_model(ch, tracker, codes)
     assert not tracker.locked
-    assert tracker.cn0 < 25.0
+    assert tracker.cn0 < 25.0 and abs(tracker.phase_lock) < PLI_LOCKED
+    # the seed keeps the smoothed estimate above the threshold through the pull-in window
+    assert len(history) == 3 * N_CN0
+
+
+def test_phase_lock_indicator_is_pyrx_window_for_window():
+    # on pyrx's own prompts the indicator is the same sums in the same order: equal to the bit
+    # in every window, the pull-in's included
+    x, _ = _synthetic(40.0, duration=4.2)
+    ref = track_l1ca(ArraySamples(x, FS_SYN), F_IF_SYN, 7, 0.0, DOPPLER_SYN + 5.0, 45.0)
+    tracker = Tracker(FS_SYN, F_IF_SYN, DOPPLER_SYN + 5.0, 45.0)
+    assert np.isnan(tracker.phase_lock)
+    windows = []
+    for k in range(len(ref.t)):
+        prompt, early, late = ref.corr[k][:3]
+        tracker.update(Dump(k + 1, early.real, early.imag, prompt.real, prompt.imag, late.real, late.imag, 0))
+        if (k + 1) % N_CN0 == 0:
+            windows.append(tracker.phase_lock)
+            assert tracker.phase_lock == ref.phase_lock[k]
+    assert len(windows) == 4 and min(windows[1:]) > 0.8
+    assert tracker.locked
+
+
+def _spinning(k):
+    """A prompt of full power rotating 0.3 cycle per epoch: C/N0 reads high, I^2 - Q^2
+    averages to zero."""
+    p = 1000.0 * np.exp(2j * np.pi * 0.3 * k)
+    return Dump(k, 0, 0, round(p.real), round(p.imag), 0, 0, 0)
+
+
+def _window(tracker, k, dump):
+    """Feed one C/N0 window of `dump(k)`; returns the last epoch fed."""
+    for _ in range(N_CN0):
+        k += 1
+        tracker.update(dump(k))
+    return k
+
+
+def test_a_spinning_carrier_at_full_cn0_is_lost_after_two_windows():
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _through_pull_in(tracker)
+    k = _window(tracker, k, _spinning)
+    assert tracker.locked and abs(tracker.phase_lock) < PLI_LOCKED
+    _window(tracker, k, _spinning)
+    assert not tracker.locked
+    assert tracker.cn0 > 40.0  # the C/N0 rule alone would have kept it
+
+
+def test_one_bad_window_is_not_a_loss():
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _through_pull_in(tracker)
+    for dump in (_spinning, _steady, _spinning, _steady):
+        k = _window(tracker, k, dump)
+        assert tracker.locked
+    assert tracker.phase_lock == 1.0
+
+
+def test_the_pull_in_window_is_judged_on_cn0_alone():
+    # the carrier spins by design while the FLL pulls in, so the indicator does not count there
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _window(tracker, 0, _spinning)
+    k = _window(tracker, k, _spinning)
+    assert tracker.locked  # one bad window so far
+    _window(tracker, k, _spinning)
+    assert not tracker.locked
+    # a C/N0 below the threshold does count there, as in pyrx: noiseless dumps leave the
+    # estimate at its seed, so the pull-in window and the next are both bad
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0, cn0=4.0)
+    k = _window(tracker, 0, _steady)
+    assert tracker.locked
+    _window(tracker, k, _steady)
+    assert not tracker.locked and tracker.phase_lock == 1.0
 
 
 def test_track_model_rejects_a_disabled_channel():
