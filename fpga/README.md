@@ -231,22 +231,20 @@ dummy stays 8 cycles there, whatever the lane count.
 `fpgamodel.loop.Tracker` closes pyrx's tracking loops around a channel's dumps the way the MCU
 will: FLL pull-in then a third-order Costas PLL on the carrier (its integrator held while the prompt
 power is down), a non-coherent early-minus-late DLL every
-10 ms, the PLL, DLL and C/N0 constants of `pyrx.tracking`. Fed pyrx's own correlator sums, it
+10 ms, the constants of `pyrx.tracking`; the Costas loop, its hold and the DLL discriminator
+are pyrx's own functions, called by both. Fed pyrx's own correlator sums, it
 reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
 (`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
 FLL (5 Hz, then 2 Hz) where pyrx now pulls in on 2 ms then 5 ms coherent sums. Closed around a channel it
-differs from pyrx in four further deliberate ways: pyrx moves its correlation window in time at each DLL
+differs from pyrx in three further deliberate ways: pyrx moves its correlation window in time at each DLL
 update, while a channel can only change its code NCO rate, so the DLL output becomes a
 chip-rate offset spread over the next 10 ms, with carrier aiding folded into the code step;
 step words written after dump k take effect at dump k + 1, one epoch later than pyrx applies
-its update; C/N0 comes from the second and fourth moments of the prompt magnitude rather
+its update; and C/N0 comes from the second and fourth moments of the prompt magnitude rather
 than from pyrx's noise tap, which the channel does not have (data bits and the residual
-carrier of pull-in leave the moments alone, and no loss of lock is declared from a window that
-overlaps pull-in); and the loss rule is C/N0 alone: the tracker has no phase-lock indicator
-and ends a track at the first window after pull-in whose smoothed C/N0 is below `CN0_LOST`,
-where pyrx needs two consecutive windows bad by C/N0 or by its indicator. The firmware is to
-take the moments C/N0 together with pyrx's indicator and two-window rule, which the dumps'
-prompt I/Q allow. A channel started mid-period, as `fpgamodel.compare.start_phase` places it
+carrier of pull-in leave the moments alone). The loss rule is pyrx's on that C/N0: two
+consecutive 1 s windows bad by C/N0 or, after the pull-in window, by the phase-lock indicator
+(the same sums of the prompt I/Q); it is the firmware's rule. A channel started mid-period, as `fpgamodel.compare.start_phase` places it
 from an acquisition, dumps a partial period first; the tracker's `skip_first` drops that dump,
 and the firmware should do the same.
 

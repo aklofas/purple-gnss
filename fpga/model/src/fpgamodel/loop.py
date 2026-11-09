@@ -3,7 +3,11 @@
 `Tracker` reproduces pyrx.tracking's discriminators and loop constants (FLL pull-in then a
 third-order Costas PLL for the carrier, its integrator held while the prompt power is down,
 a non-coherent early-minus-late DLL every 10 ms for the code) and
-turns them into the NCO step words a channel takes. Five deliberate differences from pyrx:
+turns them into the NCO step words a channel takes. The Costas loop, its hold and the DLL
+discriminator are pyrx's own functions, and the loss rule is pyrx's: two consecutive 1 s
+windows bad by C/N0 (below CN0_LOST) or, after the pull-in window, by the phase-lock indicator
+(cos 2φ of the prompt below PLI_LOCKED, the same sums as pyrx's). This rule on the C/N0 of
+difference 3 is the firmware's. Four deliberate differences from pyrx:
 
 1. pyrx moves its correlation window in time at each DLL update, while a channel can only
    change its code NCO rate, so the DLL output becomes a chip-rate offset applied over the
@@ -12,25 +16,21 @@ turns them into the NCO step words a channel takes. Five deliberate differences 
    applies its update.
 3. pyrx estimates C/N0 from a noise correlator tap the channel does not have; the tracker
    uses the second and fourth moments of the prompt magnitude instead, which data bits and
-   the residual carrier of pull-in leave alone, and it does not declare a loss of lock from
-   a window that overlaps pull-in.
+   the residual carrier of pull-in leave alone.
 4. The FLL pull-in is the 1 ms two-stage one (5 Hz, then 2 Hz); pyrx pulls in on 2 ms then
    5 ms coherent sums, so the two Dopplers agree only from the handover on.
-5. pyrx ends a track after two consecutive 1 s windows that are bad by C/N0 (below CN0_LOST)
-   or by its phase-lock indicator (cos 2φ of the prompt below PLI_LOCKED); the tracker has
-   no indicator and ends a track at the first window after pull-in whose smoothed C/N0 is
-   below CN0_LOST. The firmware is to take the moments C/N0 of difference 3 together with
-   pyrx's indicator and two-window rule, which the dumps' prompt I/Q allow.
 """
 
 from dataclasses import dataclass
-from math import atan, log10, pi, sqrt
+from math import atan, log10, nan, pi, sqrt
 
 import numpy as np
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.signals import L1_FREQ
 from pyrx.tracking import (
     CN0_LOST,
+    LOST_WINDOWS,
+    PLI_LOCKED,
     T_CN0,
     T_DLL,
     T_FLL_PULLIN,
@@ -68,13 +68,16 @@ class Tracker:
         self.cn0 = float(cn0)
         self.epoch = 0
         self.locked = True
+        self.phase_lock = nan  # cos 2φ of the prompt over the last completed C/N0 window
         self.rate_offset = 0.0  # chips per second added to the Doppler-scaled chip rate
         self._skip = skip_first
         self._last_epoch: int | None = None
         self._prompt_prev = 0j
-        self._pll = CarrierLoop()  # pyrx's Costas loop and integrator hold, the same object
+        self._pll = CarrierLoop()  # pyrx's Costas loop and integrator hold
         self._sum_e = self._sum_l = 0.0
         self._prompt_mag2: list[float] = []
+        self._sum_d = self._sum_p = 0.0  # prompt I^2 - Q^2 and I^2 + Q^2 over the C/N0 window
+        self._bad_windows = 0
         self._n_dll = round(T_DLL / CA_PERIOD)
         self._n_cn0 = round(T_CN0 / CA_PERIOD)
 
@@ -133,9 +136,10 @@ class Tracker:
         # S = sqrt(2 M2^2 - M4); independent of data bits and of the carrier phase. Noisier
         # than a noise tap near the loss threshold (about 1.6 dB per window at 28 dB-Hz, 0.3 dB
         # at 35), so a satellite near 28 dB-Hz reads below CN0_LOST a few percent of the time;
-        # with the half-gain smoothing the estimate itself crosses CN0_LOST only after about
-        # two low readings in a row, and one crossing ends the track (difference 5 above).
+        # the half-gain smoothing and the two-window rule keep such a reading from ending a track.
         self._prompt_mag2.append(abs(prompt) ** 2)
+        self._sum_d += prompt.real**2 - prompt.imag**2
+        self._sum_p += abs(prompt) ** 2
         if self.epoch % self._n_cn0 == 0:
             mag2 = np.array(self._prompt_mag2)
             m2, m4 = mag2.mean(), (mag2 * mag2).mean()
@@ -144,9 +148,16 @@ class Tracker:
             if n > 0.0:
                 s = max(s, 0.01 * n)
                 self.cn0 += 0.5 * (10.0 * log10(s / n / t) - self.cn0)
-            self._prompt_mag2.clear()
-            if self.epoch * t > T_FLL_PULLIN and self.cn0 < CN0_LOST:
+            # the phase-lock indicator as pyrx sums it, in the same order, and its loss rule
+            self.phase_lock = self._sum_d / self._sum_p if self._sum_p > 0.0 else nan
+            # the carrier spins by design in the window that overlaps pull-in
+            past_pull_in = self.epoch * t > T_FLL_PULLIN
+            bad = self.cn0 < CN0_LOST or (past_pull_in and self.phase_lock < PLI_LOCKED)
+            self._bad_windows = self._bad_windows + 1 if bad else 0
+            if self._bad_windows >= LOST_WINDOWS:
                 self.locked = False
+            self._prompt_mag2.clear()
+            self._sum_d = self._sum_p = 0.0
         return self.steps()
 
 
