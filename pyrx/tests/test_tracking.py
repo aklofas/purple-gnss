@@ -284,7 +284,7 @@ def test_discriminators_are_recorded_and_settle():
 
 
 def test_loop_timing_constants_keep_their_relations():
-    # pinned here as well as asserted at import: the loss rule exempts only the first C/N0
+    # pinned here as well as checked at import: the loss rule exempts only the first C/N0
     # window from the phase-lock test (the pull-in lies within it) and the first fade sum
     # after the handover is a whole DLL period (the pull-in ends on a DLL boundary)
     n_pullin = round(T_FLL_PULLIN / CA_PERIOD)

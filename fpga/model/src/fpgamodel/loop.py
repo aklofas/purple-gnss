@@ -27,17 +27,15 @@ from dataclasses import dataclass
 from math import atan, log10, pi, sqrt
 
 import numpy as np
-from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD
+from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
 from pyrx.signals import L1_FREQ
 from pyrx.tracking import (
-    B_DLL,
-    B_PLL,
     CN0_LOST,
-    FADE_HOLD,
-    FADE_REF_GAIN,
     T_CN0,
     T_DLL,
     T_FLL_PULLIN,
+    CarrierLoop,
+    dll_update,
 )
 
 from fpgamodel.channel import Channel, Dump, nco_step
@@ -74,14 +72,16 @@ class Tracker:
         self._skip = skip_first
         self._last_epoch: int | None = None
         self._prompt_prev = 0j
-        self._err_phase_prev = 0.0
-        self._phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
-        self._fade_sum = self._fade_ref = 0.0  # 10 ms prompt power and its running mean
-        self.fading = False  # the integrator is held over the current 10 ms window
+        self._pll = CarrierLoop()  # pyrx's Costas loop and integrator hold, the same object
         self._sum_e = self._sum_l = 0.0
         self._prompt_mag2: list[float] = []
         self._n_dll = round(T_DLL / CA_PERIOD)
         self._n_cn0 = round(T_CN0 / CA_PERIOD)
+
+    @property
+    def fading(self) -> bool:
+        """Whether the PLL's integrator is held over the current 10 ms window."""
+        return self._pll.fading
 
     def chip_rate(self) -> float:
         return CA_CHIP_RATE * (1.0 + self.doppler / L1_FREQ) + self.rate_offset
@@ -116,41 +116,16 @@ class Tracker:
                     b = B_FLL[0] if self.epoch * t < T_FLL_PULLIN / 2 else B_FLL[1]
                     self.doppler -= b / 0.25 * atan(cross / dot) / (2.0 * pi)
         else:
-            # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
-            # running mean, as pyrx does: an obstruction's onset would wind it up. The window
-            # closes on schedule whatever the prompt; integer dumps with ip == 0 are routine.
-            self._fade_sum += abs(prompt) ** 2
-            if self.epoch % self._n_dll == 0:
-                self.fading = self._fade_ref > 0.0 and self._fade_sum < FADE_HOLD * self._fade_ref
-                self._fade_ref = (
-                    self._fade_sum
-                    if self._fade_ref == 0.0
-                    else self._fade_ref + FADE_REF_GAIN * (self._fade_sum - self._fade_ref)
-                )
-                self._fade_sum = 0.0
-            if prompt.real != 0.0:  # the discriminator is undefined on a zero in-phase sum
-                # third-order Costas loop as pyrx (Pocket SDR's C tracker: a3 = 1.1, b3 = 2.4,
-                # W = Bn / 0.7845), the same expression order so the increments match bit for bit
-                err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
-                w = B_PLL / 0.7845
-                if not self.fading:
-                    self._phase_acc += w * w * w * err_phase * t
-                self.doppler += (
-                    2.4 * w * (err_phase - self._err_phase_prev)
-                    + 1.1 * w * w * err_phase * t
-                    + self._phase_acc * t
-                )
-                self._err_phase_prev = err_phase
+            # pyrx's own update, so the increments match bit for bit; integer dumps with
+            # ip == 0 are routine and skip the discriminator only
+            self.doppler += self._pll.update(prompt, self.epoch % self._n_dll == 0)[0]
         self._prompt_prev = prompt
 
         self._sum_e += abs(complex(dump.ie, dump.qe))
         self._sum_l += abs(complex(dump.il, dump.ql))
         if self.epoch % self._n_dll == 0:
-            self.rate_offset = 0.0  # a window without early or late power moves nothing, as in pyrx
-            if self._sum_e + self._sum_l > 0.0:
-                err_code = (self._sum_e - self._sum_l) / (self._sum_e + self._sum_l) / 2.0 * t / CA_LENGTH
-                advance_s = B_DLL / 0.25 * err_code * t * self._n_dll  # pyrx moves t_code by this
-                self.rate_offset = advance_s * CA_CHIP_RATE / T_DLL
+            # pyrx moves t_code by the advance; a window without early or late power moves nothing
+            self.rate_offset = dll_update(self._sum_e, self._sum_l)[1] * CA_CHIP_RATE / T_DLL
             self._sum_e = self._sum_l = 0.0
 
         # C/N0 every T_CN0 from the moments of the prompt magnitude: for a signal of power S
