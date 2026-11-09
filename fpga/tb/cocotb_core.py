@@ -384,7 +384,8 @@ async def step_pair_commits_on_the_code_step_write(dut):
     await start_playback(bus, len(codes))
     carr_new, code_new = steps(3000.0)
     dumps = []
-    budget = 40 * len(codes)  # clocks; playback ends after len(codes), so fewer dumps would hang here
+    # two polls per sample played; playback ends after len(codes), so fewer dumps would hang here
+    budget = 40 * len(codes)
     while len(dumps) < 12:
         assert budget > 0, f"only {len(dumps)} dumps arrived"
         budget -= 20
