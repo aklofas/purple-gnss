@@ -26,7 +26,7 @@ from math import atan, floor, log10, pi
 
 import numpy as np
 
-from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
+from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD, gps_ca
 from pyrx.correlator import correlate
 from pyrx.samples import SampleFile
 from pyrx.signals import L1_FREQ
@@ -59,9 +59,75 @@ TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, lat
 # fade-power sum after the handover covers a whole DLL period because the pull-in ends on a
 # DLL boundary.
 _N_PULLIN = round(T_FLL_PULLIN / CA_PERIOD)
-assert sum(round(seconds / CA_PERIOD) for seconds, _, _ in FLL_STAGES) == _N_PULLIN
-assert _N_PULLIN <= round(T_CN0 / CA_PERIOD)
-assert _N_PULLIN % round(T_DLL / CA_PERIOD) == 0
+_N_DLL = round(T_DLL / CA_PERIOD)
+if not (
+    sum(round(seconds / CA_PERIOD) for seconds, _, _ in FLL_STAGES) == _N_PULLIN
+    and _N_PULLIN <= round(T_CN0 / CA_PERIOD)
+    and _N_PULLIN % _N_DLL == 0
+):
+    raise ValueError("the tracking constants break a relation the loop relies on")
+
+
+@dataclass
+class CarrierLoop:
+    """The third-order Costas loop with its integrator hold, from the FLL handover on.
+
+    One instance per channel, updated once per epoch. Every receiver built on these loops
+    (the offline tracker here, the model of the hardware channel's loop) calls this update,
+    so their carrier loops are the same arithmetic.
+    """
+
+    err_phase_prev: float = 0.0
+    phase_acc: float = 0.0  # the integrated phase term, zero until the handover
+    fade_sum: float = 0.0  # prompt power over the current T_DLL window
+    fade_ref: float = 0.0  # its running mean over the windows before
+    fading: bool = False  # the integrator is held over the current window
+
+    def update(self, prompt: complex, closes_window: bool) -> tuple[float, float]:
+        """Take one epoch's prompt sum; returns (Doppler increment in Hz, phase error in
+        cycles). `closes_window` marks the epoch that ends a T_DLL window. A zero in-phase
+        prompt leaves the discriminator undefined: (0.0, nan), only the fade window advancing.
+        """
+        t = CA_PERIOD
+        # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
+        # running mean: at an obstruction's onset it would wind up on the faded signal
+        # and slip the loop. The window closes on schedule whatever the prompt.
+        self.fade_sum += abs(prompt) ** 2
+        if closes_window:
+            self.fading = self.fade_ref > 0.0 and self.fade_sum < FADE_HOLD * self.fade_ref
+            self.fade_ref = (
+                self.fade_sum
+                if self.fade_ref == 0.0
+                else self.fade_ref + FADE_REF_GAIN * (self.fade_sum - self.fade_ref)
+            )
+            self.fade_sum = 0.0
+        if prompt.real == 0.0:
+            return 0.0, np.nan
+        # third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4, W = Bn / 0.7845): no
+        # steady-state lag on a Doppler ramp
+        err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
+        w = B_PLL / 0.7845
+        if not self.fading:
+            self.phase_acc += w * w * w * err_phase * t
+        increment = (
+            2.4 * w * (err_phase - self.err_phase_prev)
+            + 1.1 * w * w * err_phase * t
+            + self.phase_acc * t
+        )
+        self.err_phase_prev = err_phase
+        return increment, err_phase
+
+
+def dll_update(sum_e: float, sum_l: float) -> tuple[float, float]:
+    """The DLL's update from the early and late magnitudes summed over T_DLL: returns (code
+    error, code-time advance to apply), both in seconds of code time. A window without
+    early or late power moves nothing: (nan, 0.0).
+    """
+    if not sum_e + sum_l > 0.0:
+        return np.nan, 0.0
+    t = CA_PERIOD
+    err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / CA_LENGTH
+    return err_code, B_DLL / 0.25 * err_code * t * _N_DLL
 
 
 @dataclass
@@ -165,10 +231,7 @@ def track_l1ca(
     # IF phase at sample 0 so that all channels share one carrier-phase origin
     phi = (f_if * round(t_code * fs) / fs) % 1.0
     adr = 0.0
-    err_phase_prev = 0.0
-    phase_acc = 0.0  # the PLL's integrated phase term, zero until the handover
-    fade_sum = fade_ref = 0.0  # 10 ms prompt power and its running mean, Costas epochs only
-    fading = False
+    pll = CarrierLoop()
     # pull-in stages as (last epoch, bandwidth, epochs per sum); the sums restart at each stage
     fll_stages = []
     n_end = 0
@@ -180,7 +243,7 @@ def track_l1ca(
     fll_n = 0  # epochs in it
     fll_prev = None  # the previous completed sum of this stage
     sum_e = sum_l = sum_p = sum_n = sum_d = 0.0
-    n_dll = round(T_DLL / t)
+    n_dll = _N_DLL
     n_cn0 = round(T_CN0 / t)
     bad_windows = 0
     lost = False
@@ -223,41 +286,15 @@ def track_l1ca(
                         fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
                 fll_prev, fll_acc, fll_n = fll_acc, 0j, 0
         else:
-            # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
-            # running mean: at an obstruction's onset it would wind up on the faded signal
-            # and slip the loop. The window closes on schedule whatever the prompt.
-            fade_sum += abs(prompt) ** 2
-            if epoch % n_dll == 0:
-                fading = fade_ref > 0.0 and fade_sum < FADE_HOLD * fade_ref
-                fade_ref = (
-                    fade_sum
-                    if fade_ref == 0.0
-                    else fade_ref + FADE_REF_GAIN * (fade_sum - fade_ref)
-                )
-                fade_sum = 0.0
-            if prompt.real != 0.0:  # the discriminator is undefined on a zero in-phase prompt
-                # Costas PLL, third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4,
-                # W = Bn / 0.7845): no steady-state lag on a Doppler ramp
-                err_phase = atan(prompt.imag / prompt.real) / (2.0 * pi)
-                out_err_carrier[k] = err_phase
-                w = B_PLL / 0.7845
-                if not fading:
-                    phase_acc += w * w * w * err_phase * t
-                fd += (
-                    2.4 * w * (err_phase - err_phase_prev)
-                    + 1.1 * w * w * err_phase * t
-                    + phase_acc * t
-                )
-                err_phase_prev = err_phase
+            increment, out_err_carrier[k] = pll.update(prompt, epoch % n_dll == 0)
+            fd += increment
 
         # code: non-coherent early/late DLL every T_DLL
         sum_e += float(abs(c[1]))
         sum_l += float(abs(c[2]))
         if epoch % n_dll == 0:
-            if sum_e + sum_l > 0.0:
-                err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / len(code)
-                out_err_code[k] = err_code
-                t_code -= B_DLL / 0.25 * err_code * t * n_dll
+            out_err_code[k], advance = dll_update(sum_e, sum_l)
+            t_code -= advance
             sum_e = sum_l = 0.0
 
         # C/N0 and the phase-lock indicator every T_CN0; the loss rule at the window end
