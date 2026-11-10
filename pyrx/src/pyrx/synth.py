@@ -1,4 +1,4 @@
-"""Synthetic inputs for tests and notebooks: GPS L1 C/A signals in noise, a navigation
+"""Synthetic inputs for tests and notebooks: GPS L1 C/A and pilot signals in noise, a navigation
 frame, an ephemeris, a constellation visible from USUD, and the observations the
 package's own models predict for a receiver or a rover/base pair."""
 
@@ -22,6 +22,7 @@ from pyrx.observations import Epoch, Observation, Observations
 from pyrx.orbits import OMEGA_E, sat_id, satellite_state
 from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1
 from pyrx.signals import L1_FREQ, wavelength
+from pyrx.signalspec import SignalSpec
 
 BLOCK = 1 << 20  # samples generated at a time, so the float64 intermediates stay small
 
@@ -88,6 +89,62 @@ def synth_l1ca(
             bit_index = (k - code_offset) // (20 * period)  # bit 0 starts at code_offset
             signal = signal * sym[np.clip(bit_index, 0, len(sym) - 1)]
         out[start:stop] = signal + noise
+    return out
+
+
+def synth_pilot(
+    spec: SignalSpec,
+    prn: int,
+    fs: float,
+    f_if: float,
+    doppler: float,
+    code_offset: int,
+    n: int,
+    cn0_dbhz: float,
+    seed: int = 0,
+    doppler_rate: float = 0.0,
+    symbols: np.ndarray | None = None,
+    sec_index: int = 0,
+) -> np.ndarray:
+    """`n` complex64 I/Q samples of a pilot signal with its data component, in white noise.
+
+    Both components have amplitude 1 and sit a quarter cycle apart as the signal's
+    interface specification has them (`spec.data_axis`); `cn0_dbhz` is the C/N0 of the
+    pilot alone. A code period starts at sample index `code_offset`; that period carries
+    chip `sec_index` of the pilot's secondary code, and the data component's secondary
+    code and symbols run on the same count, so a symbol starts wherever the count is a
+    multiple of `spec.symbol_epochs`. `symbols` (0/1, a 1 inverts) are indexed by that
+    count over `spec.symbol_epochs`, the ends held; random from `seed` when None. The
+    carrier sits at `f_if + doppler + doppler_rate * t` Hz, t from sample 0, and the code
+    rate follows the Doppler.
+    """
+    rng = np.random.default_rng(seed)
+    code, data_code = spec.code(prn), spec.data_code(prn)
+    sec, data_sec = spec.secondary(prn), spec.data_secondary(prn)
+    if symbols is None:
+        periods = int(n / fs * spec.chip_rate / spec.code_length) + 2
+        symbols = rng.integers(0, 2, size=(sec_index + periods) // spec.symbol_epochs + 2)
+    sym = 1.0 - 2.0 * np.asarray(symbols, dtype=np.float64)
+    pilot_axis = np.conj(spec.data_axis)
+    noise_std = np.float32(np.sqrt(fs / 10 ** (cn0_dbhz / 10.0) / 2.0))
+    t0 = code_offset / fs
+    out = np.empty(n, dtype=np.complex64)
+    for start in range(0, n, BLOCK):
+        stop = min(start + BLOCK, n)
+        t = np.arange(start, stop, dtype=np.float64) / fs
+        swept = doppler * (t - t0) + 0.5 * doppler_rate * (t * t - t0 * t0)  # Doppler cycles
+        chips = spec.chip_rate * ((t - t0) + swept / spec.carrier)
+        chip = np.floor(chips).astype(np.int64) % spec.code_length
+        count = sec_index + np.floor(chips / spec.code_length).astype(np.int64)
+        pilot = code[chip] * sec[count % len(sec)]
+        symbol = sym[np.clip(count // spec.symbol_epochs, 0, len(sym) - 1)]
+        data = data_code[chip] * data_sec[count % len(data_sec)] * symbol
+        cycles = (f_if + doppler) * t + 0.5 * doppler_rate * t * t
+        carrier = np.exp(2j * np.pi * (cycles % 1.0))
+        # in-phase and quadrature noise drawn sample by sample, so the block size does not
+        # change the result
+        noise = rng.standard_normal((stop - start, 2), dtype=np.float32) * noise_std
+        out[start:stop] = (data + pilot_axis * pilot) * carrier + noise.view(np.complex64)[:, 0]
     return out
 
 
