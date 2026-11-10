@@ -341,7 +341,11 @@ ambiguities aligned to the current clock per signal rather than per frequency, t
 geometry-free slip test run past a missing band, the tie order of two reference
 candidates at the same elevation, a slip flagged in a base epoch that pairs with no
 rover epoch carried to the next paired one) are listed in `rtk.py` and do not change the
-default-configuration comparisons. Double differences are formed per system against
+default-configuration comparisons. One limit is kept as RTKLIB has it: the loss-of-lock
+flags are read only for satellites both receivers contribute at an epoch, so a slip
+flagged by one receiver while the other lacks the satellite goes unseen if the satellite
+is common again within five epochs (a second signal's geometry-free test can still catch
+it). Double differences are formed per system against
 the highest satellite, carrier phase and code, with RTKLIB's single-difference
 variance `2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) plus a
 receiver-clock-stability term in the age of the base epoch, and the block
