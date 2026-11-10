@@ -60,6 +60,8 @@
 
 **C/N0.** Carrier-to-noise-density ratio, in dB-Hz, the standard measure of GNSS signal strength. 35 to 50 dB-Hz in the open. [The signal](02-the-signal.md).
 
+**C/N0 weighting.** Giving a pseudorange less weight in the fix the weaker its signal was, since its noise grows as C/N0 falls at any elevation. [A standalone fix](08-standalone-fix.md).
+
 **Code phase.** Where in its repeating period the received code is at a given sample; the raw timing measurement. [Finding a satellite](04-acquisition.md).
 
 **Coherent integration.** Summing correlator products with their signs and phases intact, so that the signal adds up in amplitude while noise adds up only in power; limited by data-bit flips, the frequency error and the oscillator. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md), [Staying locked](05-tracking.md).

@@ -199,7 +199,7 @@ of epochs and their span.
 ## Positioning from the command line
 
 ```sh
-pyrx-pvt OBS NAV [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te "YYYY-MM-DD HH:MM:SS"] [-o fix.txt] [-v]
+pyrx-pvt OBS NAV [--weights cn0|rtklib] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te "YYYY-MM-DD HH:MM:SS"] [-o fix.txt] [-v]
 ```
 
 Solves every epoch of a RINEX observation file with the ephemerides of a RINEX
@@ -246,8 +246,9 @@ solution from Pocket SDR's observations of the 2021-12-26 recording (five
 satellites once both have all of them: horizontal within 5 m, vertical within
 10 m, pseudorange residual RMS within a factor of two). Without a configuration
 file (`rnx2rtkp -p 0`) RTKLIB applies no ionospheric or tropospheric model, which
-is how that comparison is made. The positioning tests compare `pyrx-pvt` with
-RTKLIB running the same models, from a configuration file with
+is how that comparison is made. The positioning tests compare the solver of
+`pyrx-pvt` under RTKLIB's weights (`--weights rtklib`) with RTKLIB running the same
+models, from a configuration file with
 
 ```
 pos1-posmode=single
@@ -395,13 +396,39 @@ standard atmosphere at the receiver height and 70 % humidity.
 
 Position and receiver clock bias are found by iterated weighted least squares over
 the pseudoranges, each corrected for the satellite clock and group delay (`TGD`),
-with the Earth-rotation term in the range. The weights, the 15 degree elevation
+with the Earth-rotation term in the range. The 15 degree elevation
 mask, the chi-square test on the residuals (0.1 % significance) and the GDOP limit
-of 30 are those of RTKLIB's single-point mode, so the two solvers compare number
+of 30 are those of RTKLIB's single-point mode, and so are the weights with
+`--weights rtklib` (the default of `pvt.solve`): the two solvers then compare number
 for number on the files tested; the one known difference is that RTKLIB also
 leaves out a satellite whose URA index is 10 or more (an accuracy worse than
 300 m), which this solver does not. An epoch with fewer than four usable
-satellites or failing a check gets no solution and the run continues. Velocity and clock drift then come
+satellites or failing a check gets no solution and the run continues.
+
+RTKLIB's pseudorange variance sums the broadcast accuracy (URA), a code-bias term, half
+the broadcast ionospheric delay, the Saastamoinen error and a 0.3 m code error growing
+toward the horizon. None of it knows how strong the signal was, and a satellite tracked
+at 36 dB-Hz has a pseudorange several times as noisy as one at 48 dB-Hz at any
+elevation. `pyrx-pvt` therefore adds, by default (`--weights cn0`), a term in the
+observation's C/N0 to that variance:
+
+```
+(1.5 m)² · 10^(−(C/N0 − 45 dB-Hz) / 10)
+```
+
+so 1.5 m at 45 dB-Hz, 4.7 m at 35, 0.8 m at 50; an observation without an `S1C` value
+gets none. The slope is the one the residuals show on sky recordings (about ten times
+the variance for every 10 dB), and has the form of the signal-strength term of the
+demo5 fork of RTKLIB (`stats-errsnr`); RTKLIB 2.4.3 itself has only a signal-strength
+mask in this mode. The 1.5 m was taken from a sweep over three five-minute car-roof
+recordings as the largest value that made nothing worse on any of them: parked, the
+scatter of the fix about its mean went from 2.4 / 1.3 / 8.9 m (north / east / up, RMS)
+to 2.0 / 1.3 / 8.4 m with two of eight satellites below 41 dB-Hz; driving, the distance
+to RTKLIB's track from Pocket SDR's observations of the same samples went from
+2.0 m horizontal and 4.6 m vertical to 1.5 and 3.0 m. The weak satellites are the low
+ones there, which the geometry needs, so they are weighted down and not left out. The
+chi-square test uses the same variances, so it tolerates a larger residual on a weak
+satellite. Velocity and clock drift then come
 from an unweighted least-squares fit of the Dopplers of the satellites used, when
 at least four have one.
 
@@ -522,7 +549,10 @@ mean (an obstruction's onset) the loop's integrator is held, since on the faded 
 it would wind up and slip the carrier. The code loop is a
 0.25 Hz delay-locked loop on 10 ms non-coherent early/late sums, with the code
 rate aided by the carrier Doppler. C/N0 is estimated from prompt versus noise-tap
-power over 1 s, with the phase-lock indicator over the same window, and a channel is
+power over 1 s, each new window's estimate averaged in half with the value held
+before, so the reported C/N0 (the `S1C` of the observations) is that of completed
+windows only and trails a change by a second or two, as a receiver reporting in real
+time would; the phase-lock indicator is taken over the same window, and a channel is
 dropped after two consecutive windows with C/N0 below 25 dB-Hz or the indicator
 below 0.25, the first window judged on C/N0 alone because the pull-in spins the
 carrier through it. Every channel's carrier
