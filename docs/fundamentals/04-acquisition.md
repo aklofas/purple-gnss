@@ -72,6 +72,6 @@ Once a satellite is acquired, its coarse code phase and Doppler are handed to a 
 
 ---
 
-**In pyrx:** `acquisition.py` implements the parallel code phase search described here on a recording, and `pyrx-acq` runs it from the command line; adding `--plot DIR` also writes a C/N0 chart and a search-grid image for each detected satellite. It is checked against Pocket SDR's acquisition on the same recordings. Section 2 of the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) runs this search on a real recording and draws its grid.
+**In pyrx:** `acquisition.py` implements the parallel code phase search described here on a recording, and `pyrx-acq` runs it from the command line, for GPS L1 C/A or, with `--signal`, for the pilot of GPS L5 or Galileo E5a. A pilot's secondary code flips the sign between code periods, so the pilots are searched over two periods of samples against one zero-padded period of code, which always holds one whole period; adding `--plot DIR` also writes a C/N0 chart and a search-grid image for each detected satellite. It is checked against Pocket SDR's acquisition on the same recordings. Section 2 of the [signal-chain notebook](../../pyrx/notebooks/01-signal-chain.ipynb) runs this search on a real recording and draws its grid.
 
 Next: [Staying locked](05-tracking.md).

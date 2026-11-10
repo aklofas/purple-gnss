@@ -1,7 +1,8 @@
 # pyrx
 
 An offline GNSS receiver in Python: acquisition, tracking, navigation-message
-decode and observables written as RINEX from recorded GPS L1 C/A IF samples, and a
+decode and observables written as RINEX from recorded GPS L1 C/A IF samples,
+acquisition and tracking of the GPS L5 and Galileo E5a pilot signals, and a
 standalone position fix and an RTK fix from RINEX files, our own or public ones
 (GPS L1/L2/L5 and Galileo E1/E5a/E5b). Each stage is checked against an external
 reference: Pocket SDR for acquisition, tracking and observables, broadcast
@@ -40,7 +41,8 @@ on this project's environment (numpy 2.5, scipy 1.18, x86-64); another numerical
 may differ in the last printed digit.
 
 The reference tests compare acquisition and tracking with Pocket SDR's results on
-its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`),
+its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`;
+the L5 and E5a pilots in `test_tracking_pilot_reference.py`),
 the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),
 the transmit times with Pocket SDR's C tracker and the fix RTKLIB computes from our
 RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`),
@@ -60,12 +62,14 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `L1_20211201_054600_24MHz_I.bin` | the same directory, GPS L1, 24 MHz real, 6 MHz IF, 100 ms | `05c771f0c152e2bd11ccba0715198afc0aa56e5d420bec0993fa720ac8d508d0` |
 | `L1_20211226_082401_24MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L5_20211226_082401_24MHz.zip (Pocket SDR sample data, linked from its `sample/` directory), GPS L1, 24 MHz real, 6 MHz IF, 30 s | `16c83d58716ae9ba577aac29344766373accb98b34b729afdac8cc2e1352252c` |
 | `L1_20220114_004440_8MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L2_20220114_004440_8MHz.zip, GPS L1, 8 MHz real, 2 MHz IF, 30 s | `388c550e2694067566c24fddae61abd1b316eb4bbd0820e0e8fff1818f164de7` |
+| `L5_20211226_082401_24MHz_IQ.bin` | the L5 file of the same archive: the L5/E5a band of the same 30 s, 24 MHz I/Q, LO 1176.45 MHz | `a22e9fb97946e8c4f8347c1f16ece94cab0f127b84b18e28a026482f79fd5e70` |
 | `brdc/BRDC00WRD_R_20213600000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2021-12-26 | `92fe0754c16b3408691facabad44390ebfa2031ad641334ebe6f8660f8e554c2` |
 | `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.trk.log` | generated: Pocket SDR `pocket_trk.py` (commit eda8301) log of the 2021-12-26 recording, `$CH` channel state every 0.1 s; command below | `b9891175ed8fe7703f7b766e7e91a2bb9595e782d1d0a5d8dbbcf76920eef2f4` |
 | `pocketsdr-trk/L1_20220114_004440_8MHz_I.trk.log` | the same for the 2022-01-14 recording | `a9a5dc74a472c91a043465be5986f7b6b865cbb43f0e737ff09d41d358639746` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | generated: Pocket SDR C tracker (`pocket_trk`, commit eda8301) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS`; command below | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
 | `pocketsdr-trk/L1_20220114_004440_8MHz_I.ctrk.log` | the same for the 2022-01-14 recording (`$CH` only: no subframe 1 in the window, so Pocket SDR forms no observations) | `3308cc4bc7273ba09ac1a14879b9bce7dca9f696119c0718f48b1a2cb4c09e92` |
+| `pocketsdr-trk/L5_20211226_082401_24MHz_IQ.l5fix.ctrk.log` | generated: Pocket SDR C tracker log of the L5 recording, data and pilot channels of GPS L5 and Galileo E5a, from a build with the GPS L5 code generator corrected; command and correction below | `d6057fedb84fc3bfe56967a6efd85e620e2291fecf5858fa311ca3e60be8c3b1` |
 | `igs/USUD00JPN_R_20213600000_01D_30S_MO.crx.gz` | https://igs.bkg.bund.de/root_ftp/IGS/obs/2021/360/, IGS station USUD (Usuda, Japan), 30 s observations of 2021-12-26, RINEX 3.04, Hatanaka-compressed; no Doppler logged | `b964f1f0a51ffca461712575c6dbfe915b7eac65cb0f1513c46c75e2dc78e1f2` |
 | `igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz` | the station's GPS navigation file of that day from the same directory; the one with the `GPSA`/`GPSB` ionosphere lines, so it is the navigation input for the station and for the 2021-12-26 recording | `911fe136cd28a51ba5e0f81c5494af8c32b3cdf26bac7b68f6d34821a1105649` |
 | `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, https://igs.bkg.bund.de/root_ftp/IGS/products/orbits/2190/igs21900.sp3.Z decompressed | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
@@ -82,6 +86,8 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `sky/20261103_031515_carroof-driving/ch1.bin` | project recording, not distributed (50 GB per capture; the test reads 20 s of it): Pocket SDR FE 4CH on a car roof, driven through two obstructions, GPS L1, 24 MHz real, 6 MHz IF, 300 s; `test_tracking_reference.py` tracks G12 through the 222 s onset | `3662ffb99bcc61068af4322b766d2be1d2a678feb2fa1b01cef9b2d306ee0113` |
 | `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; the `slow` test in `test_channels_reference.py` walks its first 90 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
 | `sky/20261103_032110_carroof-coldstart/trk_l1ca.log` | generated: Pocket SDR `pocket_trk` L1 C/A log of that recording, the reference of the `slow` test | `4dc83bc579867286d6e938cdc91628f5d9c413723d832c86c9475f1ae85de9d5` |
+| `sky/20261103_030551_carroof-static/ch2.bin` | project recording, not distributed: the same front end parked under open sky, the L5/E5a band, 24 MHz I/Q, LO 1176.45 MHz, 300 s; a `slow` test walks the pilots of its first 60 s | `be4c19485ae6466fb372b91b8ee569ec36b6baeecc626ecc2632dacbd35a3b3a` |
+| `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
@@ -111,6 +117,20 @@ convbin -r rtcm3 -v 3.05 -tr 2021/12/26 08:00:00 -o L1_20211226_082401_24MHz_I.p
 rnx2rtkp -p 0 -t -o L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos L1_20211226_082401_24MHz_I.psdr.obs ../brdc/BRDC00WRD_R_20213600000_01D_GN.rnx
 ```
 
+The L5 logs come from a copy of Pocket SDR (commit eda8301) with one correction. Its
+GPS L5 code generator takes the XB sequence at index `(i + advance) % 10230`;
+IS-GPS-705 (3.3.2.2) restarts the XB register at its natural completion after 8191
+chips inside the 10230-chip period, so the index is `(i + advance) % 8191`
+(`gen_code_L5I` and `gen_code_L5Q` in `src/sdr_code.c`, and the two `np.roll` lines of
+`python/sdr_code.py`). Unchanged, the last `advance` chips of every period come from
+the wrong part of the sequence, the correlation reads up to 8 dB low depending on the
+PRN and component, and weak channels are lost. With the correction the data and pilot
+components read equal on every satellite, as the signal is specified. The command:
+
+```sh
+pocket_trk ../L5_20211226_082401_24MHz_IQ.bin -fmt INT8X2 -f 24 -fo 1176.45 -sig L5I -prn 1-32 -sig L5Q -prn 1-32 -sig E5AI -prn 1-36 -sig E5AQ -prn 1-36 -ti 0 -log L5_20211226_082401_24MHz_IQ.l5fix.ctrk.log
+```
+
 ## Sample format
 
 Signed 8-bit samples. Real recordings hold one byte per sample. I/Q recordings
@@ -120,11 +140,21 @@ of the Pocket SDR front-end.
 ## Acquisition from the command line
 
 ```sh
-pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--prn 1-32] [--duration 0.02] [--plot DIR]
+pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--signal L1CA] [--prn 1-32] [--duration 0.02] [--plot DIR]
 ```
 
 By default the first 20 ms of the file are integrated (`--duration 0` for the whole
 file), and a PRN counts as detected when its peak reads 36 dB-Hz or more.
+
+`--signal` is `L1CA` (GPS L1 C/A, the default), `L5` (the GPS L5 pilot, Q5) or `E5A`
+(the Galileo E5a pilot, E5a-Q); without `--prn` every PRN of the signal is searched
+(1 to 32, or 1 to 36 for Galileo). A pilot carries one chip of a secondary code on
+every code period, so its sign changes between periods, and a period that straddles a
+sign change cancels part of itself in a circular correlation over one period. The
+pilots are therefore searched with two periods of samples against the code padded with
+zeros to two periods, as Pocket SDR does: one whole period always correlates. On a
+recording the plain search read 2 to 3 dB low wherever the code period started in
+mid-block, and the code phase hardly moves within a file.
 
 Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so the
 two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
@@ -140,7 +170,7 @@ Non-integer rates are not supported.
 ## Tracking from the command line
 
 ```sh
-pyrx-trk FILE --fs 8e6 --f-if 2e6 [--iq] [--prn 1-32] [--duration 0] [--log trk.csv] [--plot DIR]
+pyrx-trk FILE --fs 8e6 --f-if 2e6 [--iq] [--signal L1CA] [--prn 1-32] [--duration 0] [--log trk.csv] [--plot DIR]
 ```
 
 Searches each PRN on 20 ms windows, at the start and then every 10 s wherever the
@@ -162,6 +192,13 @@ segment every 0.1 s (`phase_lock` empty in an incomplete final window). `--plot`
 (`trk_prnNN_k.png` for a PRN's k-th segment) with four panels: prompt I and Q over the first 2 s (the navigation data bits are visible
 once the phase lock settles), Doppler, C/N0, and the early, prompt and late
 correlator magnitudes.
+
+With `--signal L5` or `--signal E5A` the channels track the pilot (see "Pilot signals"
+below). A pilot has no data bits, so its trial is passed when the secondary code was
+found and the trial's last complete window is phase-locked. Each segment's line also
+says when the secondary code was found (`SYNC 1.5 s`, seconds into the segment, or
+`SYNC none`), and the CSV has one more column, `synced`, 1 from the epoch the
+secondary chip is removed.
 
 ## Navigation message decode from the command line
 
@@ -571,3 +608,54 @@ so a locked channel can be compared with them number for number on the same reco
 the FLL on coherent sums (Pocket SDR's works epoch by epoch), the integrator hold and
 the two-window loss rule are this receiver's own. None of them are the final choices
 for the hardware receiver.
+
+### Pilot signals
+
+GPS L5 and Galileo E5a each send two components a quarter cycle apart at equal power:
+one with the navigation data and one without, the pilot. Both have a 10230-chip code
+at 10.23 Mchip/s (1 ms), and each code period is multiplied by one chip of a slower
+secondary code: 20 chips on the L5 pilot, 100 on the E5a pilot (one code per
+satellite), 10 and 20 on the data components, where a data symbol spans one
+repetition. The tracker is the same for every signal and is driven by a description
+of the signal (`signalspec.py`); for a pilot it runs in stages:
+
+1. Pull-in, 1 s: the FLL on single epochs (5 Hz for 0.5 s, then 2 Hz), because a
+   coherent sum over a sign change of the secondary code cancels. This is Pocket SDR's
+   pull-in and the one that handed a 30 dB-Hz L1 channel over 10 Hz off; the signals
+   tracked so far are 37 dB-Hz and stronger.
+2. The 1 ms Costas loop, which does not care about the sign changes.
+3. From 1.5 s the last prompts are compared with the secondary code at the current
+   alignment (Pocket SDR's rule: the correlation of the code with the in-phase prompts
+   reaches 0.8 of their mean magnitude), and the match is accepted only while the
+   Costas loop is phase-locked (cos 2φ of the last 100 prompts at least 0.5). Without
+   that condition the 20-chip code matched noise within a second on every absent PRN
+   tried.
+4. From then on the secondary chip is removed from every prompt and the carrier loop
+   is the same third-order update on the four-quadrant phase of 20 ms coherent sums
+   (Pocket SDR's pilot loop): no half-cycle ambiguity, and 13 dB more signal in each
+   update. The integrator hold keeps its 10 ms power windows. The phase-lock indicator
+   is cos 2φ of the sums; it reads -1 if the loop ever stood half its 50 Hz update
+   rate off, where the errors alternate and average to zero.
+
+The code loop, the C/N0 estimate and the loss rule are L1's. At 24 Msps a chip is
+2.35 samples and the front end's filter rounds the correlation peak, so the
+early-minus-late discriminator's slope is about a fifth below a triangle's and the
+code loop's bandwidth correspondingly below 0.25 Hz.
+
+The data component (I5, E5a-I) is correlated every epoch with its own code at the
+pilot's carrier and code timing. After the sync its secondary chips are removed and
+each symbol's epochs are summed along the axis the interface specifications give the
+data relative to the pilot (Q5 lags I5 by a quarter cycle; E5a is I plus jQ), giving a
+stream of soft symbols in the track result. Nothing is decoded from it yet and it
+steers no loop. On a recording both components read the same power within 0.2 dB,
+and on Galileo the uncoded 12-symbol sync pattern of the F/NAV pages appears every
+500 symbols with the sign it is sent with, which checks the axis and the sample
+convention; on L5 the symbols are convolutionally coded, so their sign rests on the
+specification until the message is decoded.
+
+Checked on the L5 recording of 2021-12-26 against Pocket SDR's C tracker
+(`test_tracking_pilot_reference.py`): five GPS and six Galileo satellites from 38 to
+50 dB-Hz find the secondary code at 1.5 s and stay locked for the whole file
+(indicator 0.98 or more in every window), with the Doppler within 0.3 Hz and the C/N0
+within 1 dB of its pilot channels, and the code start within 12 ns of its data
+channels (its own code loop is still settling at the end of the file).
