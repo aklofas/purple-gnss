@@ -64,7 +64,7 @@ $$
 = (H^\mathsf{T} W H)^{-1} H^\mathsf{T} W \mathbf{v}, \qquad W = \mathrm{diag}\left(\frac{1}{(\sigma^s)^2}\right).
 $$
 
-The middle expression says what is minimized; the right one is its solution, from the normal equations. The weights are usually a function of elevation, because low satellites suffer more atmosphere and multipath, and in some receivers of C/N0. Four or five iterations converge from anywhere on the planet.
+The middle expression says what is minimized; the right one is its solution, from the normal equations. The weights are usually a function of elevation, because low satellites suffer more atmosphere and multipath, and often of C/N0 as well, because the noise of a pseudorange grows as the signal weakens whatever the elevation: **C/N0 weighting** gives a satellite seen through a tree less say than one in the clear beside it. Four or five iterations converge from anywhere on the planet.
 
 The result is a position in Earth-centered coordinates, which is converted to latitude, longitude and ellipsoidal height, and a receiver clock error. The clock error is discarded by most users and is the whole point for timing users.
 
@@ -104,6 +104,6 @@ Independent errors add as the square root of the sum of their squares, so the li
 
 ---
 
-**In pyrx:** `orbits.py` evaluates the ephemeris, `models.py` holds the Klobuchar and Saastamoinen corrections, and `pvt.py` is the weighted least-squares solver, with the same models, weights, 15 degree elevation mask and chi-square test as RTKLIB's single-point mode so the two can be compared; it applies the Earth's rotation as the Sagnac term. An epoch that fails the chi-square test gets no fix, with no second solve without the worst satellite, and so does one with a GDOP above 30. `pyrx-pvt` runs it on RINEX files, and on a day of a public reference station it agrees with RTKLIB to about a millimeter on average, with a handful of epochs up to 0.5 m apart. Sections 3 and 4 of the [standalone-positioning notebook](../../pyrx/notebooks/02-standalone-pvt.ipynb) work through the models and the solve on three hours of station data.
+**In pyrx:** `orbits.py` evaluates the ephemeris, `models.py` holds the Klobuchar and Saastamoinen corrections, and `pvt.py` is the weighted least-squares solver, with the same models, weights, 15 degree elevation mask and chi-square test as RTKLIB's single-point mode so the two can be compared, and with a C/N0 term that can be added to the variance of each pseudorange (1.5 m at 45 dB-Hz, ten times the variance for every 10 dB below), which `pyrx-pvt` does unless asked for RTKLIB's weights; it applies the Earth's rotation as the Sagnac term. An epoch that fails the chi-square test gets no fix, with no second solve without the worst satellite, and so does one with a GDOP above 30. `pyrx-pvt` runs it on RINEX files, and on a day of a public reference station it agrees with RTKLIB to about a millimeter on average, with a handful of epochs up to 0.5 m apart. Sections 3 and 4 of the [standalone-positioning notebook](../../pyrx/notebooks/02-standalone-pvt.ipynb) work through the models and the solve on three hours of station data.
 
 Next: [RTK](09-rtk.md).
