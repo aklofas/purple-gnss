@@ -10,7 +10,9 @@ from pyrx.channels import track_prn, track_prns
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn
 from pyrx.observables import LLI_HALF_CYCLE, LLI_SLIP, make_observables
 from pyrx.samples import SampleFile, read_samples
-from pyrx.tracking import track_l1ca
+from pyrx.signalspec import L5
+from pyrx.synth import synth_pilot, write_iq_int8
+from pyrx.tracking import PLI_LOCKED, track_l1ca
 
 FS = 2.5e6
 
@@ -144,3 +146,46 @@ def test_short_tail_segment_yields_no_observations(gap_file):
     lnavs = [decode_lnav(s) for s in segs]
     with_tail = make_observables(segs + [tail], lnavs + [decode_lnav(tail)])
     assert with_tail == make_observables(segs, lnavs)
+
+
+PILOT_FS = 6e6
+
+
+def _pilot_file(tmp_path, parts):
+    """An I/Q file of the given (PRN, seconds) stretches of L5, one after the other."""
+    x = np.concatenate(
+        [
+            synth_pilot(L5, prn, PILOT_FS, 0.0, 900.0, 350, int(PILOT_FS * seconds), 45.0, seed=i)
+            for i, (prn, seconds) in enumerate(parts)
+        ]
+    )
+    path = tmp_path / "pilot.bin"
+    write_iq_int8(x, path)
+    return path
+
+
+def test_pilot_walk_rejects_a_seed_that_never_syncs(tmp_path, monkeypatch):
+    # a "detection" of PRN 11 in a file that holds PRN 6: its trial finds no secondary code
+    path = _pilot_file(tmp_path, [(6, 3.2)])
+    monkeypatch.setattr(channels, "acquire_signal", lambda *a, **k: _always_detected(11))
+    rejected = []
+    segs = track_prn(path, PILOT_FS, True, 0.0, 11, interval=20.0, rejected=rejected, signal="L5")
+    assert segs == [] and rejected == [(11, 0.0)]
+
+
+def test_pilot_walk_finds_a_late_signal(tmp_path):
+    # PRN 6 appears 3 s into the file: nothing at the first probe, a segment from the second
+    path = _pilot_file(tmp_path, [(11, 3.0), (6, 4.2)])
+    rejected = []
+    segs = track_prn(path, PILOT_FS, True, 0.0, 6, interval=3.0, rejected=rejected, signal="L5")
+    assert len(segs) == 1 and rejected == []
+    seg = segs[0]
+    assert seg.signal == "L5" and 3.0 <= seg.t[0] < 3.0 + 0.0011 and seg.locked
+    assert seg.sec_sync is not None and seg.t[-1] > 7.1
+    assert np.nanmin(seg.phase_lock[seg.sec_sync :]) > PLI_LOCKED
+
+
+def test_pilot_walk_through_track_prns(tmp_path):
+    path = _pilot_file(tmp_path, [(6, 2.6)])
+    segs = track_prns(path, PILOT_FS, True, 0.0, [6, 11], workers=2, signal="L5")
+    assert [s.prn for s in segs] == [6] and segs[0].sec_sync is not None

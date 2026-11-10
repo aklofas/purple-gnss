@@ -28,12 +28,14 @@ from pyrx.rinex import (
     write_rinex_obs,
     write_rinex_observations,
 )
+from pyrx.signalspec import L5
 from pyrx.synth import (
     TOW,
     USUD,
     constellation,
     frame,
     synth_l1ca,
+    synth_pilot,
     synthetic_pair,
     truth_epoch,
     write_iq_int8,
@@ -337,3 +339,59 @@ def test_rinex_main_writes_one_nav_record_from_two_segments(gap_file, tmp_path, 
     assert n1 > 0 and n2 > 0 and n1 + n2 == obs.read_text().count("\nG04 ")
     assert nav.read_text().count("\nG04 ") == 1
     assert "GROUND_CRAFT".ljust(60) + "MARKER TYPE" in obs.read_text()
+
+
+PILOT_FS = 6e6
+
+
+def _l5_file(tmp_path, seconds, prn=6):
+    x = synth_pilot(L5, prn, PILOT_FS, 0.0, 1234.0, 1500, int(PILOT_FS * seconds), 45.0)
+    f = tmp_path / "l5.bin"
+    write_iq_int8(x, f)
+    return f
+
+
+def test_acq_main_takes_the_signal(tmp_path, capsys):
+    f = _l5_file(tmp_path, 0.02)
+    assert acq_main([str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "6,11"]) == 0
+    out = capsys.readouterr().out
+    assert "SIG= L5  , PRN=   6, COFF=  0.25000 ms" in out and "PRN=  11" in out
+    check_golden("cli_acq_l5.out", without_elapsed(out))
+
+
+def test_acq_main_defaults_to_the_signals_prns(tmp_path, capsys):
+    f = _l5_file(tmp_path, 0.02)
+    assert acq_main([str(f), "--fs", "6e6", "--iq", "--signal", "E5A"]) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("SIG= E5A ")]
+    assert len(lines) == 36 and "PRN=  36" in lines[-1]
+
+
+def test_trk_main_tracks_a_pilot(tmp_path, capsys):
+    f = _l5_file(tmp_path, 2.6)
+    log = tmp_path / "trk.csv"
+    rc = trk_main([str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "6", "--log", str(log)])
+    out = capsys.readouterr().out
+    assert rc == 0 and "PRN  6" in out and "SYNC 1.5 s" in out and "LOCK" in out
+    rows = log.read_text().splitlines()
+    assert rows[0].endswith(",synced") and rows[1].endswith(",0") and rows[-1].endswith(",1")
+    check_golden("cli_trk_l5.out", without_elapsed(out))
+    check_golden("cli_trk_l5.csv", log.read_text())
+
+
+@pytest.mark.parametrize("signal,prn,span", [("E5A", "37", "1-36"), ("L5", "40", "1-32"), ("L5", "0", "1-32")])
+def test_prn_outside_the_signals_set_is_a_usage_error(tmp_path, capsys, signal, prn, span):
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"\0" * 16)
+    for main in (acq_main, trk_main):
+        with pytest.raises(SystemExit) as e:
+            main([str(f), "--fs", "6e6", "--iq", "--signal", signal, "--prn", prn])
+        err = capsys.readouterr().err
+        assert e.value.code == 2 and "--prn" in err and f"PRNs {span}" in err
+
+
+def test_pilot_trial_failure_is_named(tmp_path, capsys, monkeypatch):
+    f = _l5_file(tmp_path, 3.2)
+    monkeypatch.setattr(channels, "acquire_signal", lambda *a, **k: _always_detected(11))
+    assert trk_main([str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "11"]) == 2
+    err = capsys.readouterr().err
+    assert "every detection failed the 6 s secondary-code trial (PRN 11 at 0 s)" in err
