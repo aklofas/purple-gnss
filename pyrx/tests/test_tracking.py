@@ -150,6 +150,24 @@ def test_track_cn0_held_between_updates():
     assert r.cn0[1000] != 45.0 or r.cn0[1999] != 45.0
 
 
+def test_track_cn0_is_the_smoothed_estimate_of_completed_windows():
+    # the value at an epoch never uses the window the epoch is in: it is the seed during
+    # the first window, then after each completed 1 s window the previous value moved
+    # halfway to that window's estimate from the prompt and noise sums, held for the
+    # next 1000 epochs. Seeded 5 dB high, it closes half of the gap per window
+    r = track_l1ca(_src(cn0=40.0, seconds=4.5), 0.0, 7, 1000 / FS, 1234.0, 45.0)
+    held, gaps = 45.0, []
+    for w in range(1, 5):
+        window = r.corr[(w - 1) * 1000 : w * 1000].astype(np.complex128)
+        p, n = np.sum(np.abs(window[:, 0]) ** 2), np.sum(np.abs(window[:, 3]) ** 2)
+        estimate = 10.0 * np.log10((p - n) / n / 1e-3)
+        assert np.all(r.cn0[(w - 1) * 1000 : w * 1000 - 1] == held)
+        held += 0.5 * (estimate - held)
+        assert r.cn0[w * 1000 - 1] == pytest.approx(held, abs=1e-4)
+        gaps.append(r.cn0[w * 1000 - 1] - estimate)
+    assert 1.5 < gaps[0] < 3.5 and abs(gaps[3]) < 0.6
+
+
 def test_track_channels_matches_sequential(tmp_path):
     fs = FS
     x7 = synth_l1ca(7, fs, 0.0, 1234.0, 1000, int(fs * 1.5), 48.0, True, seed=1, data_bits=True)

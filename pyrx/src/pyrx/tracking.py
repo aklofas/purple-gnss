@@ -149,7 +149,12 @@ class TrackResult:
         modulo one cycle, so the accumulated phases of different channels share
         one origin and are comparable to a fraction of a cycle.
     phase[k]: cycles in [0, 1), the carrier NCO phase at t[k].
-    cn0[k]: dB-Hz, estimate held between its 1 s updates.
+    cn0[k]: dB-Hz, a causal estimate: the seed during the first 1 s window, then at
+        each window's end the previous value moved halfway to that window's estimate
+        and held until the next. The value at an epoch never includes the window
+        the epoch is in, so it trails a change in signal strength by up to 2 s and
+        closes half of the remaining gap every second. It is what a receiver can
+        report in real time, and what the observations carry as S1C.
     phase_lock[k]: carrier phase-lock indicator of the 1 s window containing epoch k,
         the sum over the window of I_P^2 - Q_P^2 over the sum of I_P^2 + Q_P^2 (cos 2φ
         in [-1, 1], 1 when phase-locked of either data polarity, near 0 when the
