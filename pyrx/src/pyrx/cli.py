@@ -17,7 +17,7 @@ from pyrx.channels import TRIAL, track_prns
 from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn, ionosphere_of, tow1_by_prn
-from pyrx.observables import make_observables, receiver_time0
+from pyrx.observables import make_joint_observables, make_observables, receiver_time0
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.pvt import ELEVATION_MASK, WEIGHTS, solve
 from pyrx.rinex import (
@@ -27,6 +27,7 @@ from pyrx.rinex import (
     read_rinex_observations,
     write_rinex_nav,
     write_rinex_obs,
+    write_rinex_observations,
 )
 from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import SampleFile, read_samples
@@ -273,7 +274,9 @@ def nav_main(argv: list[str] | None = None) -> int:
 
 
 def rinex_main(argv: list[str] | None = None) -> int:
-    """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation files."""
+    """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
+    files. With --l5, also track the GPS L5 pilots in a second recording of the same
+    instants and write their observations beside L1's."""
     p = argparse.ArgumentParser(prog="pyrx-rinex", description=rinex_main.__doc__)
     _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
@@ -287,7 +290,19 @@ def rinex_main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--obs", required=True, help="RINEX observation file to write")
     p.add_argument("--nav", default=None, help="RINEX navigation file to write")
+    p.add_argument(
+        "--l5",
+        default=None,
+        help="I/Q recording of the L5 band made with the same sample clock and rate, sample "
+        "for sample alongside FILE: adds the GPS L5 pilot observations C5Q L5Q D5Q S5Q",
+    )
+    p.add_argument(
+        "--l5-f-if", type=float, default=0.0, help="intermediate frequency of the --l5 file (Hz)"
+    )
     args = p.parse_args(argv)
+    if args.l5 is not None and not Path(args.l5).is_file():
+        print(f"--l5 {args.l5}: no such recording", file=sys.stderr)
+        return 2
 
     tracked = _acquire_and_track(args)
     if tracked is None:
@@ -318,7 +333,34 @@ def rinex_main(argv: list[str] | None = None) -> int:
         print(f"{what}, nothing written", file=sys.stderr)
         return 2
     week = epochs[0].week
-    write_rinex_obs(args.obs, epochs, args.marker, marker_type=args.marker_type)
+    if args.l5 is None:
+        write_rinex_obs(args.obs, epochs, args.marker, marker_type=args.marker_type)
+    else:
+        # the pilots of the satellites L1 gave a time to, on that time
+        prns = sorted({o.prn for e in epochs for o in e.obs})
+        duration = args.duration if args.duration > 0 else None
+        pilots = track_prns(
+            args.l5, args.fs, True, args.l5_f_if, prns,
+            t_start=args.t_start, duration=duration, signal="L5",
+        )  # fmt: skip
+        joint = make_joint_observables(tracks, lnavs, pilots, args.interval, args.week)
+        elapsed = time.perf_counter() - t0
+        for i, r in enumerate(pilots):
+            label = f"G5Q {_segment_label(pilots, i)}"
+            later = i + 1 < len(pilots) and pilots[i + 1].prn == r.prn
+            t_end = pilots[i + 1].t[0] if later else None
+            sat = f"G{r.prn:02d}"
+            mine = [
+                (e.pseudorange[e.sats.index(sat), 1], e.doppler[e.sats.index(sat), 1])
+                for e in joint
+                if sat in e.sats and _in_segment((e.tow - rx0) % WEEK_S, r, t_end)
+            ]
+            mine = [m for m in mine if np.isfinite(m[0])]
+            if not mine:
+                print(f"{label}  no time tag")
+                continue
+            print(f"{label}  epochs {len(mine)}  P {mine[0][0] / 1e3:.1f} km  D {mine[0][1]:.1f} Hz")
+        write_rinex_observations(args.obs, joint, args.marker, marker_type=args.marker_type)
     print(
         f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "
         f"to {gps_datetime(week, epochs[-1].tow)}"

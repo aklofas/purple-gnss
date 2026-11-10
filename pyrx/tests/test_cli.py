@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from support import AMB_B, AMB_R, ROVER, SIGNALS, check_golden, without_date, without_elapsed
 
-from pyrx import channels
+from pyrx import channels, cli
 from pyrx.acquisition import AcqResult
 from pyrx.cli import (
     _solution_line,
@@ -40,6 +40,7 @@ from pyrx.synth import (
     truth_epoch,
     write_iq_int8,
 )
+from pyrx.tracking import TrackResult
 
 
 def test_parse_prns():
@@ -395,3 +396,68 @@ def test_pilot_trial_failure_is_named(tmp_path, capsys, monkeypatch):
     assert trk_main([str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "11"]) == 2
     err = capsys.readouterr().err
     assert "every detection failed the 6 s secondary-code trial (PRN 11 at 0 s)" in err
+
+
+def _pilot_beside(l1, start, n, delay, prn=4):
+    """A constructed L5 pilot segment whose code starts arrive `delay` after those of the L1
+    track `l1` from its epoch `start` on, the secondary code found 1.5 s in."""
+    k = np.arange(start, start + n)
+    return TrackResult(
+        prn, l1.t[k], np.zeros((n, 4), np.complex64), (l1.code_offset[k] + delay) % 1e-3,
+        l1.doppler[k] * (1176.45 / 1575.42), l1.carrier_phase[k] * (1176.45 / 1575.42),
+        np.zeros(n), np.full(n, 47.0), np.ones(n), True, None, np.zeros(n), np.zeros(n),
+        signal="L5", sec_sync=1500, sec_origin=0, sec_polarity=1,
+        data_prompt=np.zeros(n, np.complex64),
+    )  # fmt: skip
+
+
+def test_rinex_main_adds_l5_observations(tmp_path, capsys, monkeypatch):
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    n = int(fs * (len(seq) * 0.020 + 0.1))
+    f = tmp_path / "s.bin"
+    write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq), f)
+    l5 = tmp_path / "l5.bin"
+    l5.write_bytes(b"\0" * 64)  # the L5 walk is replaced below; only the file's presence counts
+    real = cli.track_prns
+    walks = []
+
+    def walk(path, fs_, iq, f_if, prns, **kwargs):
+        if kwargs.get("signal") != "L5":
+            walks.append(real(path, fs_, iq, f_if, prns, **kwargs))
+            return walks[-1]
+        walks.append((str(path), fs_, iq, f_if, list(prns)))
+        (l1,) = walks[0]
+        # one segment on the L1 channel's code grid, a later one 0.3 ms off it
+        return [_pilot_beside(l1, 500, 7000, 30e-9), _pilot_beside(l1, 9000, 6000, 0.3e-3)]
+
+    monkeypatch.setattr(cli, "track_prns", walk)
+    obs = tmp_path / "o.obs"
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs)]
+    assert rinex_main([*args, "--l5", str(l5), "--l5-f-if", "1500"]) == 0
+    out = capsys.readouterr().out
+    assert walks[1] == (str(l5), 2.5e6, True, 1500.0, [4])  # the PRNs with an L1 time tag
+    lines = out.splitlines()
+    i = next(n for n, ln in enumerate(lines) if ln.startswith("G5Q PRN  4  epochs "))
+    assert lines[i - 1].startswith("PRN  4  epochs ") and re.search(r"P \d+\.\d km  D -?\d", lines[i])
+    assert re.fullmatch(r"G5Q PRN  4 from \d+\.\d s  no time tag", lines[i + 1])
+    text = obs.read_text()
+    assert "G    8 C1C L1C D1C S1C C5Q L5Q D5Q S5Q" in text
+    assert "G L1C  " in text and "G L5Q  0.00000" in text
+    records = [ln for ln in text.splitlines() if ln.startswith("G04")]
+    both = [ln for ln in records if len(ln.rstrip()) > 3 + 16 * 4]
+    assert 4 <= len(both) == int(lines[i].split()[4]) < len(records)
+    # the same L1 fields as without --l5
+    plain = tmp_path / "plain.obs"
+    assert rinex_main([*args[:-1], str(plain)]) == 0
+    l1_only = [ln for ln in plain.read_text().splitlines() if ln.startswith("G04")]
+    assert [ln[: 3 + 16 * 4].rstrip() for ln in records] == [ln.rstrip() for ln in l1_only]
+
+
+def test_rinex_main_reports_a_missing_l5_file(tmp_path, capsys):
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"\0" * 64)
+    args = [str(f), "--fs", "2.5e6", "--iq", "--obs", str(tmp_path / "o.obs")]
+    assert rinex_main([*args, "--l5", str(tmp_path / "absent.bin")]) == 2
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "absent.bin" in err and "--l5" in err
