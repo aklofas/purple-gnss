@@ -243,8 +243,10 @@ made by the same front end on the same sample clock and at the same rate, sample
 of both files being the same instant (the two channels of one capture). Only the
 satellites L1 gave a time to are searched on L5, and each L5 segment prints its own
 line, `G5Q PRN nn  epochs ...`, or `G5Q PRN nn  no time tag` when it could not be
-placed on the L1 time (see "L5 observations" below). Without `--l5` the output is
-what it was.
+placed on the L1 time (see "L5 observations" below). If no pilot is tracked at all,
+which is what a wrong `--l5-f-if`, sample rate or file gives, a line on stderr says
+so and the file is written with empty L5 columns. Without `--l5` the output is what
+it was.
 
 ## Positioning from the command line
 
@@ -563,10 +565,14 @@ the same satellite's L1 channel on the same sample clock. Both signals leave the
 satellite together and arrive within a fraction of a microsecond of each other, so the
 L1 transmit time at a pilot code start, rounded to the code period, is that code
 start's transmit time. Every pilot code start that falls inside a time-tagged L1
-segment must name the same time for the pilot's first epoch, each within 0.1 ms of the
+segment must name the same time for the pilot's first epoch, each within 1 microsecond of the
 grid; then the whole L5 segment is on GPS time, the part before L1 was acquired
 included. A segment that never overlaps its satellite's L1, or disagrees with it, is
-left out. The receiver clock and the epochs are L1's.
+left out. (The pilot's code starts lay 0.1 microsecond from the L1 code grid on the two
+front ends measured; a pilot channel locked on something else lands anywhere in the
+millisecond and is turned away.) The receiver clock and the epochs are L1's: an instant
+at which no L1 channel has an observation gets no `L5Q` either, and a satellite never
+tracked on L1 gets none at all.
 
 `C5Q`, `D5Q` and `S5Q` are written from the epoch after the pilot's secondary code was
 found; `L5Q` where the pilot's window is phase-locked, blank otherwise, as on L1. The
@@ -578,16 +584,23 @@ RINEX 3.05 (Table A23) makes L5I the reference signal of the band and has the L5
 phase aligned to it by a quarter cycle; the phase written is aligned (the quarter cycle
 is applied), and the header's `SYS / PHASE SHIFT` line for `L5Q` carries the 0.00000
 of an already aligned phase. The sign of that quarter cycle follows IS-GPS-705 (Q5
-lags I5); it cannot be confirmed on a recording until the L5 message is decoded, and
-it is common to all satellites, so it cancels between satellites.
+lags I5), the relation the data symbols confirm (see "Pilot signals"); it is common
+to all satellites, so it cancels between satellites.
 
-The lock indicator of a pilot's window is weighted by the power of its 20 ms sums, so
-a window with a short outage in it (0.2 s of signal and 0.8 s of noise read 0.95) still
-counts as locked and its phase is written; on L1 the same holds in kind, less strongly.
+An outage shorter than a window is the pilot loop's weak spot. With the signal gone the
+20 ms loop is driven by noise, and in synthetic outages of 0.4 and 0.8 s it came back
+one to three whole cycles away in half the runs (the L1 loop held its phase in the same
+outages). The window's indicator does not show it: it is weighted by the power of the
+sums, so 0.2 s of signal and 0.8 s of noise still read 0.95. The tracker therefore
+marks every loop update made while its integrator hold was active (the prompt power
+below half its recent mean), and the first `L5Q` after any such update carries the
+loss-of-lock indicator. A loop that coasts through the outage instead is future work.
 
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
 satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
--29 m for all of them within 2.4 m (the front end's delay between its two channels);
+-29 m for all of them within 2.4 m (mostly the front end's delay between its two
+channels; the mean ionospheric difference and the satellites' inter-signal delays, a
+few meters, are in it too);
 the geometry-free combination of the two phases follows a line within 0.8 to 2.3 mm
 RMS over the half minute, which is the two carrier loops agreeing to a hundredth of a
 cycle; and RTKLIB's single-point fix is the same from the joint file as from the L1
@@ -704,8 +717,11 @@ stream of soft symbols in the track result. Nothing is decoded from it yet and i
 steers no loop. On a recording both components read the same power within 0.2 dB,
 and on Galileo the uncoded 12-symbol sync pattern of the F/NAV pages appears every
 500 symbols with the sign it is sent with, which checks the axis and the sample
-convention; on L5 the symbols are convolutionally coded, so their sign rests on the
-specification until the message is decoded.
+convention. On L5 the symbols are convolutionally coded and nothing in the package
+decodes them, but a rate-1/2 Viterbi decode of the symbol stream outside it finds the
+CNAV preamble upright, followed by the satellite's own PRN and the right time of
+week, every 300 bits on four satellites of the 2021 recording, among them one whose
+sync settled on the inverted pilot: the L5 symbol sign is as the specification has it.
 
 Checked on the L5 recording of 2021-12-26 against Pocket SDR's C tracker
 (`test_tracking_pilot_reference.py`): five GPS and six Galileo satellites from 38 to

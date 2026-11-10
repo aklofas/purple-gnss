@@ -454,10 +454,40 @@ def test_rinex_main_adds_l5_observations(tmp_path, capsys, monkeypatch):
     assert [ln[: 3 + 16 * 4].rstrip() for ln in records] == [ln.rstrip() for ln in l1_only]
 
 
-def test_rinex_main_reports_a_missing_l5_file(tmp_path, capsys):
+def test_rinex_main_reports_a_missing_or_empty_l5_file(tmp_path, capsys):
     f = tmp_path / "s.bin"
     f.write_bytes(b"\0" * 64)
+    empty = tmp_path / "empty.bin"
+    empty.write_bytes(b"")
     args = [str(f), "--fs", "2.5e6", "--iq", "--obs", str(tmp_path / "o.obs")]
-    assert rinex_main([*args, "--l5", str(tmp_path / "absent.bin")]) == 2
-    err = capsys.readouterr().err
-    assert err.count("\n") == 1 and "absent.bin" in err and "--l5" in err
+    for name in ("absent.bin", "empty.bin"):
+        assert rinex_main([*args, "--l5", str(tmp_path / name)]) == 2  # before any tracking
+        err = capsys.readouterr().err
+        assert err.count("\n") == 1 and name in err and "--l5" in err
+
+
+def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch):
+    # a wrong --l5-f-if, sample rate or file leaves the L5 columns empty: say so
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    f = tmp_path / "s.bin"
+    write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, int(fs * (len(seq) * 0.020 + 0.1)), 45.0, True, bits=seq), f)
+    l5 = tmp_path / "l5.bin"
+    l5.write_bytes(b"\0" * 64)
+    real = cli.track_prns
+
+    def walk(path, fs_, iq, f_if, prns, **kwargs):
+        if kwargs.get("signal") != "L5":
+            return real(path, fs_, iq, f_if, prns, **kwargs)
+        kwargs["rejected"].append((4, 0.0))
+        return []
+
+    monkeypatch.setattr(cli, "track_prns", walk)
+    obs = tmp_path / "o.obs"
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--l5", str(l5)]
+    assert rinex_main(args) == 0
+    out, err = capsys.readouterr()
+    assert "G5Q" not in out and "PRN  4  epochs" in out
+    assert err.count("\n") == 1 and "--l5" in err and "no L5 pilot tracked" in err
+    assert "1 detection failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
+    assert "C5Q L5Q D5Q S5Q" in obs.read_text()

@@ -20,6 +20,7 @@ BRDC = "brdc/BRDC00WRD_R_20213600000_01D_GN.rnx"
 FS, L1_IF = 24e6, 6.0e6
 L1_PRNS = [4, 16, 18, 26, 27, 29, 31]
 BOTH = ["G04", "G18", "G26", "G27"]  # tracked on L1 and on L5
+L5_ONLY = 8  # 38 dB-Hz on L5, not tracked on L1
 
 
 def _records(path):
@@ -37,10 +38,10 @@ def test_joint_file_from_the_2021_pair(captures, tmp_path):
     tracks = track_channels(l1, FS, False, L1_IF, seeds)
     lnavs = [decode_lnav(r) for r in tracks]
     head = read_samples(l5, FS, True, 0.0, 0.020)
-    seeds = [
-        (a.prn, a.code_offset, a.doppler, a.cn0)
-        for a in (acquire_signal(head, FS, 0.0, L5, int(s[1:])) for s in BOTH)
-    ]
+    prns = [*(int(sat[1:]) for sat in BOTH), L5_ONLY]
+    found = [acquire_signal(head, FS, 0.0, L5, prn) for prn in prns]
+    assert all(a.detected for a in found)
+    seeds = [(a.prn, a.code_offset, a.doppler, a.cn0) for a in found]
     pilots = track_channels(l5, FS, True, 0.0, seeds, signal="L5")
 
     joint_file, l1_file = tmp_path / "joint.obs", tmp_path / "l1.obs"
@@ -89,7 +90,9 @@ def test_joint_file_from_the_2021_pair(captures, tmp_path):
     common = np.mean(list(offsets.values()))
     assert -40.0 < common < -20.0, common
     assert max(abs(v - common) for v in offsets.values()) < 5.0, offsets
-    # a satellite without L1 time gets no L5 observation, one without L5 no L5 fields
+    # a satellite without L1 time gets no L5 observation though its pilot is tracked to the
+    # end (G08), one without L5 has no L5 fields
+    assert pilots[-1].prn == L5_ONLY and pilots[-1].locked and pilots[-1].sec_sync is not None
     assert {s for e in epochs for s in e.sats} == {f"G{p:02d}" for p in L1_PRNS}
 
     # RTKLIB's single-point fix is the same from either file: the L5 columns disturb nothing

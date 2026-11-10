@@ -151,7 +151,9 @@ def test_car_roof_joint_observations(captures, tmp_path, capsys):
         tow = np.array([e.tow for e in rows])
         have = np.isfinite(pr)
         # L5 from within 15 s of the first L1 observation, then at every epoch
-        assert tow[have[:, 1]][0] - tow[have[:, 0]][0] <= 15.0 and have[:, 1].sum() >= 100, sat
+        first = int(np.argmax(have[:, 1]))
+        assert tow[first] - tow[have[:, 0]][0] <= 15.0, sat
+        assert have[first:, 1].all() and have[first:, 1].sum() >= 100, sat
         both = have.all(axis=1)
         offsets[sat] = np.mean(pr[both, 1] - pr[both, 0])
         assert np.abs(dop[both, 1] - ratio * dop[both, 0]).max() < 1.5, sat
@@ -162,7 +164,9 @@ def test_car_roof_joint_observations(captures, tmp_path, capsys):
         for e in rows:
             i = e.sats.index(sat)
             if np.isfinite(e.pseudorange[i, 1]):
-                ours[(gps_datetime(e.week, e.tow), sat)] = (e.pseudorange[i, 1], e.doppler[i, 1])
+                ours[(gps_datetime(e.week, e.tow), sat)] = (
+                    e.pseudorange[i, 1], e.doppler[i, 1], e.carrier_phase[i, 1],
+                )  # fmt: skip
     # the front end's delay between the channels, the same for every satellite within 0.6 m
     common = np.mean(list(offsets.values()))
     assert -40.0 < common < -20.0 and max(abs(v - common) for v in offsets.values()) < 3.0, offsets
@@ -177,19 +181,44 @@ def test_car_roof_joint_observations(captures, tmp_path, capsys):
             p = line.split(",")
             if p[0] == "$OBS" and p[9] == "5Q" and p[8] in offsets:
                 when = datetime(*(int(v) for v in p[2:7]), int(float(p[7])))
-                theirs[(when, p[8])] = float(p[11])
+                theirs[(when, p[8])] = (float(p[11]), float(p[12]), float(p[13]))
     residuals: dict[str, list] = {}
+    fractions: dict[str, list] = {}
     for when in sorted({t for t, _ in ours}):
         sats = [s for s in offsets if (when, s) in ours and (when, s) in theirs]
         if len(sats) < 4:
             continue
-        diff = np.array([theirs[(when, s)] - ours[(when, s)][0] for s in sats])
+        diff = np.array([theirs[(when, s)][0] - ours[(when, s)][0] for s in sats])
         rate = np.array([-lam * ours[(when, s)][1] for s in sats])
-        left = diff - (C_LIGHT - rate) * (np.mean(diff) / C_LIGHT)
+        dt = np.mean(diff) / C_LIGHT
+        left = diff - (C_LIGHT - rate) * dt
         for s, v in zip(sats, left - left.mean(), strict=True):
             residuals.setdefault(s, []).append(v)
+        for s in sats:
+            if not np.isfinite(ours[(when, s)][2]):  # no phase in an incomplete last window
+                continue
+            # the two carrier phases at one instant: the Doppler over dt taken out
+            doppler = 0.5 * (ours[(when, s)][1] + theirs[(when, s)][2])
+            fraction = (theirs[(when, s)][1] - ours[(when, s)][2] - doppler * dt) % 1.0
+            fractions.setdefault(s, []).append(fraction)
     for sat, values in residuals.items():
         v = np.array(values)
         assert len(v) >= 80 and abs(v.mean()) < 1.0 and v.std() < 2.0, (sat, v.mean(), v.std())
         assert np.abs(v).max() < 10.0, (sat, np.abs(v).max())
     assert len(residuals) == 4
+    # The carrier phases against the reference's, as fractions of a cycle: the same for all
+    # four satellites within a hundredth of a cycle. The secondary code's sync left two of
+    # them on the upright and two on the inverted pilot, so a wrong half-cycle rule would put
+    # half a cycle between the pairs. (The common value is one half: the reference adds its
+    # half cycle for the other polarity.) Our observation count is at least the reference's.
+    means = {}
+    for sat, values in fractions.items():
+        turn = np.exp(2j * np.pi * np.array(values))
+        means[sat] = np.angle(turn.mean()) / (2 * np.pi) % 1.0
+        assert abs(turn.mean()) > 0.99, (sat, abs(turn.mean()))
+    spread = [abs((m - means["G06"] + 0.5) % 1.0 - 0.5) for m in means.values()]
+    assert max(spread) < 0.02, means
+    for sat in offsets:
+        n_ours = sum(1 for _, s in ours if s == sat)
+        n_theirs = sum(1 for t, s in theirs if s == sat and t <= max(t for t, _ in ours))
+        assert n_ours >= n_theirs >= 80, (sat, n_ours, n_theirs)

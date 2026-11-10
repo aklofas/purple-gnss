@@ -219,9 +219,32 @@ def test_hold_flag_is_read_by_the_coherent_update():
                 if loop.fading:
                     assert loop.phase_acc == before, k
                     held.append(r.t[k])
+                assert r.held[k] == loop.fading, k
                 total, count = 0j, 0
+            else:
+                assert not r.held[k], k
         assert r.doppler[k] == fd, k
     assert held and fade_from <= min(held) < fade_from + 0.1 and max(held) < fade_from + fade_len + 0.05
+    assert r.held.dtype == bool and not r.held[: r.sec_sync + 1].any()
+
+
+def test_an_outage_is_marked_as_held():
+    # the signal gone for 0.4 s after the sync: the loop coasts on noise there and may come
+    # back whole cycles away, with the window's indicator still above the lock threshold; the
+    # held updates are what marks the stretch
+    seconds, gone_from, gone_len = 4.5, 3.0, 0.4
+    noisy = _signal(L5, 6, seconds, 45.0, seed=7, sec_index=5)
+    clean = _signal(L5, 6, seconds, 300.0, seed=7, sec_index=5)
+    t = np.arange(len(noisy)) / FS
+    gone = (t >= gone_from) & (t < gone_from + gone_len)
+    x = noisy.copy()
+    x[gone] -= clean[gone]
+    r = _track(x, L5, 6, seed=(700 / FS, 3.0, 45.0))
+    marked = r.t[r.held]
+    assert len(marked) >= 15 and gone_from <= marked.min() < gone_from + 0.05
+    assert marked.max() < gone_from + gone_len + 0.05
+    steady = _track(noisy, L5, 6, seed=(700 / FS, 3.0, 45.0))
+    assert steady.held is not None and not steady.held.any()
 
 
 def test_track_channels_takes_the_signal(tmp_path):

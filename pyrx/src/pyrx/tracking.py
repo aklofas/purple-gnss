@@ -246,6 +246,10 @@ class TrackResult:
         data prompts, their secondary chips and sec_polarity removed, along the signal's
         data axis; positive for a symbol 0. They run to the end of the track, the
         unlocked windows before a loss included. None without a sync.
+    held[k]: True on the epochs whose coherent update ran with the integrator held: the
+        prompt power had dropped below FADE_HOLD of its running mean, so the signal was
+        gone or deeply faded and the update worked on noise. The loop can come out of
+        such a stretch whole cycles away while every window still reads phase-locked.
     """
 
     prn: int
@@ -268,6 +272,7 @@ class TrackResult:
     data_prompt: np.ndarray | None = None
     symbols: np.ndarray | None = None
     symbol_epoch: int | None = None
+    held: np.ndarray | None = None
 
 
 def _symbols(spec: SignalSpec, prn: int, data_prompt, sec_sync, sec_origin, sec_polarity):
@@ -325,6 +330,7 @@ def track(
     out_err_carrier = np.full(n_max, np.nan)
     out_err_code = np.full(n_max, np.nan)
     out_data = np.empty(n_max, dtype=np.complex64) if pilot else None
+    out_held = np.zeros(n_max, dtype=bool) if pilot else None
 
     # plain floats throughout: a numpy float32 seed would otherwise propagate into
     # t_code and limit the code time to ~1e-10 s
@@ -412,6 +418,7 @@ def track(
             if coh_n == _N_COH:
                 increment, out_err_carrier[k] = pll.update_coherent(coh_acc, T_PILOT_COH)
                 fd += increment
+                out_held[k] = pll.fading
                 lock_term = coh_acc
                 coh_acc, coh_n = 0j, 0
 
@@ -508,6 +515,7 @@ def track(
         data_prompt=out_data[:k] if pilot else None,
         symbols=symbols,
         symbol_epoch=symbol_epoch,
+        held=out_held[:k] if pilot else None,
     )
 
 
