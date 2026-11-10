@@ -353,6 +353,56 @@ def test_a_rover_slip_is_applied_while_the_base_phase_is_missing():
     np.testing.assert_allclose(fixes[74.0].position, ROVER, atol=0.01, rtol=0)
 
 
+def test_a_slip_flagged_in_a_skipped_base_epoch_is_carried_to_the_next_paired_one():
+    # the inverse rates: a 5 s rover against a 1 Hz base, L1 only. The base flags a slip
+    # on G03 at 61 s, an epoch no rover epoch pairs with, and its ambiguity is 7 cycles
+    # off from then on; the base epoch at 65 s carries no flag of its own
+    rng = np.random.default_rng(32)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    key = ("G03", "G1C")
+    amb_b = dict(AMB_B)
+    rover, base = [], []
+    for k in range(100):
+        if k == 61:
+            amb_b[key] += 7
+        r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), AMB_R, amb_b, rng)
+        base.append(_flag(b, *key, 1) if k == 61 else b)
+        if k % 5 == 0:
+            rover.append(r)
+    fixes, locks = {}, {}
+    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+        fixes[r.tow - TOW] = rtk.step(r, b)
+        locks[r.tow - TOW] = rtk.biases[key].lock
+    assert fixes[60.0].status == "fix" and locks[60.0] == 13
+    assert locks[65.0] == 1  # a fresh state at the first paired base epoch after the slip
+    assert fixes[95.0].status == "fix"
+    np.testing.assert_allclose(fixes[95.0].position, ROVER, atol=0.01, rtol=0)
+
+
+def test_pair_epochs_carries_skipped_slip_events_once_and_only_onto_a_phase():
+    # base epochs every second, rover epochs at 0, 5 and 10 s: the flags at 1 s and the
+    # half-cycle bit set at 2 s and cleared at 3 s are events of skipped epochs. G03 has
+    # no phase at 5 s, so its event waits for the paired epoch at 10 s
+    rng = np.random.default_rng(33)
+    ephs = constellation()
+    rover, base = [], []
+    for k in range(11):
+        r, b = _pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",))
+        rover.append(r)
+        base.append(b)
+    i3, i5, i6 = (base[0].sats.index(s) for s in ("G03", "G05", "G06"))
+    base[1] = _flag(_flag(base[1], "G03", "G1C", 1), "G05", "G1C", 1)
+    base[2] = _flag(base[2], "G06", "G1C", 2)
+    base[5] = _blank_phase(base[5], "G03", "G1C")
+    pairs = pair_epochs([rover[0], rover[5], rover[10]], base, 30.0)
+    assert pairs[0][1] is base[0]
+    carried = pairs[1][1].lli[:, 0]
+    assert carried[i5] == 1 and carried[i6] == 1 and carried.sum() == 2
+    assert not base[5].lli.any()  # the input epochs are left as they were
+    assert pairs[2][1].lli[i3, 0] == 1 and pairs[2][1].lli.sum() == 1
+
+
 def test_ambiguities_survive_a_base_gap_longer_than_the_outage_limit():
     # 1 Hz rover, 30 s base with one epoch missing: the rover epochs that get no base (or
     # no seed) never reach the relative solution, so they must not count as outages; the

@@ -336,7 +336,8 @@ RTKLIB's single-baseline mode applies with its default options, so the two solve
 compare number for number on the same files; the deliberate differences (existing
 ambiguities aligned to the current clock per signal rather than per frequency, the
 geometry-free slip test run past a missing band, the tie order of two reference
-candidates at the same elevation) are listed in `rtk.py` and do not change the
+candidates at the same elevation, a slip flagged in a base epoch that pairs with no
+rover epoch carried to the next paired one) are listed in `rtk.py` and do not change the
 default-configuration comparisons. Double differences are formed per system against
 the highest satellite, carrier phase and code, with RTKLIB's single-difference
 variance `2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) plus a
