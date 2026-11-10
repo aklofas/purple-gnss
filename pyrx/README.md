@@ -621,8 +621,8 @@ of the signal (`signalspec.py`); for a pilot it runs in stages:
 
 1. Pull-in, 1 s: the FLL on single epochs (5 Hz for 0.5 s, then 2 Hz), because a
    coherent sum over a sign change of the secondary code cancels. This is Pocket SDR's
-   pull-in and the one that handed a 30 dB-Hz L1 channel over 10 Hz off; the signals
-   tracked so far are 37 dB-Hz and stronger.
+   pull-in and the one that handed a 30 dB-Hz L1 channel over 10 Hz off; the weakest
+   pilot held so far reads 35 dB-Hz.
 2. The 1 ms Costas loop, which does not care about the sign changes.
 3. From 1.5 s the last prompts are compared with the secondary code at the current
    alignment (Pocket SDR's rule: the correlation of the code with the in-phase prompts
@@ -655,7 +655,8 @@ specification until the message is decoded.
 
 Checked on the L5 recording of 2021-12-26 against Pocket SDR's C tracker
 (`test_tracking_pilot_reference.py`): five GPS and six Galileo satellites from 38 to
-50 dB-Hz find the secondary code at 1.5 s and stay locked for the whole file
-(indicator 0.98 or more in every window), with the Doppler within 0.3 Hz and the C/N0
-within 1 dB of its pilot channels, and the code start within 12 ns of its data
-channels (its own code loop is still settling at the end of the file).
+50 dB-Hz find the secondary code at 1.5 s and stay locked for the whole file. As
+measured: the indicator 0.98 or more in every window, the Doppler within 0.3 Hz and
+the C/N0 within 1 dB of its pilot channels, the code start within 12 ns of its data
+channels (its own code loop is still settling at the end of the file); the test's
+bounds are 0.9, 1 Hz, 2 dB and 15 ns.

@@ -244,7 +244,8 @@ class TrackResult:
     symbols, symbol_epoch: the data component's soft symbols from the first symbol that
         starts after the sync, at epoch symbol_epoch: each the sum of its epochs'
         data prompts, their secondary chips and sec_polarity removed, along the signal's
-        data axis; positive for a symbol 0. None without a sync.
+        data axis; positive for a symbol 0. They run to the end of the track, the
+        unlocked windows before a loss included. None without a sync.
     """
 
     prn: int
