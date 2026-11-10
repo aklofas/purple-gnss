@@ -4,10 +4,14 @@ Pseudoranges give position and receiver clock bias, then Dopplers give velocity
 and clock drift. Measurement weights, the elevation mask, the chi-square and
 GDOP checks and the atmospheric models are those of RTKLIB's single-point mode,
 so the two solvers can be compared number for number on the same files.
+
+`weights="cn0"` adds a signal-strength term to the pseudorange variance, which
+RTKLIB's single-point mode does not have: a satellite tracked at a low C/N0 has a
+noisier pseudorange at any elevation and then counts for less.
 """
 
 from dataclasses import dataclass
-from math import isfinite, radians, sin, sqrt
+from math import isfinite, isnan, radians, sin, sqrt
 
 import numpy as np
 
@@ -42,6 +46,11 @@ _ERR_CBIAS = 0.3  # m, code bias error
 _ERR_BRDCI = 0.5  # fraction of the broadcast ionospheric delay
 _ERR_SAAS = 0.3  # m, Saastamoinen error at the zenith
 _MIN_EL_WEIGHT = radians(5.0)  # elevation floor of the weights, as RTKLIB's varerr
+# the C/N0 term of weights="cn0": CN0_SIGMA at CN0_REF, ten times the variance per 10 dB
+# down, the slope of the pseudorange residual scatter measured on sky recordings
+CN0_SIGMA = 1.5  # m
+CN0_REF = 45.0  # dB-Hz
+WEIGHTS = ("rtklib", "cn0")
 # Klobuchar coefficients used when the navigation file carries none (RTKLIB's ion_default)
 IONO_DEFAULT = Ionosphere(
     (0.1118e-07, -0.7451e-08, -0.5961e-07, 0.1192e-06),
@@ -71,19 +80,22 @@ def chi2_threshold(dof: int) -> float:
     return _CHI2[dof - 1]
 
 
-def _variance(ura: int, el: float, dion: float) -> float:
+def _variance(ura: int, el: float, dion: float, cn0: float = float("nan")) -> float:
     # the a priori error's elevation is floored (RTKLIB varerr); the troposphere term's is not
     s = sin(max(el, _MIN_EL_WEIGHT))
-    return (
+    var = (
         _ERR_CODE**2 * (1.0 + 1.0 / s)
         + URA_BOUNDS[min(ura, 14)] ** 2
         + _ERR_CBIAS**2
         + (_ERR_BRDCI * dion) ** 2
         + (_ERR_SAAS / (sin(el) + 0.1)) ** 2
     )
+    if isnan(cn0):  # no C/N0 given or none observed: RTKLIB's variance
+        return var
+    return var + CN0_SIGMA**2 * 10.0 ** (-0.1 * (cn0 - CN0_REF))
 
 
-def _position(epoch, sats, iono, mask, x):
+def _position(epoch, sats, iono, mask, x, by_cn0):
     """Iterate the pseudorange solution from `x`; None when it does not converge."""
     dx = np.full(4, np.inf)
     for _ in range(MAX_ITER + 1):
@@ -101,7 +113,7 @@ def _position(epoch, sats, iono, mask, x):
                     continue
                 dion = klobuchar(iono, lat, lon, az, el, epoch.tow)
                 dtrp = saastamoinen(lat, h, el)
-                var = _variance(eph.ura, el, dion)
+                var = _variance(eph.ura, el, dion, o.cn0 if by_cn0 else float("nan"))
             p = o.pseudorange - C_LIGHT * eph.tgd
             res.append(p - (rho + x[3] - C_LIGHT * s.clock + dion + dtrp))
             rows.append([-e[0], -e[1], -e[2], 1.0])
@@ -154,6 +166,7 @@ def solve_epoch(
     iono: Ionosphere | None = None,
     mask_deg: float = ELEVATION_MASK,
     x0: np.ndarray | None = None,
+    weights: str = "rtklib",
 ) -> Solution | None:
     """Least-squares fix of one epoch, or None when it has none that passes validation.
 
@@ -162,8 +175,12 @@ def solve_epoch(
     unusable record (a blank or zero orbit field) and those below `mask_deg` are
     left out; degenerate geometry gives no solution. `iono` None or all zeros (a
     navigation file without GPSA/GPSB) means RTKLIB's default Klobuchar
-    coefficients, as `rnx2rtkp` does.
+    coefficients, as `rnx2rtkp` does. `weights` is "rtklib" for RTKLIB's
+    pseudorange variance or "cn0" for that variance plus the C/N0 term (a
+    pseudorange whose C/N0 is `nan` gets none).
     """
+    if weights not in WEIGHTS:
+        raise ValueError(f"weights must be one of {WEIGHTS}, not {weights!r}")
     if iono is None or not any(iono.alpha + iono.beta):
         iono = IONO_DEFAULT
     sats = []
@@ -178,7 +195,7 @@ def solve_epoch(
     if len(sats) < 4:
         return None
     x = np.zeros(4) if x0 is None else np.array([x0[0], x0[1], x0[2], 0.0])
-    fix = _position(epoch, sats, iono, radians(mask_deg), x)
+    fix = _position(epoch, sats, iono, radians(mask_deg), x, weights == "cn0")
     if fix is None:
         return None
     x, rows, res, sig, used = fix
@@ -210,12 +227,13 @@ def solve(
     ephs: list[Ephemeris],
     iono: Ionosphere | None = None,
     mask_deg: float = ELEVATION_MASK,
+    weights: str = "rtklib",
 ) -> list[Solution]:
     """Fix every epoch that has one, each seeded with the previous fix's position."""
     out = []
     x0 = None
     for epoch in epochs:
-        sol = solve_epoch(epoch, ephs, iono, mask_deg, x0)
+        sol = solve_epoch(epoch, ephs, iono, mask_deg, x0, weights)
         if sol is not None:
             out.append(sol)
             x0 = sol.position
