@@ -18,6 +18,12 @@ elevation the first by satellite id is taken (RTKLIB the last); and a slip the
 base reports in an epoch that pairs with no rover epoch (a base faster than the
 rover) is applied at the next paired base epoch (RTKLIB reads only the paired
 epochs, so that flag is lost).
+
+Kept as in RTKLIB: the loss-of-lock indicators are read only for the satellites
+both receivers contribute at an epoch (observed, with an ephemeris, above the
+mask). A slip one receiver flags while the other lacks the satellite is therefore
+not seen, and the ambiguity survives it when the satellite is common again within
+`max_outage` epochs; only the geometry-free test can still catch the jump.
 """
 
 from dataclasses import dataclass, replace
