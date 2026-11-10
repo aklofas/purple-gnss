@@ -1,0 +1,3 @@
+SIG= L5  , PRN=   6, COFF=  0.25000 ms, DOP=  1224 Hz, C/N0= 43.1 dB-Hz
+SIG= L5  , PRN=  11, COFF=  0.68417 ms, DOP= -2372 Hz, C/N0= 31.2 dB-Hz
+TIME = <t> s

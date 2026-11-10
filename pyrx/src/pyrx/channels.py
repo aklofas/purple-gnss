@@ -13,7 +13,9 @@ trial validates a detection beyond the tracker's own loss rule: the tracker's C/
 estimate on an absent PRN settles near 30 dB-Hz, above `CN0_LOST`, and while its
 phase-lock rule ends a noise seed after about 3 s, the data-bit edges are the
 direct test of a real signal at the probe. An accepted seed is tracked again from
-the same seed, so the segment does not depend on the trial.
+the same seed, so the segment does not depend on the trial. A pilot signal has no data
+bits; its trial is passed when the secondary code was found and the last complete
+window of the trial is phase-locked on the coherent sums.
 
 PRNs run in parallel processes; within a PRN everything is sequential, so the
 segments do not depend on the worker count.
@@ -23,10 +25,13 @@ import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-from pyrx.acquisition import DEFAULT_WINDOW, acquire_l1ca
+import numpy as np
+
+from pyrx.acquisition import DEFAULT_WINDOW, acquire_l1ca, acquire_signal
 from pyrx.navdecode import settled_bit_stream
 from pyrx.samples import SampleFile, read_samples
-from pyrx.tracking import TrackResult, track_l1ca
+from pyrx.signalspec import SIGNALS
+from pyrx.tracking import PLI_LOCKED, TrackResult, track, track_l1ca
 
 REACQ_INTERVAL = 10.0  # s between probes of a PRN that is not being tracked
 TRIAL = 6.0  # s a detection is tracked before bit sync decides whether it is real
@@ -35,6 +40,12 @@ TRIAL = 6.0  # s a detection is tracked before bit sync decides whether it is re
 def _bit_syncs(track: TrackResult) -> bool:
     """True when the data-bit edges stand out once the PLL has settled, as `decode_lnav` judges."""
     return settled_bit_stream(track) is not None
+
+
+def _pilot_holds(track: TrackResult) -> bool:
+    """True when the secondary code was found and the last complete window is phase-locked."""
+    windows = track.phase_lock[np.isfinite(track.phase_lock)]
+    return track.sec_sync is not None and len(windows) > 0 and windows[-1] >= PLI_LOCKED
 
 
 def track_prn(
@@ -48,14 +59,17 @@ def track_prn(
     interval: float = REACQ_INTERVAL,
     window: float = DEFAULT_WINDOW,
     rejected: list[tuple[int, float]] | None = None,
+    signal: str = "L1CA",
 ) -> list[TrackResult]:
-    """Segments of PRN `prn` in the recording at `path`, in time order.
+    """Segments of PRN `prn` of the signal named `signal` in the recording at `path`, in
+    time order.
 
     Probes start at `t_start` and fall on the grid `t_start + interval * k`; each
     integrates `window` seconds. `duration` limits the walk to that many seconds
     from `t_start` (the whole file when None). When `rejected` is given, every
     detection the trial turned down is appended to it as `(prn, probe instant)`.
     """
+    spec = SIGNALS[signal]
     source = SampleFile(path, fs, iq)
     end = source.n_samples / fs
     if duration is not None:
@@ -63,12 +77,22 @@ def track_prn(
     segments: list[TrackResult] = []
     k = 0  # probe index on the grid
     while (t := t_start + interval * k) + window <= end:
-        acq = acquire_l1ca(read_samples(path, fs, iq, t, window), fs, f_if, prn)
+        samples = read_samples(path, fs, iq, t, window)
+        if spec.pilot:
+            acq = acquire_signal(samples, fs, f_if, spec, prn)
+        else:
+            acq = acquire_l1ca(samples, fs, f_if, prn)
         if acq.detected:
             seed = (acq.code_offset, acq.doppler, acq.cn0)
-            trial = track_l1ca(source, f_if, prn, *seed, t_start=t, duration=min(TRIAL, end - t))
-            if _bit_syncs(trial):
-                seg = track_l1ca(source, f_if, prn, *seed, t_start=t, duration=end - t)
+
+            def run(duration, seed=seed, t=t):
+                if spec.pilot:
+                    return track(source, f_if, spec, prn, *seed, t_start=t, duration=duration)
+                return track_l1ca(source, f_if, prn, *seed, t_start=t, duration=duration)
+
+            trial = run(min(TRIAL, end - t))
+            if _pilot_holds(trial) if spec.pilot else _bit_syncs(trial):
+                seg = run(end - t)
                 segments.append(seg)
                 if seg.lost_at is None:
                     break

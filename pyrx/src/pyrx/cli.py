@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pymap3d as pm
 
-from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
+from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca, acquire_signal
 from pyrx.channels import TRIAL, track_prns
 from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
@@ -30,6 +30,7 @@ from pyrx.rinex import (
 )
 from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import SampleFile, read_samples
+from pyrx.signalspec import SIGNALS
 from pyrx.tracking import TrackResult
 
 NO_DETECTION = (
@@ -38,28 +39,57 @@ NO_DETECTION = (
 )
 
 
-def parse_prns(s: str) -> list[int]:
-    """'1-3,7' -> [1, 2, 3, 7]; repeats are dropped, PRNs outside 1-32 are an argument error."""
+def parse_prns(s: str, last: int = 32) -> list[int]:
+    """'1-3,7' -> [1, 2, 3, 7]; repeats are dropped, PRNs outside 1-`last` are an argument
+    error."""
     prns: list[int] = []
     try:
         for part in s.split(","):
             lo, hi = part.split("-") if "-" in part else (part, part)
-            if not 1 <= int(lo) <= int(hi) <= 32:
+            if not 1 <= int(lo) <= int(hi) <= last:
                 raise ValueError
             prns.extend(p for p in range(int(lo), int(hi) + 1) if p not in prns)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"{s!r}: PRNs 1-32 as e.g. 1-32 or 1,5,7") from None
+        raise argparse.ArgumentTypeError(
+            f"{s!r}: PRNs 1-{last} as e.g. 1-{last} or 1,5,7"
+        ) from None
     return prns
 
 
-def _add_sample_arguments(p: argparse.ArgumentParser) -> None:
-    """The recording and the PRNs: what every signal-chain command takes first."""
+def _add_sample_arguments(p: argparse.ArgumentParser, signal: bool = False) -> None:
+    """The recording and the PRNs: what every signal-chain command takes first. With
+    `signal` the command also takes the signal, and `_signal_prns` settles the PRNs."""
     p.add_argument("file")
     p.add_argument("--fs", type=float, required=True, help="sample rate (Hz)")
     p.add_argument("--f-if", type=float, default=0.0, help="intermediate frequency (Hz)")
     p.add_argument("--iq", action="store_true", help="file holds interleaved I/Q bytes")
-    p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
+    if signal:
+        p.add_argument(
+            "--signal",
+            choices=list(SIGNALS),
+            default="L1CA",
+            help="signal to search: GPS L1 C/A, or the pilot of GPS L5 or Galileo E5a "
+            "(default L1CA)",
+        )
+        p.add_argument(
+            "--prn", default=None, help="PRNs, e.g. 1-32 or 1,5,7 (default: all of the signal's)"
+        )
+    else:
+        p.add_argument("--prn", type=parse_prns, default="1-32", help="PRNs, e.g. 1-32 or 1,5,7")
     p.add_argument("--t-start", type=float, default=0.0, help="start offset in the file (s)")
+
+
+def _signal_prns(p: argparse.ArgumentParser, args) -> None:
+    """Turn `args.prn` into the list of PRNs of `args.signal`; a PRN outside the signal's
+    set is a usage error."""
+    prns = SIGNALS[args.signal].prns
+    if args.prn is None:
+        args.prn = list(prns)
+        return
+    try:
+        args.prn = parse_prns(args.prn, prns[-1])
+    except argparse.ArgumentTypeError as e:
+        p.error(f"argument --prn: {e}")
 
 
 def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
@@ -73,9 +103,11 @@ def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
     duration = args.duration if args.duration > 0 else None
     t0 = time.perf_counter()
     rejected: list[tuple[int, float]] = []
+    signal = getattr(args, "signal", "L1CA")
     tracks = track_prns(
         args.file, args.fs, args.iq, args.f_if, args.prn,
         t_start=args.t_start, duration=duration, rejected=rejected,
+        **({} if signal == "L1CA" else {"signal": signal}),
     )  # fmt: skip
     if not tracks:
         print(_nothing_tracked(args, duration, rejected), file=sys.stderr)
@@ -95,8 +127,9 @@ def _nothing_tracked(args, duration: float | None, rejected: list[tuple[int, flo
     if rejected:
         where = ", ".join(f"PRN {prn} at {t:g} s" for prn, t in rejected[:5])
         more = f" and {len(rejected) - 5} more" if len(rejected) > 5 else ""
+        trial = "secondary-code" if SIGNALS[getattr(args, "signal", "L1CA")].pilot else "bit-sync"
         return (
-            f"no PRN tracked: every detection failed the {TRIAL:g} s bit-sync trial "
+            f"no PRN tracked: every detection failed the {TRIAL:g} s {trial} trial "
             f"({where}{more}): check --fs, --f-if and --iq"
         )
     return NO_DETECTION
@@ -129,9 +162,9 @@ def _plot_name(tracks: list[TrackResult], i: int, prefix: str) -> str:
 
 
 def acq_main(argv: list[str] | None = None) -> int:
-    """Acquire GPS L1 C/A PRNs in a recording and print one line per PRN."""
+    """Acquire the PRNs of a signal in a recording and print one line per PRN."""
     p = argparse.ArgumentParser(prog="pyrx-acq", description=acq_main.__doc__)
-    _add_sample_arguments(p)
+    _add_sample_arguments(p, signal=True)
     p.add_argument(
         "--duration",
         type=float,
@@ -140,15 +173,20 @@ def acq_main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--plot", default=None, help="directory for cn0.png and acq_prnNN.png")
     args = p.parse_args(argv)
+    _signal_prns(p, args)
+    spec = SIGNALS[args.signal]
 
     duration = args.duration if args.duration > 0 else None
     samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
     t0 = time.perf_counter()
-    results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
+    if spec.pilot:
+        results = [acquire_signal(samples, args.fs, args.f_if, spec, prn) for prn in args.prn]
+    else:
+        results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
     elapsed = time.perf_counter() - t0
     for r in results:
         print(
-            f"SIG= L1CA, PRN= {r.prn:3d}, COFF= {r.code_offset * 1e3:8.5f} ms, "
+            f"SIG= {spec.name:<4s}, PRN= {r.prn:3d}, COFF= {r.code_offset * 1e3:8.5f} ms, "
             f"DOP= {r.doppler:5.0f} Hz, C/N0= {r.cn0:4.1f} dB-Hz"
         )
     print(f"TIME = {elapsed:.3f} s")
@@ -163,13 +201,15 @@ def acq_main(argv: list[str] | None = None) -> int:
 
 
 def trk_main(argv: list[str] | None = None) -> int:
-    """Acquire and track GPS L1 C/A PRNs in a recording; print one line per track segment."""
+    """Acquire and track the PRNs of a signal in a recording; print one line per track
+    segment."""
     p = argparse.ArgumentParser(prog="pyrx-trk", description=trk_main.__doc__)
-    _add_sample_arguments(p)
+    _add_sample_arguments(p, signal=True)
     p.add_argument("--duration", type=float, default=0.0, help="length to track (s), 0 = all")
     p.add_argument("--log", default=None, help="CSV of channel state every 0.1 s")
     p.add_argument("--plot", default=None, help="directory for trk_prnNN.png")
     args = p.parse_args(argv)
+    _signal_prns(p, args)
 
     tracked = _acquire_and_track(args)
     if tracked is None:
@@ -179,9 +219,13 @@ def trk_main(argv: list[str] | None = None) -> int:
     for i, r in enumerate(results):
         state = "LOCK" if r.locked else f"LOST at {r.lost_at:.1f} s"
         label = _segment_label(results, i)
+        sync = ""
+        if r.data_prompt is not None:  # a pilot: when its secondary code was found
+            found = "none" if r.sec_sync is None else f"{r.t[r.sec_sync] - r.t[0]:.1f} s"
+            sync = f"SYNC {found}  "
         print(
             f"{label}  C/N0 {r.cn0[-1]:4.1f} dB-Hz  PLI {_last_pli(r)}  "
-            f"DOP {r.doppler[-1]:7.1f} Hz  {state}"
+            f"DOP {r.doppler[-1]:7.1f} Hz  {sync}{state}"
         )
     print(f"TIME = {elapsed:.3f} s")
     if args.log is not None:

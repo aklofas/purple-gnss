@@ -1,21 +1,25 @@
-usage: pyrx-trk [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
-                [--t-start T_START] [--duration DURATION] [--log LOG]
-                [--plot PLOT]
+usage: pyrx-trk [-h] --fs FS [--f-if F_IF] [--iq] [--signal {L1CA,L5,E5A}]
+                [--prn PRN] [--t-start T_START] [--duration DURATION]
+                [--log LOG] [--plot PLOT]
                 file
 
-Acquire and track GPS L1 C/A PRNs in a recording; print one line per track
-segment.
+Acquire and track the PRNs of a signal in a recording; print one line per
+track segment.
 
 positional arguments:
   file
 
 options:
-  -h, --help           show this help message and exit
-  --fs FS              sample rate (Hz)
-  --f-if F_IF          intermediate frequency (Hz)
-  --iq                 file holds interleaved I/Q bytes
-  --prn PRN            PRNs, e.g. 1-32 or 1,5,7
-  --t-start T_START    start offset in the file (s)
-  --duration DURATION  length to track (s), 0 = all
-  --log LOG            CSV of channel state every 0.1 s
-  --plot PLOT          directory for trk_prnNN.png
+  -h, --help            show this help message and exit
+  --fs FS               sample rate (Hz)
+  --f-if F_IF           intermediate frequency (Hz)
+  --iq                  file holds interleaved I/Q bytes
+  --signal {L1CA,L5,E5A}
+                        signal to search: GPS L1 C/A, or the pilot of GPS L5
+                        or Galileo E5a (default L1CA)
+  --prn PRN             PRNs, e.g. 1-32 or 1,5,7 (default: all of the
+                        signal's)
+  --t-start T_START     start offset in the file (s)
+  --duration DURATION   length to track (s), 0 = all
+  --log LOG             CSV of channel state every 0.1 s
+  --plot PLOT           directory for trk_prnNN.png
