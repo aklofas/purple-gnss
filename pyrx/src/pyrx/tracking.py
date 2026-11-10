@@ -26,10 +26,10 @@ from math import atan, floor, log10, pi
 
 import numpy as np
 
-from pyrx.codes import CA_CHIP_RATE, CA_LENGTH, CA_PERIOD, gps_ca
+from pyrx.codes import CA_LENGTH, CA_PERIOD
 from pyrx.correlator import correlate
 from pyrx.samples import SampleFile
-from pyrx.signals import L1_FREQ
+from pyrx.signalspec import L1CA, SIGNALS, SignalSpec
 
 B_PLL = 5.0  # Hz, the third-order Costas loop's noise bandwidth
 # The PLL's integrator is held while the prompt power summed over T_DLL is below FADE_HOLD of
@@ -118,15 +118,16 @@ class CarrierLoop:
         return increment, err_phase
 
 
-def dll_update(sum_e: float, sum_l: float) -> tuple[float, float]:
+def dll_update(sum_e: float, sum_l: float, code_length: int = CA_LENGTH) -> tuple[float, float]:
     """The DLL's update from the early and late magnitudes summed over T_DLL: returns (code
-    error, code-time advance to apply), both in seconds of code time. A window without
-    early or late power moves nothing: (nan, 0.0).
+    error, code-time advance to apply), both in seconds of code time, for a code of
+    `code_length` chips per period. A window without early or late power moves nothing:
+    (nan, 0.0).
     """
     if not sum_e + sum_l > 0.0:
         return np.nan, 0.0
     t = CA_PERIOD
-    err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / CA_LENGTH
+    err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / code_length
     return err_code, B_DLL / 0.25 * err_code * t * _N_DLL
 
 
@@ -190,9 +191,10 @@ class TrackResult:
     code_error: np.ndarray
 
 
-def track_l1ca(
+def track(
     source,
     f_if: float,
+    spec: SignalSpec,
     prn: int,
     code_offset: float,
     doppler: float,
@@ -200,7 +202,8 @@ def track_l1ca(
     t_start: float = 0.0,
     duration: float | None = None,
 ) -> TrackResult:
-    """Track PRN `prn` in `source` (a SampleFile or ArraySamples) from an acquisition seed.
+    """Track PRN `prn` of the signal `spec` in `source` (a SampleFile or ArraySamples) from
+    an acquisition seed.
 
     `code_offset` (s) and `doppler` (Hz) are relative to `t_start`; `cn0` seeds the
     estimate. Stops at the end of the data (or of `duration`), or at loss of lock.
@@ -208,7 +211,7 @@ def track_l1ca(
     fs = source.fs
     t = CA_PERIOD
     n = round(fs * t)
-    code = gps_ca(prn)
+    code = spec.code(prn)
     end_sample = source.n_samples
     if duration is not None:
         end_sample = min(end_sample, round((t_start + duration) * fs))
@@ -259,7 +262,7 @@ def track_l1ca(
         if start < 0 or start + n > end_sample or k >= n_max:
             break
         fc = f_if + fd
-        chip_rate = CA_CHIP_RATE * (1.0 + fd / L1_FREQ)
+        chip_rate = spec.chip_rate * (1.0 + fd / spec.carrier)
         residual_chips = (start / fs - t_code) * chip_rate
         # float64 throughout the loop state: a float32 leaking into t_code would
         # limit the code time to ~1e-10 s and random-walk the code phase
@@ -298,7 +301,7 @@ def track_l1ca(
         sum_e += float(abs(c[1]))
         sum_l += float(abs(c[2]))
         if epoch % n_dll == 0:
-            out_err_code[k], advance = dll_update(sum_e, sum_l)
+            out_err_code[k], advance = dll_update(sum_e, sum_l, spec.code_length)
             t_code -= advance
             sum_e = sum_l = 0.0
 
@@ -319,7 +322,7 @@ def track_l1ca(
 
         # advance one code period with carrier aiding; the epoch spacing is the
         # Doppler-scaled code period, and the carrier phase integrates over it
-        dt = t * (1.0 - fd / L1_FREQ)
+        dt = t * (1.0 - fd / spec.carrier)
         adr += (fc - f_if) * dt  # the Doppler the NCO ran with during this epoch
         t_code_next = t_code + dt
         start_next = round(t_code_next * fs)
@@ -352,9 +355,24 @@ def track_l1ca(
     )
 
 
+def track_l1ca(
+    source,
+    f_if: float,
+    prn: int,
+    code_offset: float,
+    doppler: float,
+    cn0: float,
+    t_start: float = 0.0,
+    duration: float | None = None,
+) -> TrackResult:
+    """Track GPS L1 C/A PRN `prn`: `track` with the L1 C/A signal."""
+    return track(source, f_if, L1CA, prn, code_offset, doppler, cn0, t_start, duration)
+
+
 def _track_job(args):
-    path, fs, iq, f_if, prn, code_offset, doppler, cn0, kwargs = args
-    return track_l1ca(SampleFile(path, fs, iq), f_if, prn, code_offset, doppler, cn0, **kwargs)
+    path, fs, iq, f_if, signal, prn, code_offset, doppler, cn0, kwargs = args
+    source = SampleFile(path, fs, iq)
+    return track(source, f_if, SIGNALS[signal], prn, code_offset, doppler, cn0, **kwargs)
 
 
 def track_channels(
@@ -364,14 +382,16 @@ def track_channels(
     f_if: float,
     seeds: list[tuple[int, float, float, float]],
     workers: int | None = None,
+    signal: str = "L1CA",
     **kwargs,
 ) -> list[TrackResult]:
-    """Track several PRNs of one recording in parallel processes, one channel each.
+    """Track several PRNs of one signal in one recording in parallel processes, one channel
+    each.
 
     `seeds` holds `(prn, code_offset, doppler, cn0)` per channel; results come back
     in the same order. Each worker reopens the file, so nothing large is pickled in.
     """
-    jobs = [(os.fspath(path), fs, iq, f_if, *seed, kwargs) for seed in seeds]
+    jobs = [(os.fspath(path), fs, iq, f_if, signal, *seed, kwargs) for seed in seeds]
     if workers is None:
         workers = min(len(jobs), os.cpu_count() or 1)
     if workers <= 1 or len(jobs) == 1:
