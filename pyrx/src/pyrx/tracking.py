@@ -1,4 +1,4 @@
-"""Code and carrier tracking of one GPS L1 C/A channel.
+"""Code and carrier tracking of one channel.
 
 Each 1 ms epoch correlates one code period at prompt, early, late and noise taps,
 then updates the carrier (FLL during pull-in, its discriminator on coherent sums of
@@ -16,13 +16,24 @@ tracker's, the third-order PLL its C tracker's) so the loops can be compared wit
 them number for number; the FLL on coherent sums, the integrator hold and the
 two-window loss rule are this receiver's own. Nothing is tuned for the hardware
 receiver yet.
+
+A pilot signal (GPS L5, Galileo E5a) carries one chip of a secondary code on every code
+period, so its prompt changes sign from epoch to epoch until that code is known. Its
+channel pulls in with the FLL on single epochs (`PILOT_FLL_STAGES`), runs the same Costas
+loop, and from `T_SEC_SYNC` on tests the last prompts against the secondary code at the
+current alignment (Pocket SDR's rule, `SEC_SYNC_RATIO`, here only while the Costas loop is
+phase-locked). Once that sync is found the chip is removed from every prompt, and the
+carrier loop becomes the same third-order update on the four-quadrant phase of
+`T_PILOT_COH` coherent sums (Pocket SDR's pilot loop): whole-cycle phase, and 13 dB more
+signal per update. The data component of the same signal is correlated at the pilot's
+timing and its symbols are kept; it steers nothing.
 """
 
 import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from math import atan, floor, log10, pi
+from math import atan, atan2, floor, log10, pi
 
 import numpy as np
 
@@ -42,6 +53,16 @@ T_FADE_REF = 0.5  # s
 # discriminator's noise: a weak satellite's acquisition seed can be 100 Hz off, and at 30 dB-Hz
 # one epoch alone hands over 10 Hz off.
 FLL_STAGES = ((0.3, 5.0, 2), (0.7, 2.0, 5))
+# The same for a pilot before its secondary code is known: single epochs, since a sum over a
+# sign change cancels. This is Pocket SDR's pull-in; at 30 dB-Hz it hands over 10 Hz off.
+PILOT_FLL_STAGES = ((0.5, 5.0, 1), (0.5, 2.0, 1))
+T_SEC_SYNC = 1.5  # s into a channel from which the secondary code is searched
+SEC_SYNC_RATIO = 0.8  # the code's correlation with the last in-phase prompts over their mean size
+# ... accepted only while the Costas loop is phase-locked: cos 2φ of the last prompts. Without
+# this the 20-chip code matches noise within a second.
+SEC_SYNC_LOCK = 0.5
+SEC_SYNC_LOCK_EPOCHS = 100
+T_PILOT_COH = 0.020  # s, the coherent sum of the pilot's carrier loop once the code is synced
 B_DLL = 0.25  # Hz
 T_FLL_PULLIN = 1.0  # s
 T_DLL = 0.010  # s, non-coherent early/late accumulation
@@ -60,10 +81,13 @@ TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, lat
 # DLL boundary.
 _N_PULLIN = round(T_FLL_PULLIN / CA_PERIOD)
 _N_DLL = round(T_DLL / CA_PERIOD)
+_N_COH = round(T_PILOT_COH / CA_PERIOD)
 if not (
     sum(round(seconds / CA_PERIOD) for seconds, _, _ in FLL_STAGES) == _N_PULLIN
+    and sum(round(seconds / CA_PERIOD) for seconds, _, _ in PILOT_FLL_STAGES) == _N_PULLIN
     and _N_PULLIN <= round(T_CN0 / CA_PERIOD)
     and _N_PULLIN % _N_DLL == 0
+    and T_SEC_SYNC >= T_FLL_PULLIN
 ):
     raise ValueError("the tracking constants break a relation the loop relies on")
 
@@ -83,12 +107,9 @@ class CarrierLoop:
     fade_ref: float = 0.0  # its running mean over the windows before
     fading: bool = False  # the integrator is held over the current window
 
-    def update(self, prompt: complex, closes_window: bool) -> tuple[float, float]:
-        """Take one epoch's prompt sum; returns (Doppler increment in Hz, phase error in
-        cycles). `closes_window` marks the epoch that ends a T_DLL window. A zero in-phase
-        prompt leaves the discriminator undefined: (0.0, nan), only the fade window advancing.
-        """
-        t = CA_PERIOD
+    def fade_window(self, prompt: complex, closes_window: bool) -> None:
+        """Take one epoch's prompt into the hold's power window; `closes_window` marks the
+        epoch that ends a T_DLL window."""
         # the integrator is held while the 10 ms prompt power is below FADE_HOLD of its
         # running mean: at an obstruction's onset it would wind up on the faded signal
         # and slip the loop. The window closes on schedule whatever the prompt.
@@ -101,6 +122,14 @@ class CarrierLoop:
                 else self.fade_ref + FADE_REF_GAIN * (self.fade_sum - self.fade_ref)
             )
             self.fade_sum = 0.0
+
+    def update(self, prompt: complex, closes_window: bool) -> tuple[float, float]:
+        """Take one epoch's prompt sum; returns (Doppler increment in Hz, phase error in
+        cycles). `closes_window` marks the epoch that ends a T_DLL window. A zero in-phase
+        prompt leaves the discriminator undefined: (0.0, nan), only the fade window advancing.
+        """
+        t = CA_PERIOD
+        self.fade_window(prompt, closes_window)
         if prompt.real == 0.0:
             return 0.0, np.nan
         # third order as Pocket SDR's C tracker (a3 = 1.1, b3 = 2.4, W = Bn / 0.7845): no
@@ -113,6 +142,27 @@ class CarrierLoop:
             2.4 * w * (err_phase - self.err_phase_prev)
             + 1.1 * w * w * err_phase * t
             + self.phase_acc * t
+        )
+        self.err_phase_prev = err_phase
+        return increment, err_phase
+
+    def update_coherent(self, total: complex, dt: float) -> tuple[float, float]:
+        """The same third-order update on the four-quadrant phase of `total`, the coherent
+        sum of the prompts of `dt` seconds with their secondary chips removed; returns
+        (Doppler increment in Hz, phase error in cycles). The previous error and the
+        integrated term carry over from `update`; the hold reads the fade windows, which
+        `fade_window` keeps running epoch by epoch. A zero sum: (0.0, nan).
+        """
+        if total == 0:
+            return 0.0, np.nan
+        err_phase = atan2(total.imag, total.real) / (2.0 * pi)
+        w = B_PLL / 0.7845
+        if not self.fading:
+            self.phase_acc += w * w * w * err_phase * dt
+        increment = (
+            2.4 * w * (err_phase - self.err_phase_prev)
+            + 1.1 * w * w * err_phase * dt
+            + self.phase_acc * dt
         )
         self.err_phase_prev = err_phase
         return increment, err_phase
@@ -174,6 +224,27 @@ class TrackResult:
     code_error[k]: s of code time, the early-minus-late discriminator on the epochs
         that update the DLL, nan between them and where the accumulated early and late
         magnitudes are both zero.
+
+    A pilot signal's channel (`signal` names the signal) adds:
+
+    sec_sync: the epoch at which the secondary code was found, None if it never was.
+        Up to and including it the channel runs as described above, on prompts that
+        still carry the secondary code. From the next epoch on the carrier loop works
+        on coherent sums of T_PILOT_COH: carrier_error is the four-quadrant phase of a
+        sum, finite on the epoch that completes one and nan between, and phase_lock is
+        cos 2φ of the window's sums (1 when locked, -1 with the loop standing half its
+        update rate off, near 0 when the carrier spins).
+    sec_origin, sec_polarity: epoch k carries chip (k - sec_origin) modulo the code
+        length of the secondary code, times sec_polarity (+1 or -1): the sign the
+        Costas loop had settled on. With -1 the carrier NCO stands half a cycle from
+        the pilot's phase, for the rest of the track. corr holds the prompts as
+        correlated, the secondary chips not removed.
+    data_prompt[k]: complex64, the data component's prompt sum of epoch k at the pilot's
+        carrier and code timing, as correlated.
+    symbols, symbol_epoch: the data component's soft symbols from the first symbol that
+        starts after the sync, at epoch symbol_epoch: each the sum of its epochs'
+        data prompts, their secondary chips and sec_polarity removed, along the signal's
+        data axis; positive for a symbol 0. None without a sync.
     """
 
     prn: int
@@ -189,6 +260,28 @@ class TrackResult:
     lost_at: float | None
     carrier_error: np.ndarray
     code_error: np.ndarray
+    signal: str = "L1CA"
+    sec_sync: int | None = None
+    sec_origin: int = 0
+    sec_polarity: int = 0
+    data_prompt: np.ndarray | None = None
+    symbols: np.ndarray | None = None
+    symbol_epoch: int | None = None
+
+
+def _symbols(spec: SignalSpec, prn: int, data_prompt, sec_sync, sec_origin, sec_polarity):
+    """Soft symbols of the data component from the first symbol starting after the sync:
+    (symbols, epoch of the first one)."""
+    data_sec = spec.data_secondary(prn)
+    first = sec_sync + 1
+    first += (sec_origin - first) % spec.symbol_epochs
+    count = (len(data_prompt) - first) // spec.symbol_epochs
+    if count <= 0:
+        return np.empty(0, dtype=np.float32), first
+    k = np.arange(first, first + count * spec.symbol_epochs)
+    wiped = data_prompt[k] * (data_sec[(k - sec_origin) % len(data_sec)] * sec_polarity)
+    sums = wiped.reshape(count, spec.symbol_epochs).sum(axis=1)
+    return (sums * np.conj(spec.data_axis)).real.astype(np.float32), first
 
 
 def track(
@@ -212,6 +305,9 @@ def track(
     t = CA_PERIOD
     n = round(fs * t)
     code = spec.code(prn)
+    pilot = spec.pilot
+    sec = spec.secondary(prn) if pilot else None
+    data_code = (spec.data_code(prn),) if pilot else ()  # the data component's prompt too
     end_sample = source.n_samples
     if duration is not None:
         end_sample = min(end_sample, round((t_start + duration) * fs))
@@ -227,6 +323,7 @@ def track(
     out_pli = np.full(n_max, np.nan)
     out_err_carrier = np.full(n_max, np.nan)
     out_err_code = np.full(n_max, np.nan)
+    out_data = np.empty(n_max, dtype=np.complex64) if pilot else None
 
     # plain floats throughout: a numpy float32 seed would otherwise propagate into
     # t_code and limit the code time to ~1e-10 s
@@ -243,7 +340,7 @@ def track(
     # pull-in stages as (last epoch, bandwidth, epochs per sum); the sums restart at each stage
     fll_stages = []
     n_end = 0
-    for seconds, b, n_sum in FLL_STAGES:
+    for seconds, b, n_sum in PILOT_FLL_STAGES if pilot else FLL_STAGES:
         n_end += round(seconds / t)
         fll_stages.append((n_end, b, n_sum))
     fll_stage = 0
@@ -251,6 +348,12 @@ def track(
     fll_n = 0  # epochs in it
     fll_prev = None  # the previous completed sum of this stage
     sum_e = sum_l = sum_p = sum_n = sum_d = 0.0
+    # pilot: the secondary code's sync, then the coherent sum the carrier loop works on
+    sec_sync = None
+    sec_origin = sec_polarity = 0
+    coh_acc = 0j
+    coh_n = 0
+    sum_ps = 0.0  # the power of what the phase-lock indicator is formed from
     n_dll = _N_DLL
     n_cn0 = round(T_CN0 / t)
     bad_windows = 0
@@ -267,14 +370,17 @@ def track(
         # float64 throughout the loop state: a float32 leaking into t_code would
         # limit the code time to ~1e-10 s and random-walk the code phase
         c = correlate(
-            source.read(start, n), fs, fc, phi, code, chip_rate, residual_chips, TAPS
+            source.read(start, n), fs, fc, phi, code, chip_rate, residual_chips, TAPS, *data_code
         ).astype(np.complex128)
         prompt = complex(c[0])
         epoch = k + 1
         out_t[k] = start / fs
         out_phase[k] = phi
-        out_corr[k] = c
+        out_corr[k] = c[:4]
         out_coff[k] = t_code % t
+        if pilot:
+            out_data[k] = c[4]
+        lock_term = prompt  # what this epoch adds to the phase-lock indicator, None for nothing
 
         # carrier: FLL during pull-in on coherent sums of prompts, Costas PLL after
         if epoch * t <= T_FLL_PULLIN:
@@ -293,9 +399,40 @@ def track(
                         out_err_carrier[k] = angle / (2.0 * pi)
                         fd -= b / 0.25 * angle / (2.0 * pi)  # reassociating moves it by an ulp
                 fll_prev, fll_acc, fll_n = fll_acc, 0j, 0
-        else:
+        elif sec_sync is None:
             increment, out_err_carrier[k] = pll.update(prompt, epoch % n_dll == 0)
             fd += increment
+        else:
+            # the secondary chip removed, the loop works on coherent sums of T_PILOT_COH
+            pll.fade_window(prompt, epoch % n_dll == 0)
+            coh_acc += prompt * (sec[(k - sec_origin) % len(sec)] * sec_polarity)
+            coh_n += 1
+            lock_term = None
+            if coh_n == _N_COH:
+                increment, out_err_carrier[k] = pll.update_coherent(coh_acc, T_PILOT_COH)
+                fd += increment
+                lock_term = coh_acc
+                coh_acc, coh_n = 0j, 0
+
+        # pilot: the secondary code at the current alignment against the last in-phase
+        # prompts, accepted while the Costas loop is phase-locked; the chip is removed from
+        # the next epoch on
+        if (
+            pilot
+            and sec_sync is None
+            and epoch * t >= T_SEC_SYNC
+            and epoch >= max(len(sec), SEC_SYNC_LOCK_EPOCHS)
+        ):
+            last = out_corr[epoch - len(sec) : epoch, 0].real.astype(np.float64)
+            match = float(np.dot(last, sec)) / len(sec)
+            recent = out_corr[epoch - SEC_SYNC_LOCK_EPOCHS : epoch, 0].astype(np.complex128)
+            coherent = float(np.sum(recent.real**2 - recent.imag**2))
+            if abs(match) >= SEC_SYNC_RATIO * float(np.mean(np.abs(last))) and (
+                coherent >= SEC_SYNC_LOCK * float(np.sum(np.abs(recent) ** 2))
+            ):
+                sec_sync = k
+                sec_origin = k - (len(sec) - 1)
+                sec_polarity = 1 if match > 0.0 else -1
 
         # code: non-coherent early/late DLL every T_DLL
         sum_e += float(abs(c[1]))
@@ -308,17 +445,23 @@ def track(
         # C/N0 and the phase-lock indicator every T_CN0; the loss rule at the window end
         sum_p += abs(prompt) ** 2
         sum_n += float(abs(c[3])) ** 2
-        sum_d += prompt.real**2 - prompt.imag**2
+        if lock_term is not None:
+            sum_d += lock_term.real**2 - lock_term.imag**2
+            if pilot:
+                sum_ps += abs(lock_term) ** 2
         if epoch % n_cn0 == 0:
             if sum_p > 0.0 and sum_n > 0.0:
                 s = max(sum_p - sum_n, 0.01 * sum_n)
                 cn0 += 0.5 * (10.0 * log10(s / sum_n / t) - cn0)
-            pli = sum_d / sum_p if sum_p > 0.0 else np.nan
+            # a pilot's indicator is normalized by what it was formed from: single prompts
+            # before the sync, coherent sums after
+            lock_power = sum_ps if pilot else sum_p
+            pli = sum_d / lock_power if lock_power > 0.0 else np.nan
             out_pli[k - n_cn0 + 1 : k + 1] = pli
             bad = cn0 < CN0_LOST or (epoch > n_cn0 and pli < PLI_LOCKED)
             bad_windows = bad_windows + 1 if bad else 0
             lost = bad_windows >= LOST_WINDOWS
-            sum_p = sum_n = sum_d = 0.0
+            sum_p = sum_n = sum_d = sum_ps = 0.0
 
         # advance one code period with carrier aiding; the epoch spacing is the
         # Doppler-scaled code period, and the carrier phase integrates over it
@@ -338,6 +481,11 @@ def track(
             lost_at = start / fs
             break
 
+    symbols = symbol_epoch = None
+    if sec_sync is not None:
+        symbols, symbol_epoch = _symbols(
+            spec, prn, out_data[:k], sec_sync, sec_origin, sec_polarity
+        )
     return TrackResult(
         prn=prn,
         t=out_t[:k],
@@ -352,6 +500,13 @@ def track(
         lost_at=lost_at,
         carrier_error=out_err_carrier[:k],
         code_error=out_err_code[:k],
+        signal=spec.name,
+        sec_sync=sec_sync,
+        sec_origin=sec_origin,
+        sec_polarity=sec_polarity,
+        data_prompt=out_data[:k] if pilot else None,
+        symbols=symbols,
+        symbol_epoch=symbol_epoch,
     )
 
 
