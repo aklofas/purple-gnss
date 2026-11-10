@@ -42,7 +42,9 @@ the 1 ms code period, is the pilot's (`pilot_transmit_times`). Its observations 
 once the secondary code is found. Its carrier phase has no half-cycle ambiguity; where
 the tracker settled on the inverted pilot the reported phase gets the half cycle back,
 and the quarter cycle that aligns L5Q with the band's reference signal L5I (RINEX 3.05
-Table A23) is applied here, as a receiver does.
+Table A23) is applied here, as a receiver does. The pilot's loop coasts on noise through
+an outage and can return whole cycles away with its window indicator still high, so the
+first phase after any update made with the loop's integrator held is flagged as a slip.
 """
 
 from math import ceil, floor
@@ -63,7 +65,10 @@ SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
 L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3.05 Table A23)
-ANCHOR_TOLERANCE = 1e-4  # s a pilot's code start may lie from the L1 channel's code period grid
+# s a pilot's code start may lie from the L1 channel's code period grid: the two bands'
+# paths through a front end differed by 0.1 microsecond on the two front ends measured, and
+# a pilot locked on something else lands anywhere in the millisecond
+ANCHOR_TOLERANCE = 1e-6
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -156,6 +161,12 @@ def _carrier_state(ln: LnavResult, polarity, k: int, last_k: int) -> tuple[bool,
     return bool(ln.stream.inverted) != bool(flipped[j]), lli
 
 
+def _weeks_on(first: int, interval: float) -> int:
+    """Whole weeks between the time origin's week and the first epoch (index `first` on the
+    grid): 1 when every epoch lies past the week boundary, so that `tow` restarts."""
+    return floor(first * interval / WEEK_S)
+
+
 def make_observables(
     tracks: list[TrackResult],
     lnavs: list[LnavResult],
@@ -187,7 +198,7 @@ def make_observables(
     t_end = max(tc[-1] for _, _, tc, _, _ in per)
     first = ceil((rx0 + t_begin) / interval)
     last = floor((rx0 + t_end) / interval)
-    weeks_on = floor(first * interval / WEEK_S)  # every epoch past the boundary: the next week
+    weeks_on = _weeks_on(first, interval)
     if week is None and origin_week is not None:
         week = origin_week + weeks_on
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
@@ -265,8 +276,9 @@ def pilot_transmit_times(
     track: TrackResult, l1: list[tuple[TrackResult, LnavResult]]
 ) -> np.ndarray | None:
     """Seconds of week at which every code start of a pilot segment was transmitted, from
-    the L1 segments (with their decodes) of the same satellite on the same sample clock;
-    None when no L1 segment with a time tag overlaps it or the overlap is not consistent."""
+    the L1 segments (with their decodes) of the same satellite on the same sample clock, in
+    the week those segments alone put the signals at sample 0 in; None when no L1 segment
+    with a time tag overlaps it or the overlap is not consistent."""
     chans = _usable([tr for tr, _ in l1], [ln for _, ln in l1])
     time0 = _pilot_time0(code_starts(track), [(tc, tt) for _, _, tc, tt in chans])
     return None if time0 is None else time0 + np.arange(len(track.t)) * CA_PERIOD
@@ -294,9 +306,8 @@ def make_joint_observables(
         raise ValueError("week unknown: no ephemeris decoded and none given")
     chans = _usable(tracks, lnavs)
     rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
-    # the L1 epochs count from the week of the time origin; tow restarts if all lie past it
     t_begin = min(tc[int(ln.stream.epoch[0])] for _, ln, tc, _ in chans)
-    weeks_on = floor(ceil((rx0 + t_begin) / interval) * interval / WEEK_S)
+    weeks_on = _weeks_on(ceil((rx0 + t_begin) / interval), interval)
     anchored = []
     for tr in pilots:
         starts = code_starts(tr)
@@ -320,8 +331,9 @@ def make_joint_observables(
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
             locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
+            coasted = tr.held is not None and tr.held[last_phase_k[c] + 1 : k + 1].any()
             lli = 0
-            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
+            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all() or coasted:
                 lli = LLI_SLIP
             half = 0.5 if tr.sec_polarity < 0 else 0.0
             phase = -(adr + half) + L5Q_ALIGN if locked else np.nan
@@ -341,7 +353,7 @@ def make_joint_observables(
                 if o is not None:
                     values[:, i, j] = (o.pseudorange, o.carrier_phase, o.doppler, o.cn0, o.lli)
         pr, phase, doppler, cn0, lli = values
-        out.append(
-            Observations(e.week, e.tow, sats, ("G1C", "G5Q"), pr, phase, doppler, cn0, lli.astype(int))
-        )
+        signals = ("G1C", "G5Q")
+        lli = lli.astype(int)
+        out.append(Observations(e.week, e.tow, sats, signals, pr, phase, doppler, cn0, lli))
     return out

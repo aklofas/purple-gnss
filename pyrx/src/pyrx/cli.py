@@ -300,8 +300,8 @@ def rinex_main(argv: list[str] | None = None) -> int:
         "--l5-f-if", type=float, default=0.0, help="intermediate frequency of the --l5 file (Hz)"
     )
     args = p.parse_args(argv)
-    if args.l5 is not None and not Path(args.l5).is_file():
-        print(f"--l5 {args.l5}: no such recording", file=sys.stderr)
+    if args.l5 is not None and not (Path(args.l5).is_file() and Path(args.l5).stat().st_size):
+        print(f"--l5 {args.l5}: no such recording, or an empty one", file=sys.stderr)
         return 2
 
     tracked = _acquire_and_track(args)
@@ -339,10 +339,23 @@ def rinex_main(argv: list[str] | None = None) -> int:
         # the pilots of the satellites L1 gave a time to, on that time
         prns = sorted({o.prn for e in epochs for o in e.obs})
         duration = args.duration if args.duration > 0 else None
+        turned_down: list[tuple[int, float]] = []
         pilots = track_prns(
             args.l5, args.fs, True, args.l5_f_if, prns,
-            t_start=args.t_start, duration=duration, signal="L5",
+            t_start=args.t_start, duration=duration, signal="L5", rejected=turned_down,
         )  # fmt: skip
+        if not pilots:
+            n = len(turned_down)
+            why = (
+                f"{n} detection{'' if n == 1 else 's'} failed the {TRIAL:g} s secondary-code trial"
+                if n
+                else "nothing detected"
+            )
+            print(
+                f"--l5 {args.l5}: no L5 pilot tracked ({why}): check --l5-f-if, --fs and "
+                "that the file is the L5 band of the same capture",
+                file=sys.stderr,
+            )
         joint = make_joint_observables(tracks, lnavs, pilots, args.interval, args.week)
         elapsed = time.perf_counter() - t0
         for i, r in enumerate(pilots):
@@ -359,7 +372,8 @@ def rinex_main(argv: list[str] | None = None) -> int:
             if not mine:
                 print(f"{label}  no time tag")
                 continue
-            print(f"{label}  epochs {len(mine)}  P {mine[0][0] / 1e3:.1f} km  D {mine[0][1]:.1f} Hz")
+            first_p, first_d = mine[0]
+            print(f"{label}  epochs {len(mine)}  P {first_p / 1e3:.1f} km  D {first_d:.1f} Hz")
         write_rinex_observations(args.obs, joint, args.marker, marker_type=args.marker_type)
     print(
         f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "

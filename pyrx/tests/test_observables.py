@@ -473,3 +473,38 @@ def test_joint_observables_need_the_week():
     with pytest.raises(ValueError, match="week unknown"):
         make_joint_observables([track], [no_wn], [_still_pilot()])
     assert make_joint_observables([track], [no_wn], [_still_pilot()], week=142)[0].week == 142
+
+
+def test_pilot_phase_after_a_held_stretch_is_a_slip():
+    # while the pilot loop's integrator was held the signal was gone or deeply faded and the
+    # loop coasted on noise: the phase may have moved by whole cycles though every window
+    # still reads locked, so the first phase after such a stretch begins a new ambiguity
+    track, ln = _still_channel(SFS)
+    base = make_joint_observables([track], [ln], [_still_pilot()])
+    rx0 = receiver_time0([track], [ln])
+    times = [o.tow - rx0 for o in base]  # s into the recording, one per second
+    i = next(n for n, t in enumerate(times) if t > 10.0)
+    k = round(times[i] * 1000)  # the epoch of that observation
+    held = np.zeros(30000, dtype=bool)
+    held[k + 100 : k + 500] = True  # wholly between observations i and i + 1
+    held[k + 2900 : k + 3100] = True  # around observation i + 3
+    pilot = dataclasses.replace(_still_pilot(), held=held)
+    joint = make_joint_observables([track], [ln], [pilot])
+    pairs = list(zip(joint, base, strict=True))
+    flagged = [n for n, (o, b) in enumerate(pairs) if _g5q(o)[0][4] != _g5q(b)[0][4]]
+    assert flagged == [i + 1, i + 3, i + 4]
+    assert all(_g5q(joint[n])[0][4] == LLI_SLIP for n in flagged)
+    for o, b in pairs:
+        # the values themselves are untouched, and so is L1's indicator
+        np.testing.assert_array_equal(_g5q(o)[0][:4], _g5q(b)[0][:4])
+        assert _g5q(o)[1][4] == _g5q(b)[1][4]
+
+
+def test_pilot_observations_in_the_first_two_seconds_are_flagged():
+    track, ln = _still_channel(SFS)
+    joint = make_joint_observables([track], [ln], [_still_pilot(k_start=3000)], interval=0.25)
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0 - 3.0, _g5q(o)[0]) for o in joint]  # time into the pilot segment
+    early = [l5[4] for t, l5 in rows if 1.502 < t <= 2.0]
+    later = [l5[4] for t, l5 in rows if t > 2.25 and np.isfinite(l5[0])]
+    assert len(early) == 2 and set(early) == {LLI_SLIP} and later and not any(later)
