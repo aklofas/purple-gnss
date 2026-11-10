@@ -5,6 +5,11 @@ with one code period through the FFT; the squared magnitudes of every whole code
 period in the buffer are summed non-coherently. The peak of the resulting
 Doppler x code-offset grid gives the signal's code offset and Doppler, and the
 ratio of the peak to the grid mean gives a C/N0 estimate.
+
+A signal with a secondary code changes sign between code periods, and a period that
+straddles a sign change cancels part of itself in a circular correlation. Such signals
+are searched with two periods of samples against the code padded with zeros to two
+periods: the first period of lags then always correlates one whole code period.
 """
 
 from dataclasses import dataclass
@@ -13,6 +18,7 @@ import numpy as np
 from scipy import fft
 
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca, sample_code
+from pyrx.signalspec import SignalSpec
 
 DEFAULT_WINDOW = 0.020  # s, twice Pocket SDR's default; the threshold below is set for this window
 DETECT_THRESHOLD = 36.0  # dB-Hz
@@ -40,23 +46,33 @@ def acquire(
     doppler_step: float | None = None,
     threshold: float = DETECT_THRESHOLD,
     prn: int = 0,
+    two_period: bool = False,
 ) -> AcqResult:
-    """Search `samples` for `code` over Doppler +/- `doppler_max` around `f_if`."""
+    """Search `samples` for `code` over Doppler +/- `doppler_max` around `f_if`.
+
+    With `two_period` each block is two code periods of samples, stepped by one period,
+    against the code padded with zeros to two periods (for a code under a secondary code).
+    """
     n = round(fs * period)
-    if len(samples) < n:
-        raise ValueError(f"need at least {n} samples (one code period), got {len(samples)}")
+    span = 2 * n if two_period else n  # samples per block
+    if len(samples) < span:
+        what = "two code periods" if two_period else "one code period"
+        raise ValueError(f"need at least {span} samples ({what}), got {len(samples)}")
     if doppler_step is None:
         doppler_step = 0.5 / period
     dopplers = np.arange(-doppler_max, doppler_max + doppler_step / 2, doppler_step)
-    code_fft = np.conj(fft.fft(sample_code(code, chip_rate, fs, n)))
-    n_blocks = len(samples) // n
-    k = np.arange(n, dtype=np.float64)
+    replica = sample_code(code, chip_rate, fs, n)
+    if two_period:
+        replica = np.concatenate([replica, np.zeros(n, dtype=replica.dtype)])
+    code_fft = np.conj(fft.fft(replica))
+    n_blocks = (len(samples) - span) // n + 1
+    k = np.arange(span, dtype=np.float64)
     grid = np.zeros((len(dopplers), n), dtype=np.float32)
     for i, fd in enumerate(dopplers):
         carrier = np.exp(-2j * np.pi * (f_if + fd) / fs * k).astype(np.complex64)
         for b in range(n_blocks):
-            x = samples[b * n : (b + 1) * n] * carrier
-            corr = fft.ifft(fft.fft(x, workers=-1) * code_fft, workers=-1)
+            x = samples[b * n : b * n + span] * carrier
+            corr = fft.ifft(fft.fft(x, workers=-1) * code_fft, workers=-1)[:n]
             grid[i] += np.abs(corr).astype(np.float32) ** 2
     bin_idx, col = np.unravel_index(np.argmax(grid), grid.shape)
     p_max = grid[bin_idx, col]
@@ -85,3 +101,14 @@ def _fine_doppler(column: np.ndarray, dopplers: np.ndarray, i: int) -> float:
 def acquire_l1ca(samples: np.ndarray, fs: float, f_if: float, prn: int, **kwargs) -> AcqResult:
     """PCPS acquisition of GPS L1 C/A PRN `prn`."""
     return acquire(samples, fs, f_if, gps_ca(prn), CA_CHIP_RATE, CA_PERIOD, prn=prn, **kwargs)
+
+
+def acquire_signal(
+    samples: np.ndarray, fs: float, f_if: float, spec: SignalSpec, prn: int, **kwargs
+) -> AcqResult:
+    """PCPS acquisition of PRN `prn` of the signal `spec`, on the component it is tracked on."""
+    period = spec.code_length / spec.chip_rate
+    return acquire(
+        samples, fs, f_if, spec.code(prn), spec.chip_rate, period,
+        prn=prn, two_period=spec.pilot, **kwargs,
+    )  # fmt: skip
