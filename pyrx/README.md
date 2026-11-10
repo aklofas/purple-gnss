@@ -205,7 +205,9 @@ pyrx-pvt OBS NAV [--weights cn0|rtklib] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"]
 Solves every epoch of a RINEX observation file with the ephemerides of a RINEX
 navigation file. The inputs can be our own files or public RINEX 3 files, plain,
 gzip or Hatanaka compressed; only GPS L1 C/A is used. `--ts` and `--te` bound the
-epochs in GPS time, `--mask` is the elevation mask in degrees. The command prints
+epochs in GPS time, `--mask` is the elevation mask in degrees, and `--weights rtklib`
+turns off the C/N0 term of the pseudorange weights (see Standalone positioning below).
+The command prints
 the number of epochs solved and read, the mean latitude, longitude, height and
 receiver clock bias, and the run time; with `-v` one line per solved epoch; with
 `-o` those lines go to a file whose header line (starting with `%`) names the
@@ -421,7 +423,8 @@ gets none. The slope is the one the residuals show on sky recordings (about ten 
 the variance for every 10 dB), and has the form of the signal-strength term of the
 demo5 fork of RTKLIB (`stats-errsnr`); RTKLIB 2.4.3 itself has only a signal-strength
 mask in this mode. The 1.5 m was taken from a sweep over three five-minute car-roof
-recordings as the largest value that made nothing worse on any of them: parked, the
+recordings as the largest of the values tried (0.5, 1, 1.5, 2, 3 and 5 m) that made
+nothing worse on any of them: parked, the
 scatter of the fix about its mean went from 2.4 / 1.3 / 8.9 m (north / east / up, RMS)
 to 2.0 / 1.3 / 8.4 m with two of eight satellites below 41 dB-Hz; driving, the distance
 to RTKLIB's track from Pocket SDR's observations of the same samples went from

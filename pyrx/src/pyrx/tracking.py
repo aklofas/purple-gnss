@@ -152,8 +152,8 @@ class TrackResult:
     cn0[k]: dB-Hz, a causal estimate: the seed during the first 1 s window, then at
         each window's end the previous value moved halfway to that window's estimate
         and held until the next. The value at an epoch never includes the window
-        the epoch is in, so it trails a change in signal strength by up to 2 s and
-        closes half of the remaining gap every second. It is what a receiver can
+        the epoch is in, so it starts to follow a change in signal strength within
+        a second and closes half of the remaining gap every second after. It is what a receiver can
         report in real time, and what the observations carry as S1C.
     phase_lock[k]: carrier phase-lock indicator of the 1 s window containing epoch k,
         the sum over the window of I_P^2 - Q_P^2 over the sum of I_P^2 + Q_P^2 (cos 2φ
