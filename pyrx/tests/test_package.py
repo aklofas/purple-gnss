@@ -19,6 +19,7 @@ SIGNAL_CHAIN = {
     "navdecode",
     "observables",
     "lnav",
+    "signalspec",
     "synth",
     "plots",
 }
