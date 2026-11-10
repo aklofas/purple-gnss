@@ -2,7 +2,8 @@
 
 An offline GNSS receiver in Python: acquisition, tracking, navigation-message
 decode and observables written as RINEX from recorded GPS L1 C/A IF samples,
-acquisition and tracking of the GPS L5 and Galileo E5a pilot signals, and a
+acquisition and tracking of the GPS L5 and Galileo E5a pilot signals with GPS L5
+observations beside L1 from a second recording of the same instants, and a
 standalone position fix and an RTK fix from RINEX files, our own or public ones
 (GPS L1/L2/L5 and Galileo E1/E5a/E5b). Each stage is checked against an external
 reference: Pocket SDR for acquisition, tracking and observables, broadcast
@@ -45,7 +46,8 @@ its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference
 the L5 and E5a pilots in `test_tracking_pilot_reference.py`),
 the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),
 the transmit times with Pocket SDR's C tracker and the fix RTKLIB computes from our
-RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`),
+RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`), the L5 observations with the L1 ones of the same
+satellites (`test_joint_observables_reference.py`),
 the broadcast orbits with the IGS final orbit (`test_orbits_reference.py`), the
 standalone fix with RTKLIB on the recordings and on a day of an IGS station
 (`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
@@ -86,7 +88,8 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `sky/20261103_031515_carroof-driving/ch1.bin` | project recording, not distributed (50 GB per capture; the test reads 20 s of it): Pocket SDR FE 4CH on a car roof, driven through two obstructions, GPS L1, 24 MHz real, 6 MHz IF, 300 s; `test_tracking_reference.py` tracks G12 through the 222 s onset | `3662ffb99bcc61068af4322b766d2be1d2a678feb2fa1b01cef9b2d306ee0113` |
 | `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; the `slow` test in `test_channels_reference.py` walks its first 90 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
 | `sky/20261103_032110_carroof-coldstart/trk_l1ca.log` | generated: Pocket SDR `pocket_trk` L1 C/A log of that recording, the reference of the `slow` test | `4dc83bc579867286d6e938cdc91628f5d9c413723d832c86c9475f1ae85de9d5` |
-| `sky/20261103_030551_carroof-static/ch2.bin` | project recording, not distributed: the same front end parked under open sky, the L5/E5a band, 24 MHz I/Q, LO 1176.45 MHz, 300 s; a `slow` test walks the pilots of its first 60 s | `be4c19485ae6466fb372b91b8ee569ec36b6baeecc626ecc2632dacbd35a3b3a` |
+| `sky/20261103_030551_carroof-static/ch1.bin` | project recording, not distributed: the same front end parked under open sky, GPS L1, 24 MHz real, 6 MHz IF, 300 s; a `slow` test forms L1 and L5 observations from its first 120 s | `f991e49f5f0fd9d3dcaa58a48f528fb59fdf23cfc03d8edb96e9d6469bf44d2b` |
+| `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; a `slow` test walks the pilots of its first 60 s | `be4c19485ae6466fb372b91b8ee569ec36b6baeecc626ecc2632dacbd35a3b3a` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
@@ -218,7 +221,7 @@ ephemerides only.
 ## RINEX output from the command line
 
 ```sh
-pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav]
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0]]
 ```
 
 Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
@@ -232,6 +235,16 @@ and non-geodetic ones (`GROUND_CRAFT` for a receiver on a vehicle); without it t
 record is omitted. One line per track segment reports how
 many epochs it contributed to and its first pseudorange and Doppler, then the number
 of epochs and their span.
+
+With `--l5 L5FILE` the GPS L5 pilots are tracked in a second recording and their
+observations are written beside L1's, eight types per satellite:
+`C1C L1C D1C S1C C5Q L5Q D5Q S5Q`. `L5FILE` must be an I/Q recording of the L5 band
+made by the same front end on the same sample clock and at the same rate, sample k
+of both files being the same instant (the two channels of one capture). Only the
+satellites L1 gave a time to are searched on L5, and each L5 segment prints its own
+line, `G5Q PRN nn  epochs ...`, or `G5Q PRN nn  no time tag` when it could not be
+placed on the L1 time (see "L5 observations" below). Without `--l5` the output is
+what it was.
 
 ## Positioning from the command line
 
@@ -541,6 +554,43 @@ set and when it clears; the phase is written flagged rather than blanked or flag
 the whole interval. A slip that leaves the polarity unchanged (a whole cycle) is not detected
 inside a file. No signal-strength flags are written. The standalone solution does
 not use the carrier phase.
+
+### L5 observations
+
+The L5 pilot carries no message, so its channel knows the phase of its 1 ms code but
+not which millisecond of the week it is. Nothing is decoded on L5; the time comes from
+the same satellite's L1 channel on the same sample clock. Both signals leave the
+satellite together and arrive within a fraction of a microsecond of each other, so the
+L1 transmit time at a pilot code start, rounded to the code period, is that code
+start's transmit time. Every pilot code start that falls inside a time-tagged L1
+segment must name the same time for the pilot's first epoch, each within 0.1 ms of the
+grid; then the whole L5 segment is on GPS time, the part before L1 was acquired
+included. A segment that never overlaps its satellite's L1, or disagrees with it, is
+left out. The receiver clock and the epochs are L1's.
+
+`C5Q`, `D5Q` and `S5Q` are written from the epoch after the pilot's secondary code was
+found; `L5Q` where the pilot's window is phase-locked, blank otherwise, as on L1. The
+pilot loop tracks the whole cycle, so there is no half-cycle indicator on `L5Q`; where
+the tracker had settled on the inverted pilot before the secondary code was found, the
+half cycle is put back. The loss-of-lock indicator is value 1 on a segment's first
+observation and within its first 2 s, and on the first phase after an unlocked window.
+RINEX 3.05 (Table A23) makes L5I the reference signal of the band and has the L5Q
+phase aligned to it by a quarter cycle; the phase written is aligned (the quarter cycle
+is applied), and the header's `SYS / PHASE SHIFT` line for `L5Q` carries the 0.00000
+of an already aligned phase. The sign of that quarter cycle follows IS-GPS-705 (Q5
+lags I5); it cannot be confirmed on a recording until the L5 message is decoded, and
+it is common to all satellites, so it cancels between satellites.
+
+On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
+satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
+-29 m for all of them within 2.4 m (the front end's delay between its two channels);
+the geometry-free combination of the two phases follows a line within 0.8 to 2.3 mm
+RMS over the half minute, which is the two carrier loops agreeing to a hundredth of a
+cycle; and RTKLIB's single-point fix is the same from the joint file as from the L1
+file. On the car-roof capture (a `slow` test on its first 120 s) the four strong
+satellites agree in the same way over five minutes, and their `C5Q` agree with
+Pocket SDR's 5Q pseudoranges between satellites within 0.2 m in the mean and 0.6 to
+0.9 m of scatter, once the 13 ms between the two receivers' clocks is accounted for.
 
 ## Navigation message decode
 
