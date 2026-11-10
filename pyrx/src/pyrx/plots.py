@@ -10,7 +10,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from pyrx.acquisition import AcqResult
-from pyrx.codes import CA_CHIP_RATE
+from pyrx.signalspec import L1CA, SIGNALS, SignalSpec
 from pyrx.tracking import T_FLL_PULLIN, TrackResult
 
 INK = "#243041"  # text and ticks
@@ -86,9 +86,10 @@ PLOT_STYLE = {
 }
 
 
-def acquisition_figure(result: AcqResult, fs: float) -> Figure:
-    """The L1 C/A search: the strongest Doppler bin at every code offset, the samples
-    within 3 chips of the peak, and the code and Doppler cuts through it."""
+def acquisition_figure(result: AcqResult, fs: float, spec: SignalSpec = L1CA) -> Figure:
+    """The search for one PRN of the signal `spec`: the strongest Doppler bin at every code
+    offset, the samples within 3 chips of the peak, and the code and Doppler cuts through
+    it."""
     with rc_context(PLOT_STYLE):
         grid = result.grid
         n = grid.shape[1]
@@ -96,7 +97,7 @@ def acquisition_figure(result: AcqResult, fs: float) -> Figure:
         dopplers = result.dopplers
         step = dopplers[1] - dopplers[0] if len(dopplers) > 1 else 500.0
         doppler_edges = np.r_[dopplers - step / 2, dopplers[-1] + step / 2] / 1e3
-        samples_per_chip = fs / CA_CHIP_RATE
+        samples_per_chip = fs / spec.chip_rate
         radius = int(np.ceil(3 * samples_per_chip))
         offsets = np.arange(-radius, radius + 1)
         columns = (col + offsets) % n  # wraps around the code period
@@ -162,14 +163,16 @@ def acquisition_figure(result: AcqResult, fs: float) -> Figure:
             va="top",
             fontsize=10,
         )
-        fig.suptitle(f"G{result.prn:02d}: C/N0 {result.cn0:.1f} dB-Hz")
+        fig.suptitle(f"{spec.rinex[0]}{result.prn:02d}: C/N0 {result.cn0:.1f} dB-Hz")
         return fig
 
 
-def plot_acquisition(result: AcqResult, fs: float, path: str | os.PathLike) -> None:
+def plot_acquisition(
+    result: AcqResult, fs: float, path: str | os.PathLike, spec: SignalSpec = L1CA
+) -> None:
     """Write `acquisition_figure` to an image file."""
     with rc_context(PLOT_STYLE):
-        acquisition_figure(result, fs).savefig(path, dpi=120)
+        acquisition_figure(result, fs, spec).savefig(path, dpi=120)
 
 
 def plot_cn0(results: list[AcqResult], threshold: float, path: str | os.PathLike) -> None:
@@ -252,7 +255,8 @@ def plot_tracking(result: TrackResult, path: str | os.PathLike) -> None:
         for ax in (ax_dop, ax_cn0):
             ax.tick_params(labelbottom=False)
         state = "locked" if result.locked else f"lost at {result.lost_at:.1f} s"
-        fig.suptitle(f"G{result.prn:02d}: {state}, final C/N0 {result.cn0[-1]:.1f} dB-Hz")
+        sat = f"{SIGNALS[result.signal].rinex[0]}{result.prn:02d}"
+        fig.suptitle(f"{sat}: {state}, final C/N0 {result.cn0[-1]:.1f} dB-Hz")
         fig.savefig(path, dpi=120)
 
 

@@ -8,9 +8,10 @@ from matplotlib import font_manager, rc_context
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from pyrx.acquisition import acquire_l1ca
+from pyrx.acquisition import acquire_l1ca, acquire_signal
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD
-from pyrx.synth import synth_l1ca
+from pyrx.signalspec import E5A
+from pyrx.synth import synth_l1ca, synth_pilot
 from pyrx.tracking import TrackResult
 
 
@@ -93,3 +94,30 @@ def test_tracking_plot_gives_the_pull_in_its_own_time_axis(monkeypatch, tmp_path
     shared = ax_dop.get_shared_x_axes()
     assert shared.joined(ax_dop, ax_cn0) and shared.joined(ax_dop, ax_epl)
     assert not shared.joined(ax_dop, ax_iq)
+
+
+def test_acquisition_figure_follows_the_signal():
+    # a Galileo E5a search: the satellite is E02, not G02, and three chips either side of the
+    # peak are three of this signal's chips (ten times shorter than C/A chips)
+    from pyrx.plots import acquisition_figure
+
+    fs = 12e6
+    x = synth_pilot(E5A, 2, fs, 0.0, 1234.0, 700, int(fs * 0.02), 45.0)
+    r = acquire_signal(x, fs, 0.0, E5A, 2)
+    fig = acquisition_figure(r, fs, E5A)
+    assert fig.get_suptitle().startswith("E02: ")
+    (mesh,) = fig.axes[1].collections
+    radius = int(np.ceil(3 * fs / E5A.chip_rate))
+    assert mesh.get_array().shape == (len(r.dopplers), 2 * radius + 1)
+
+
+def test_tracking_plot_titles_the_satellite_by_its_system(monkeypatch, tmp_path):
+    from pyrx.plots import plot_tracking
+
+    figs = []
+    monkeypatch.setattr(Figure, "savefig", lambda self, *a, **k: figs.append(self))
+    track = _long_track(3.0)
+    plot_tracking(track, tmp_path / "l1.png")
+    track.signal = "E5A"
+    plot_tracking(track, tmp_path / "e5a.png")
+    assert [f.get_suptitle()[:4] for f in figs] == ["G07:", "E07:"]
