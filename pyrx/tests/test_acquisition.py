@@ -1,8 +1,15 @@
 import numpy as np
 import pytest
 
-from pyrx.acquisition import DEFAULT_WINDOW, DETECT_THRESHOLD, acquire_l1ca
-from pyrx.synth import synth_l1ca
+from pyrx.acquisition import (
+    DEFAULT_WINDOW,
+    DETECT_THRESHOLD,
+    acquire,
+    acquire_l1ca,
+    acquire_signal,
+)
+from pyrx.signalspec import E5A, L1CA, L5
+from pyrx.synth import synth_l1ca, synth_pilot
 
 FS = 4e6
 
@@ -61,3 +68,67 @@ def test_acquire_grid_shape_and_bins():
 
 def test_default_window_and_threshold():
     assert DEFAULT_WINDOW == 0.020 and DETECT_THRESHOLD == 36.0
+
+
+PILOT_FS = 12e6
+PILOT_N = round(PILOT_FS * 1e-3)
+
+
+def _pilot(spec, prn, code_offset, cn0=42.0, doppler=1234.0):
+    return synth_pilot(spec, prn, PILOT_FS, 0.0, doppler, code_offset, 20 * PILOT_N, cn0)
+
+
+def _lag_error(acq, code_offset):
+    """Samples between the reported code start and the generated one, modulo a period."""
+    return abs((acq.code_offset * PILOT_FS - code_offset + PILOT_N / 2) % PILOT_N - PILOT_N / 2)
+
+
+def test_pilot_acquisition_any_code_phase():
+    # wherever the code period starts within a block, the secondary code's sign changes
+    # must not cost signal
+    cn0 = []
+    for quarter in range(4):
+        code_offset = quarter * PILOT_N // 4 + 7
+        acq = acquire_signal(_pilot(L5, 6, code_offset), PILOT_FS, 0.0, L5, 6)
+        assert acq.detected and acq.prn == 6, quarter
+        assert abs(acq.doppler - 1234.0) <= 250.0, quarter
+        assert _lag_error(acq, code_offset) <= 1.0, quarter
+        cn0.append(acq.cn0)
+    assert max(cn0) - min(cn0) <= 1.0, cn0
+    # the estimate reads up to 2 dB low between two Doppler bins, as the one-period search does
+    assert max(abs(c - 42.0) for c in cn0) <= 2.5, cn0
+
+
+def test_pilot_acquisition_e5a():
+    code_offset = PILOT_N // 2 + 3
+    acq = acquire_signal(_pilot(E5A, 2, code_offset), PILOT_FS, 0.0, E5A, 2)
+    assert acq.detected and abs(acq.doppler - 1234.0) <= 250.0
+    assert _lag_error(acq, code_offset) <= 1.0
+    assert abs(acq.cn0 - 42.0) <= 2.5
+
+
+def test_pilot_acquisition_rejects_absent_prn():
+    x = _pilot(L5, 6, 500, cn0=48.0)
+    assert not acquire_signal(x, PILOT_FS, 0.0, L5, 11).detected
+    assert not acquire_signal(x, PILOT_FS, 0.0, E5A, 6).detected
+
+
+def test_one_period_search_loses_to_the_secondary_code():
+    # a code period starting mid-block: every sign change of the secondary code cancels
+    # the two halves of a one-period block (the Doppler on a bin, so that no residual
+    # rotation between the halves hides it)
+    x = _pilot(L5, 6, PILOT_N // 2, doppler=1000.0)
+    args = (x, PILOT_FS, 0.0, L5.code(6), L5.chip_rate, 1e-3)
+    assert acquire(*args, two_period=True).cn0 - acquire(*args).cn0 >= 2.0
+
+
+def test_acquire_signal_l1ca_is_acquire_l1ca():
+    x = synth_l1ca(7, 4e6, 0.0, 1234.0, 1000, int(4e6 * 0.02), 45.0, True)
+    a, b = acquire_signal(x, 4e6, 0.0, L1CA, 7), acquire_l1ca(x, 4e6, 0.0, 7)
+    assert (a.code_offset, a.doppler, a.cn0, a.detected) == (b.code_offset, b.doppler, b.cn0, b.detected)
+    assert np.array_equal(a.grid, b.grid)
+
+
+def test_two_period_search_needs_two_periods():
+    with pytest.raises(ValueError, match="two code periods"):
+        acquire_signal(np.zeros(PILOT_N + 5, dtype=np.complex64), PILOT_FS, 0.0, L5, 6)
