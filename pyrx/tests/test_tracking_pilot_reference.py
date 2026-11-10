@@ -101,11 +101,18 @@ def test_pilots_match_the_reference(captures):
             e = np.arange(r.symbol_epoch, len(r.t))
             ratio = np.mean(np.abs(r.data_prompt[e]) ** 2) / np.mean(np.abs(r.corr[e, 0]) ** 2)
             assert abs(10 * np.log10(ratio)) < 1.0, (who, ratio)
+            dsec = spec.data_secondary(r.prn)
+            data = r.data_prompt[e] * dsec[(e - r.sec_origin) % len(dsec)] * r.sec_polarity
             if r.cn0[-1] > 42.0:
-                dsec = spec.data_secondary(r.prn)
-                data = r.data_prompt[e] * dsec[(e - r.sec_origin) % len(dsec)] * r.sec_polarity
                 along = (data * np.conj(spec.data_axis)).real
                 assert np.sum(along**2) >= 0.9 * np.sum(np.abs(data) ** 2), who
+            # its secondary code and symbol edges are where the pilot's sync puts them: the
+            # epochs of a symbol add up coherently (9.5 to 9.95 of 10 on L5, 19.8 of 20 on
+            # E5a; any other alignment gives less than 1)
+            count = len(r.symbols)
+            sums = data[: count * spec.symbol_epochs].reshape(count, spec.symbol_epochs).sum(axis=1)
+            gain = np.mean(np.abs(sums)) / np.mean(np.abs(data))
+            assert gain >= 0.9 * spec.symbol_epochs, (who, gain)
 
             # Galileo: the F/NAV pages start with an uncoded sync pattern every 500 symbols.
             # Found as sent, not inverted, it confirms the data axis and the sample convention.

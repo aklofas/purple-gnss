@@ -15,7 +15,7 @@ phase-lock rule ends a noise seed after about 3 s, the data-bit edges are the
 direct test of a real signal at the probe. An accepted seed is tracked again from
 the same seed, so the segment does not depend on the trial. A pilot signal has no data
 bits; its trial is passed when the secondary code was found and the last complete
-window of the trial is phase-locked on the coherent sums.
+window of the trial is phase-locked.
 
 PRNs run in parallel processes; within a PRN everything is sequential, so the
 segments do not depend on the worker count.
@@ -34,7 +34,7 @@ from pyrx.signalspec import SIGNALS
 from pyrx.tracking import PLI_LOCKED, TrackResult, track, track_l1ca
 
 REACQ_INTERVAL = 10.0  # s between probes of a PRN that is not being tracked
-TRIAL = 6.0  # s a detection is tracked before bit sync decides whether it is real
+TRIAL = 6.0  # s a detection is tracked before its trial decides whether it is real
 
 
 def _bit_syncs(track: TrackResult) -> bool:

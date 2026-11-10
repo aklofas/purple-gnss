@@ -189,3 +189,17 @@ def test_pilot_walk_through_track_prns(tmp_path):
     path = _pilot_file(tmp_path, [(6, 2.6)])
     segs = track_prns(path, PILOT_FS, True, 0.0, [6, 11], workers=2, signal="L5")
     assert [s.prn for s in segs] == [6] and segs[0].sec_sync is not None
+
+
+def test_pilot_trial_needs_the_sync_and_a_locked_last_window():
+    def trial(sec_sync, windows):
+        n = 1000 * len(windows) + 300  # an incomplete last window has no indicator
+        lock = np.full(n, np.nan)
+        for i, value in enumerate(windows):
+            lock[1000 * i : 1000 * (i + 1)] = value
+        return SimpleNamespace(sec_sync=sec_sync, phase_lock=lock)
+
+    assert channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.95]))
+    assert not channels._pilot_holds(trial(None, [-0.3, 0.9, 0.95]))  # never synced
+    assert not channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.1]))  # synced, then gone
+    assert not channels._pilot_holds(trial(1500, []))  # too short to judge
