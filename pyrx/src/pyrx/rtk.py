@@ -13,11 +13,14 @@ do not change the default-configuration comparisons: the phase-minus-code offset
 that aligns existing ambiguity states to the current clock is averaged per signal
 (RTKLIB: per frequency index across systems); the geometry-free slip test runs
 against the first signal for every other signal present (RTKLIB stops at the
-first missing one); and of two reference candidates at exactly the same
-elevation the first by satellite id is taken (RTKLIB the last).
+first missing one); of two reference candidates at exactly the same
+elevation the first by satellite id is taken (RTKLIB the last); and a slip the
+base reports in an epoch that pairs with no rover epoch (a base faster than the
+rover) is applied at the next paired base epoch (RTKLIB reads only the paired
+epochs, so that flag is lost).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite, radians, sin
 
 import numpy as np
@@ -122,15 +125,53 @@ def _seed_signal(signals: tuple[str, ...]) -> str:
 def pair_epochs(
     rover: list[Observations], base: list[Observations], max_age: float
 ) -> list[tuple[Observations, Observations | None]]:
-    """Each rover epoch with the latest base epoch not later than it, None beyond `max_age`."""
+    """Each rover epoch with the latest base epoch not later than it, None beyond `max_age`.
+
+    A base epoch that pairs with no rover epoch still reports its slips: an event
+    there (the lost-lock bit set, or the half-cycle bit changed from the base's
+    previous phase of that satellite and signal) sets the lost-lock bit in a copy of
+    the next paired base epoch that has the phase.
+    """
     out = []
     j = 0
+    half: dict[tuple[str, str], int] = {}  # half-cycle bit of the base's last phase
+    events: set[tuple[str, str]] = set()  # slip events of base epoch j
+    pending: set[tuple[str, str]] = set()  # events of skipped epochs, not yet carried
+    paired = None  # base epoch j as it was paired, once it has been
+
+    def scan(b):
+        found = set()
+        for i, k in zip(*np.nonzero(np.isfinite(b.carrier_phase)), strict=True):
+            key, lli = (b.sats[i], b.signals[k]), int(b.lli[i, k])
+            if lli & 1 or (half.get(key, lli) ^ lli) & 2:
+                found.add(key)
+            half[key] = lli
+        return found
+
+    if base:
+        events = scan(base[0])
     for r in rover:
         t = _time(r)
         while j + 1 < len(base) and _time(base[j + 1]) <= t + DTTOL:
+            if paired is None:
+                pending |= events
             j += 1
-        b = base[j] if base and _time(base[j]) <= t + DTTOL else None
-        out.append((r, b if b is not None and t - _time(b) <= max_age else None))
+            events, paired = scan(base[j]), None
+        b = None
+        if base and _time(base[j]) <= t + DTTOL and t - _time(base[j]) <= max_age:
+            if paired is None:
+                paired = base[j]
+                lli = paired.lli.copy()
+                for sat, sig in sorted(pending):
+                    if sat in paired.sats and sig in paired.signals:
+                        i, k = paired.sats.index(sat), paired.signals.index(sig)
+                        if isfinite(paired.carrier_phase[i, k]):
+                            lli[i, k] |= 1
+                            pending.discard((sat, sig))
+                if (lli != paired.lli).any():
+                    paired = replace(paired, lli=lli)
+            b = paired
+        out.append((r, b))
     return out
 
 
