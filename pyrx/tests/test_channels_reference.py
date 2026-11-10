@@ -14,13 +14,19 @@ no G06 carrier phase between its segments and flag the first phase of the new
 segment as a slip. Minutes long: marked slow, run with `-m slow`.
 """
 
+from datetime import datetime
+
 import numpy as np
 import pytest
 from conftest import capture_file
 
 from pyrx.channels import REACQ_INTERVAL, track_prns
+from pyrx.cli import rinex_main
+from pyrx.gpstime import C_LIGHT, gps_datetime
 from pyrx.navdecode import decode_lnav
 from pyrx.observables import LLI_SLIP, make_observables
+from pyrx.rinex import read_rinex_observations
+from pyrx.signals import signal_frequency, wavelength
 from pyrx.tracking import PLI_LOCKED
 
 CAPTURE = "sky/20261103_032110_carroof-coldstart"
@@ -119,3 +125,71 @@ def test_car_roof_pilots(captures):
             assert seg.phase_lock[ends[ends - 999 > seg.sec_sync]].min() > 0.9, who
             ours = np.mean(seg.cn0[seg.t >= 10.0])
             assert abs(ours - np.mean(theirs[seg.prn])) < 2.0, (who, ours)
+
+
+@pytest.mark.slow
+def test_car_roof_joint_observations(captures, tmp_path, capsys):
+    # pyrx-rinex --l5 on the first 120 s of the car-roof static capture (CH1 the L1 band, CH2
+    # the L5 band, one sample clock): L5 pilot observations beside L1 for the four strong
+    # satellites, consistent with L1 and with the reference receiver's 5Q pseudoranges
+    ch1 = capture_file(captures, f"{STATIC}/ch1.bin")
+    ch2 = capture_file(captures, f"{STATIC}/ch2.bin")
+    log = capture_file(captures, f"{STATIC}/trk_l5_l5fix.log")
+    obs = tmp_path / "joint.obs"
+    args = [str(ch1), "--fs", "24e6", "--f-if", "6e6", "--prn", "6,11,13,24", "--duration", "120"]
+    assert rinex_main([*args, "--obs", str(obs), "--l5", str(ch2)]) == 0
+    assert capsys.readouterr().out.count("G5Q PRN") == 4
+    epochs = read_rinex_observations(obs, ("G1C", "G5Q"))
+    ratio = signal_frequency("G5Q") / signal_frequency("G1C")
+    lam = wavelength("G5Q")
+    ours, offsets = {}, {}
+    for sat in ("G06", "G11", "G13", "G24"):
+        rows = [e for e in epochs if sat in e.sats]
+        pr = np.array([e.pseudorange[e.sats.index(sat)] for e in rows])
+        cp = np.array([e.carrier_phase[e.sats.index(sat)] for e in rows])
+        dop = np.array([e.doppler[e.sats.index(sat)] for e in rows])
+        tow = np.array([e.tow for e in rows])
+        have = np.isfinite(pr)
+        # L5 from within 15 s of the first L1 observation, then at every epoch
+        assert tow[have[:, 1]][0] - tow[have[:, 0]][0] <= 15.0 and have[:, 1].sum() >= 100, sat
+        both = have.all(axis=1)
+        offsets[sat] = np.mean(pr[both, 1] - pr[both, 0])
+        assert np.abs(dop[both, 1] - ratio * dop[both, 0]).max() < 1.5, sat
+        phases = both & np.isfinite(cp).all(axis=1)
+        gf = wavelength("G1C") * cp[phases, 0] - lam * cp[phases, 1]
+        x = tow[phases] - tow[phases][0]
+        assert (gf - np.polyval(np.polyfit(x, gf, 1), x)).std() < 0.005, sat  # 1 to 2 mm measured
+        for e in rows:
+            i = e.sats.index(sat)
+            if np.isfinite(e.pseudorange[i, 1]):
+                ours[(gps_datetime(e.week, e.tow), sat)] = (e.pseudorange[i, 1], e.doppler[i, 1])
+    # the front end's delay between the channels, the same for every satellite within 0.6 m
+    common = np.mean(list(offsets.values()))
+    assert -40.0 < common < -20.0 and max(abs(v - common) for v in offsets.values()) < 3.0, offsets
+
+    # the reference's 5Q pseudoranges of the same satellites. Its clock reads an epoch a time
+    # dt before ours does (13 ms), so each of its pseudoranges differs from ours by
+    # (c - range rate) dt; what is left, between satellites, is 0.2 m in the mean and 0.6 to
+    # 0.9 m of scatter, with single values to 7 m while its code loop settles
+    theirs = {}
+    with open(log) as f:
+        for line in f:
+            p = line.split(",")
+            if p[0] == "$OBS" and p[9] == "5Q" and p[8] in offsets:
+                when = datetime(*(int(v) for v in p[2:7]), int(float(p[7])))
+                theirs[(when, p[8])] = float(p[11])
+    residuals: dict[str, list] = {}
+    for when in sorted({t for t, _ in ours}):
+        sats = [s for s in offsets if (when, s) in ours and (when, s) in theirs]
+        if len(sats) < 4:
+            continue
+        diff = np.array([theirs[(when, s)] - ours[(when, s)][0] for s in sats])
+        rate = np.array([-lam * ours[(when, s)][1] for s in sats])
+        left = diff - (C_LIGHT - rate) * (np.mean(diff) / C_LIGHT)
+        for s, v in zip(sats, left - left.mean(), strict=True):
+            residuals.setdefault(s, []).append(v)
+    for sat, values in residuals.items():
+        v = np.array(values)
+        assert len(v) >= 80 and abs(v.mean()) < 1.0 and v.std() < 2.0, (sat, v.mean(), v.std())
+        assert np.abs(v).max() < 10.0, (sat, np.abs(v).max())
+    assert len(residuals) == 4
