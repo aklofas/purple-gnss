@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -9,8 +10,24 @@ from support import AMB_B, AMB_R, ROVER, SIGNALS, check_golden, without_date, wi
 
 from pyrx import channels
 from pyrx.acquisition import AcqResult
-from pyrx.cli import acq_main, nav_main, parse_prns, pvt_main, rinex_main, rtk_main, trk_main
-from pyrx.rinex import write_rinex_nav, write_rinex_obs, write_rinex_observations
+from pyrx.cli import (
+    _solution_line,
+    acq_main,
+    nav_main,
+    parse_prns,
+    pvt_main,
+    rinex_main,
+    rtk_main,
+    trk_main,
+)
+from pyrx.pvt import solve
+from pyrx.rinex import (
+    read_rinex_nav,
+    read_rinex_obs,
+    write_rinex_nav,
+    write_rinex_obs,
+    write_rinex_observations,
+)
 from pyrx.synth import (
     TOW,
     USUD,
@@ -146,6 +163,9 @@ def test_pvt_main_solves_a_synthetic_file(tmp_path, capsys):
     assert len(lines) == 4 and lines[1].split()[:2] == ["2190", "28800.000"]
     check_golden("cli_pvt.out", without_elapsed(text))
     check_golden("cli_pvt.pos", out.read_text())
+    assert pvt_main([str(obs), str(nav), "-o", str(out), "--weights", "rtklib"]) == 0
+    check_golden("cli_pvt_rtklib.pos", out.read_text())
+    capsys.readouterr()
     assert pvt_main([str(obs), str(nav), "--ts", "2021-12-26 09:00:00"]) == 2
 
 
@@ -210,6 +230,29 @@ def test_mains_say_why_nothing_was_tracked(tmp_path, capsys, monkeypatch):
 
 def _always_detected(prn):
     return AcqResult(prn, 0.0005, 0.0, 36.0, True, np.zeros((1, 1), np.float32), np.zeros(1))
+
+
+def test_pvt_main_weights_by_cn0_unless_asked_for_rtklibs(tmp_path, capsys):
+    # one satellite 20 m off at 30 dB-Hz: the default pulls the fix less toward it than
+    # RTKLIB's weights, which are what the library's solver uses unless told otherwise
+    ephs = constellation()
+    ep = truth_epoch(ephs, USUD, 1e-3, tow=28800.0)
+    bad = replace(ep.obs[2], pseudorange=ep.obs[2].pseudorange + 20.0, cn0=30.0)
+    ep = replace(ep, obs=ep.obs[:2] + [bad] + ep.obs[3:])
+    obs, nav = tmp_path / "s.obs", tmp_path / "s.nav"
+    write_rinex_obs(obs, [ep])
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
+    lines = {}
+    for mode in ("default", "cn0", "rtklib"):
+        out = tmp_path / f"{mode}.pos"
+        flags = [] if mode == "default" else ["--weights", mode]
+        assert pvt_main([str(obs), str(nav), "-o", str(out), *flags]) == 0
+        lines[mode] = out.read_text().splitlines()[1]
+    capsys.readouterr()
+    assert lines["default"] == lines["cn0"] != lines["rtklib"]
+    epochs, (eph_read, iono) = read_rinex_obs(obs), read_rinex_nav(nav)
+    assert lines["rtklib"] == _solution_line(solve(epochs, eph_read, iono)[0])
+    assert lines["cn0"] == _solution_line(solve(epochs, eph_read, iono, weights="cn0")[0])
 
 
 def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):

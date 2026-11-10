@@ -1,16 +1,22 @@
-usage: pyrx-pvt [-h] [--mask MASK] [--ts TS] [--te TE] [-o OUT] [-v] obs nav
+usage: pyrx-pvt [-h] [--weights {cn0,rtklib}] [--mask MASK] [--ts TS]
+                [--te TE] [-o OUT] [-v]
+                obs nav
 
 Standalone position, clock and velocity per epoch from RINEX observation and
 navigation files.
 
 positional arguments:
-  obs                RINEX observation file (plain, .gz or Hatanaka)
-  nav                RINEX navigation file
+  obs                   RINEX observation file (plain, .gz or Hatanaka)
+  nav                   RINEX navigation file
 
 options:
-  -h, --help         show this help message and exit
-  --mask MASK        elevation mask (deg)
-  --ts TS            first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
-  --te TE            last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
-  -o OUT, --out OUT  write one line per solved epoch here
-  -v, --verbose      print one line per epoch
+  -h, --help            show this help message and exit
+  --weights {cn0,rtklib}
+                        pseudorange weights: RTKLIB's single-point variance
+                        plus a C/N0 term (cn0, the default) or RTKLIB's alone
+                        (rtklib)
+  --mask MASK           elevation mask (deg)
+  --ts TS               first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
+  --te TE               last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
+  -o OUT, --out OUT     write one line per solved epoch here
+  -v, --verbose         print one line per epoch

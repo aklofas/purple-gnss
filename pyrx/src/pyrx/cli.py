@@ -19,7 +19,7 @@ from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn, ionosphere_of, tow1_by_prn
 from pyrx.observables import make_observables, receiver_time0
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
-from pyrx.pvt import ELEVATION_MASK, solve
+from pyrx.pvt import ELEVATION_MASK, WEIGHTS, solve
 from pyrx.rinex import (
     read_rinex_header,
     read_rinex_nav,
@@ -328,6 +328,11 @@ def pvt_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pyrx-pvt", description=pvt_main.__doc__)
     p.add_argument("obs", help="RINEX observation file (plain, .gz or Hatanaka)")
     p.add_argument("nav", help="RINEX navigation file")
+    p.add_argument(
+        "--weights", choices=WEIGHTS[::-1], default="cn0",
+        help="pseudorange weights: RTKLIB's single-point variance plus a C/N0 term (cn0, "
+        "the default) or RTKLIB's alone (rtklib)",
+    )  # fmt: skip
     _add_positioning_arguments(p)
     args = p.parse_args(argv)
 
@@ -339,7 +344,7 @@ def pvt_main(argv: list[str] | None = None) -> int:
     except ValueError as e:  # a file outside the profile the readers accept
         print(e, file=sys.stderr)
         return 2
-    sols = solve(epochs, ephs, iono, args.mask)
+    sols = solve(epochs, ephs, iono, args.mask, args.weights)
     elapsed = time.perf_counter() - t0
     if args.verbose:
         for sol in sols:

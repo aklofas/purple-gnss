@@ -9,7 +9,15 @@ from pyrx.ephemeris import Ionosphere
 from pyrx.models import azimuth_elevation
 from pyrx.observations import Epoch, Observation
 from pyrx.orbits import satellite_state
-from pyrx.pvt import IONO_DEFAULT, _variance, chi2_threshold, solve, solve_epoch
+from pyrx.pvt import (
+    CN0_REF,
+    CN0_SIGMA,
+    IONO_DEFAULT,
+    _variance,
+    chi2_threshold,
+    solve,
+    solve_epoch,
+)
 from pyrx.synth import TOW, USUD, constellation, truth_epoch
 
 
@@ -153,3 +161,45 @@ def test_variance_floors_only_the_weight_term_at_five_degrees():
         assert _variance(0, el, 0.0) == pytest.approx(expected(el), rel=1e-12)
     assert _variance(0, np.radians(2.0), 0.0) > _variance(0, np.radians(5.0), 0.0)
     assert _variance(0, np.radians(15.0), 0.0) < _variance(0, np.radians(5.0), 0.0)
+
+
+def test_variance_gains_the_cn0_term_only_when_given_one():
+    base = _variance(0, np.radians(40.0), 3.0)
+    assert _variance(0, np.radians(40.0), 3.0, np.nan) == base
+    assert _variance(0, np.radians(40.0), 3.0, CN0_REF) == pytest.approx(base + CN0_SIGMA**2)
+    # ten times the variance for every 10 dB down
+    weak = _variance(0, np.radians(40.0), 3.0, CN0_REF - 10.0)
+    assert weak == pytest.approx(base + 10.0 * CN0_SIGMA**2, rel=1e-12)
+
+
+def _epoch_with_a_weak_biased_satellite(error=20.0, cn0=30.0):
+    ephs = constellation()
+    ep = truth_epoch(ephs, USUD, 1e-4)
+    bad = replace(ep.obs[2], pseudorange=ep.obs[2].pseudorange + error, cn0=cn0)
+    return ephs, Epoch(ep.week, ep.tow, ep.obs[:2] + [bad] + ep.obs[3:])
+
+
+def test_cn0_weights_make_a_weak_satellite_count_for_less():
+    ephs, ep = _epoch_with_a_weak_biased_satellite()
+    by_elevation = solve_epoch(ep, ephs)
+    by_cn0 = solve_epoch(ep, ephs, weights="cn0")
+    assert by_cn0.prns == by_elevation.prns  # still in the solution, with less say
+    off_elevation = np.linalg.norm(by_elevation.position - USUD)
+    off_cn0 = np.linalg.norm(by_cn0.position - USUD)
+    assert off_elevation > 5.0 and off_cn0 < 0.6 * off_elevation
+    assert [s.position.tolist() for s in solve([ep], ephs, weights="cn0")] == [
+        by_cn0.position.tolist()
+    ]
+
+
+def test_cn0_weights_without_cn0_values_are_rtklibs():
+    ephs, ep = _epoch_with_a_weak_biased_satellite(cn0=np.nan)
+    blank = Epoch(ep.week, ep.tow, [replace(o, cn0=np.nan) for o in ep.obs])
+    a, b = solve_epoch(blank, ephs), solve_epoch(blank, ephs, weights="cn0")
+    assert a.position.tolist() == b.position.tolist() and a.clock_bias == b.clock_bias
+
+
+def test_unknown_weights_are_rejected():
+    ephs = constellation()
+    with pytest.raises(ValueError, match="weights"):
+        solve_epoch(truth_epoch(ephs, USUD, 0.0), ephs, weights="snr")
