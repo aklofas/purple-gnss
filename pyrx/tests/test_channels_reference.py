@@ -89,3 +89,33 @@ def test_cold_start_obstruction_against_pocket_sdr(captures):
     assert g06[i_next][1].lli & LLI_SLIP
     second = by_prn[6][1]
     assert g06[i_next][0] - g06[0][0] >= second.t[0] - by_prn[6][0].t[0] - 1.0  # next segment
+
+
+STATIC = "sky/20261103_030551_carroof-static"
+PILOTS = {"L5": ("L5Q", [6, 11, 13, 24]), "E5A": ("E5AQ", [15, 27])}  # 46 to 50 dB-Hz
+
+
+@pytest.mark.slow
+def test_car_roof_pilots(captures):
+    # the pilots of the car-roof static capture's L5 band (CH2), first 60 s: one segment per
+    # satellite from the first probe, secondary code found, locked to the end, at the C/N0
+    # of the reference's pilot channel (Pocket SDR with corrected L5 codes)
+    path = capture_file(captures, f"{STATIC}/ch2.bin")
+    log = capture_file(captures, f"{STATIC}/trk_l5_l5fix.log")
+    for signal, (their_name, prns) in PILOTS.items():
+        theirs: dict[int, list] = {}
+        with open(log) as f:
+            for line in f:
+                p = line.split(",")
+                if p[0] == "$CH" and p[5] == their_name and 10.0 <= float(p[1]) < 60.0:
+                    theirs.setdefault(int(p[6]), []).append(float(p[8]))
+        segs = track_prns(path, 24e6, True, 0.0, prns, duration=60.0, signal=signal)
+        assert [s.prn for s in segs] == prns, signal
+        for seg in segs:
+            who = (signal, seg.prn)
+            assert seg.locked and seg.t[0] < 0.002 and seg.t[-1] > 59.9, who
+            assert seg.sec_sync is not None and seg.t[seg.sec_sync] < 2.0, who
+            ends = np.arange(999, len(seg.t), 1000)
+            assert seg.phase_lock[ends[ends - 999 > seg.sec_sync]].min() > 0.9, who
+            ours = np.mean(seg.cn0[seg.t >= 10.0])
+            assert abs(ours - np.mean(theirs[seg.prn])) < 2.0, (who, ours)
