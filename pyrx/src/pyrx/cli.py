@@ -196,7 +196,7 @@ def acq_main(argv: list[str] | None = None) -> int:
         plot_cn0(results, DETECT_THRESHOLD, out / "cn0.png")
         for r in results:
             if r.detected:
-                plot_acquisition(r, args.fs, out / f"acq_prn{r.prn:02d}.png")
+                plot_acquisition(r, args.fs, out / f"acq_prn{r.prn:02d}.png", spec)
     return 0
 
 
