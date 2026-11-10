@@ -1,11 +1,13 @@
 usage: pyrx-rinex [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
                   [--t-start T_START] [--duration DURATION]
                   [--interval INTERVAL] [--week WEEK] [--marker MARKER]
-                  [--marker-type MARKER_TYPE] --obs OBS [--nav NAV]
+                  [--marker-type MARKER_TYPE] --obs OBS [--nav NAV] [--l5 L5]
+                  [--l5-f-if L5_F_IF]
                   file
 
 Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and
-navigation files.
+navigation files. With --l5, also track the GPS L5 pilots in a second
+recording of the same instants and write their observations beside L1's.
 
 positional arguments:
   file
@@ -26,3 +28,7 @@ options:
                         a vehicle; omitted by default
   --obs OBS             RINEX observation file to write
   --nav NAV             RINEX navigation file to write
+  --l5 L5               I/Q recording of the L5 band made with the same sample
+                        clock and rate, sample for sample alongside FILE: adds
+                        the GPS L5 pilot observations C5Q L5Q D5Q S5Q
+  --l5-f-if L5_F_IF     intermediate frequency of the --l5 file (Hz)
