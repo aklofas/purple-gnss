@@ -32,6 +32,17 @@ established by a decoded subframe: before the first subframe, and from the end o
 the last subframe before a polarity change to the start of the first subframe
 after it. The bits are kept on an observation without a phase too, so the slip is
 reported on the next observation that has one.
+
+A pilot channel of a second band on the same sample clock (GPS L5 next to L1) decodes
+no time of its own. Every one of its epochs is one code period too, so it needs the
+transmit time of one code start, and it takes that from the same satellite's L1
+channel: both signals leave the satellite together and arrive within a fraction of a
+microsecond of each other, so the L1 transmit time at a pilot code start, rounded to
+the 1 ms code period, is the pilot's (`pilot_transmit_times`). Its observations begin
+once the secondary code is found. Its carrier phase has no half-cycle ambiguity; where
+the tracker settled on the inverted pilot the reported phase gets the half cycle back,
+and the quarter cycle that aligns L5Q with the band's reference signal L5I (RINEX 3.05
+Table A23) is applied here, as a receiver does.
 """
 
 from math import ceil, floor
@@ -43,7 +54,7 @@ from pyrx.codes import CA_PERIOD
 from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
-from pyrx.observations import Epoch, Observation
+from pyrx.observations import Epoch, Observation, Observations
 from pyrx.tracking import PLI_LOCKED, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
@@ -51,6 +62,8 @@ T_LOCK = 2.0  # s into a channel over which its observations carry the slip flag
 SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
+L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3.05 Table A23)
+ANCHOR_TOLERANCE = 1e-4  # s a pilot's code start may lie from the L1 channel's code period grid
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -219,3 +232,116 @@ def make_observables(
         if obs:
             epochs.append(Epoch(week, float(tow), sorted(obs, key=lambda o: o.prn)))
     return epochs
+
+
+def _pilot_time0(starts: np.ndarray, l1: list[tuple[np.ndarray, np.ndarray]]) -> float | None:
+    """Transmit time of a pilot segment's epoch 0 from its code starts and the (code starts,
+    transmit times) of the L1 segments of its satellite; None without a consistent anchor.
+
+    At every pilot code start inside an L1 segment the L1 transmit time, rounded to the code
+    period, is that code start's transmit time. All of them must name the same time for
+    epoch 0, each within ANCHOR_TOLERANCE of the grid.
+    """
+    origins = []
+    for tc, tt in l1:
+        k = np.nonzero((starts >= tc[0]) & (starts < tc[-1]))[0]
+        if not len(k):
+            continue
+        j = np.searchsorted(tc, starts[k], side="right") - 1
+        t_tx = tt[j] + (starts[k] - tc[j]) / (tc[j + 1] - tc[j]) * CA_PERIOD
+        periods = np.rint(t_tx / CA_PERIOD)
+        if np.max(np.abs(t_tx - periods * CA_PERIOD)) > ANCHOR_TOLERANCE:
+            return None
+        origins.append(periods - k)
+    if not origins:
+        return None
+    origins = np.concatenate(origins)
+    if np.any(origins != origins[0]):
+        return None
+    return float(origins[0]) * CA_PERIOD
+
+
+def pilot_transmit_times(
+    track: TrackResult, l1: list[tuple[TrackResult, LnavResult]]
+) -> np.ndarray | None:
+    """Seconds of week at which every code start of a pilot segment was transmitted, from
+    the L1 segments (with their decodes) of the same satellite on the same sample clock;
+    None when no L1 segment with a time tag overlaps it or the overlap is not consistent."""
+    chans = _usable([tr for tr, _ in l1], [ln for _, ln in l1])
+    time0 = _pilot_time0(code_starts(track), [(tc, tt) for _, _, tc, tt in chans])
+    return None if time0 is None else time0 + np.arange(len(track.t)) * CA_PERIOD
+
+
+def make_joint_observables(
+    tracks: list[TrackResult],
+    lnavs: list[LnavResult],
+    pilots: list[TrackResult],
+    interval: float = 1.0,
+    week: int | None = None,
+) -> list[Observations]:
+    """The L1 C/A observations of `make_observables` with the L5 pilot segments `pilots` of
+    the same recording time beside them, as signals `G1C` and `G5Q`.
+
+    The epochs, the receiver clock and every L1 value are `make_observables`'. A pilot
+    segment contributes from the epoch after its secondary code was found, on the time of
+    its satellite's L1 channel; one without a consistent anchor contributes nothing. Raises
+    ValueError when the week is unknown (no subframe 1 decoded and none given).
+    """
+    epochs = make_observables(tracks, lnavs, interval, week)
+    if not epochs:
+        return []
+    if epochs[0].week is None:
+        raise ValueError("week unknown: no ephemeris decoded and none given")
+    chans = _usable(tracks, lnavs)
+    rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
+    # the L1 epochs count from the week of the time origin; tow restarts if all lie past it
+    t_begin = min(tc[int(ln.stream.epoch[0])] for _, ln, tc, _ in chans)
+    weeks_on = floor(ceil((rx0 + t_begin) / interval) * interval / WEEK_S)
+    anchored = []
+    for tr in pilots:
+        starts = code_starts(tr)
+        l1 = [(tc, tt) for l1_tr, _, tc, tt in chans if l1_tr.prn == tr.prn]
+        time0 = _pilot_time0(starts, l1)
+        if time0 is not None and tr.sec_sync is not None:
+            anchored.append((tr, starts, time0))
+    last_k = [-1] * len(anchored)
+    last_phase_k = [-1] * len(anchored)
+    out = []
+    for e in epochs:
+        t_rx = e.tow + weeks_on * WEEK_S
+        t = t_rx - rx0
+        rows = {f"G{o.prn:02d}": [o, None] for o in e.obs}
+        for c, (tr, tc, time0) in enumerate(anchored):
+            k = int(np.searchsorted(tc, t, side="right")) - 1
+            if k <= tr.sec_sync or k + 1 >= len(tc):
+                continue
+            f = (t - tc[k]) / (tc[k + 1] - tc[k])
+            t_tx = time0 + (k + f) * CA_PERIOD
+            adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
+            since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
+            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
+            lli = 0
+            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
+                lli = LLI_SLIP
+            half = 0.5 if tr.sec_polarity < 0 else 0.0
+            phase = -(adr + half) + L5Q_ALIGN if locked else np.nan
+            pilot_obs = Observation(
+                tr.prn, C_LIGHT * (t_rx - t_tx), float(phase), float(tr.doppler[k]),
+                float(tr.cn0[k]), lli,
+            )  # fmt: skip
+            rows.setdefault(f"G{tr.prn:02d}", [None, None])[1] = pilot_obs
+            last_k[c] = k
+            if locked:
+                last_phase_k[c] = k
+        sats = tuple(sorted(rows))
+        values = np.full((5, len(sats), 2), np.nan)
+        values[4] = 0.0
+        for i, sat in enumerate(sats):
+            for j, o in enumerate(rows[sat]):
+                if o is not None:
+                    values[:, i, j] = (o.pseudorange, o.carrier_phase, o.doppler, o.cn0, o.lli)
+        pr, phase, doppler, cn0, lli = values
+        out.append(
+            Observations(e.week, e.tow, sats, ("G1C", "G5Q"), pr, phase, doppler, cn0, lli.astype(int))
+        )
+    return out
