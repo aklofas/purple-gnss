@@ -9,7 +9,16 @@ from pyrx.codes import CA_PERIOD
 from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, Subframe
 from pyrx.navdecode import LnavResult, decode_lnav
-from pyrx.observables import LLI_SLIP, make_observables, receiver_time0, transmit_times
+from pyrx.observables import (
+    L5Q_ALIGN,
+    LLI_HALF_CYCLE,
+    LLI_SLIP,
+    make_joint_observables,
+    make_observables,
+    pilot_transmit_times,
+    receiver_time0,
+    transmit_times,
+)
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import frame, synth_l1ca
@@ -326,3 +335,141 @@ def test_observation_intervals_down_to_the_epoch_rate_and_below_work(interval):
     phases = [o.carrier_phase for e in epochs for o in e.obs]
     assert all(np.isfinite(phases))
     assert sum(o.lli & LLI_SLIP for e in epochs for o in e.obs if (e.tow - epochs[0].tow) > 2.1) == 0
+
+
+SFS = [(1500, 5044, False), (7500, 5050, False), (13500, 5056, False), (19500, 5062, False)]
+
+
+def _still_pilot(k_start=0, n=30000, delay=30e-9, sec_sync=1500, polarity=1, phase_lock=None,
+                 doppler=-420.0, prn=4):  # fmt: skip
+    """An L5 pilot segment of PRN 4 beside `_still_channel`: its code starts arrive `delay`
+    after the L1 code starts from file epoch `k_start` on, the secondary code is found at its
+    epoch `sec_sync`, and the carrier phase advances with a constant Doppler."""
+    t = (k_start + np.arange(n)) * CA_PERIOD
+    return TrackResult(
+        prn, t, np.zeros((n, 4), np.complex64), (t + delay) % CA_PERIOD, np.full(n, doppler),
+        doppler * CA_PERIOD * np.arange(1, n + 1), np.zeros(n), np.full(n, 47.0),
+        np.ones(n) if phase_lock is None else phase_lock, True, None, np.zeros(n), np.zeros(n),
+        signal="L5", sec_sync=sec_sync, sec_origin=0, sec_polarity=polarity,
+        data_prompt=np.zeros(n, np.complex64),
+    )  # fmt: skip
+
+
+def _g5q(epoch):
+    """(pseudorange, phase, doppler, cn0, lli) of G04's L5Q at an epoch, and its L1 row."""
+    i, j = epoch.sats.index("G04"), epoch.signals.index("G5Q")
+    row = [getattr(epoch, f)[i] for f in ("pseudorange", "carrier_phase", "doppler", "cn0", "lli")]
+    return [r[j] for r in row], [r[0] for r in row]
+
+
+def test_pilot_time_from_l1():
+    track, ln = _still_channel(SFS)
+    l1_times = transmit_times(track, ln)
+    times = pilot_transmit_times(_still_pilot(k_start=200, n=5000), [(track, ln)])
+    np.testing.assert_allclose(times, l1_times[200:5200], rtol=0, atol=1e-12)
+    # code starts 0.3 ms from L1's are not this satellite's signal on the same clock
+    assert pilot_transmit_times(_still_pilot(delay=0.3e-3), [(track, ln)]) is None
+    assert pilot_transmit_times(_still_pilot(delay=-80e-9), [(track, ln)]) is not None
+
+
+def test_joint_l1_columns_equal_single_signal():
+    track, ln = _still_channel(SFS)
+    single = make_observables([track], [ln])
+    joint = make_joint_observables([track], [ln], [_still_pilot()])
+    assert len(joint) == len(single) > 20
+    for e, o in zip(single, joint, strict=True):
+        assert (o.week, o.tow, o.sats, o.signals) == (e.week, e.tow, ("G04",), ("G1C", "G5Q"))
+        _, l1 = _g5q(o)
+        want = e.obs[0]
+        assert l1[0] == want.pseudorange and l1[2] == want.doppler and l1[3] == want.cn0
+        assert l1[4] == want.lli
+        assert l1[1] == want.carrier_phase or (np.isnan(l1[1]) and np.isnan(want.carrier_phase))
+
+
+@pytest.mark.parametrize("polarity", [1, -1])
+def test_joint_5q_values(polarity):
+    track, ln = _still_channel(SFS)
+    pilot = _still_pilot(polarity=polarity)
+    joint = make_joint_observables([track], [ln], [pilot])
+    rx0 = receiver_time0([track], [ln])
+    seen = 0
+    for o in joint:
+        t = o.tow - rx0  # s into the recording
+        (pr, phase, doppler, cn0, lli), l1 = _g5q(o)
+        if t <= pilot.t[pilot.sec_sync + 1]:
+            assert np.isnan(pr) and np.isnan(phase) and lli == 0  # nothing before the sync
+            continue
+        seen += 1
+        assert pr - l1[0] == pytest.approx(C_LIGHT * 30e-9, abs=1e-3)
+        assert doppler == -420.0 and cn0 == 47.0
+        # the accumulated Doppler phase at the epoch, negated, half a cycle when the loop
+        # stands on the inverted pilot, and the quarter cycle that aligns L5Q with L5I
+        adr = -420.0 * (t - 30e-9)
+        half = 0.5 if polarity < 0 else 0.0
+        assert phase == pytest.approx(-(adr + half) + L5Q_ALIGN, abs=1e-6)
+        assert lli == (LLI_SLIP if seen == 1 or t <= 2.0 else 0)
+        assert not lli & LLI_HALF_CYCLE
+    assert seen > 20 and L5Q_ALIGN == -0.25
+
+
+def test_pilot_reacquired_gets_a_new_anchor():
+    # two pilot segments under one L1 segment: blanks in the 5Q columns across the gap, a
+    # slip on the second segment's first observations, the L1 columns unbroken
+    track, ln = _still_channel(SFS)
+    first, second = _still_pilot(n=9000), _still_pilot(k_start=15000, n=12000, delay=31e-9)
+    joint = make_joint_observables([track], [ln], [first, second])
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0, *_g5q(o)) for o in joint]
+    gap = [t for t, l5, l1 in rows if 9.0 < t < 16.5]
+    assert len(gap) >= 6
+    for t, l5, l1 in rows:
+        assert np.isfinite(l1[0])
+        if 9.0 < t <= 15.0 + 1.502:
+            assert np.isnan(l5[0]) and np.isnan(l5[1]), t
+    after = [(t, l5) for t, l5, _ in rows if t > 16.502]
+    assert after[0][1][4] == LLI_SLIP and after[-1][1][4] == 0
+    l1_then = next(l1 for t, _, l1 in rows if t == after[0][0])
+    assert after[0][1][0] - l1_then[0] == pytest.approx(C_LIGHT * 31e-9, abs=1e-3)
+
+
+def test_pilot_without_anchor_is_left_out():
+    track, ln = _still_channel(SFS)
+    base = make_joint_observables([track], [ln], [])
+    assert base and all(o.signals == ("G1C", "G5Q") for o in base)
+    for pilot in (
+        _still_pilot(k_start=40000, n=5000),  # after the L1 segment's end
+        _still_pilot(prn=9),  # no L1 channel of its PRN
+        _still_pilot(delay=0.3e-3),  # not on the L1 code grid
+    ):
+        joint = make_joint_observables([track], [ln], [pilot])
+        assert len(joint) == len(base)
+        for o, b in zip(joint, base, strict=True):
+            assert o.sats == ("G04",) and np.isnan(o.pseudorange[0, 1])
+            assert o.pseudorange[0, 0] == b.pseudorange[0, 0]
+    # overlap instants that disagree: the code starts step by a whole period mid-segment
+    pilot = _still_pilot()
+    stepped = dataclasses.replace(pilot, t=np.concatenate([pilot.t[:9000], pilot.t[9000:] + 1e-3]))
+    assert pilot_transmit_times(stepped, [(track, ln)]) is None
+
+
+def test_pilot_phase_blank_while_unlocked():
+    track, ln = _still_channel(SFS)
+    locked = make_joint_observables([track], [ln], [_still_pilot()])
+    pilot = _still_pilot(phase_lock=_unlocked(10000, 13000))
+    joint = make_joint_observables([track], [ln], [pilot])
+    blank = [i for i, o in enumerate(joint) if np.isnan(_g5q(o)[0][1]) and np.isfinite(_g5q(o)[0][0])]
+    assert len(blank) == 3
+    for i in blank:
+        assert _g5q(joint[i])[0][0] == _g5q(locked[i])[0][0]  # the pseudorange stays
+    nxt = _g5q(joint[blank[-1] + 1])[0]
+    assert nxt[4] == LLI_SLIP and nxt[1] == _g5q(locked[blank[-1] + 1])[0][1]
+
+
+def test_joint_observables_need_the_week():
+    track, ln = _still_channel(SFS)
+    no_wn = dataclasses.replace(
+        ln, subframes=[dataclasses.replace(sf, sf_id=2, fields={}) for sf in ln.subframes]
+    )
+    with pytest.raises(ValueError, match="week unknown"):
+        make_joint_observables([track], [no_wn], [_still_pilot()])
+    assert make_joint_observables([track], [no_wn], [_still_pilot()], week=142)[0].week == 142
