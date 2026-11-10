@@ -581,6 +581,10 @@ of an already aligned phase. The sign of that quarter cycle follows IS-GPS-705 (
 lags I5); it cannot be confirmed on a recording until the L5 message is decoded, and
 it is common to all satellites, so it cancels between satellites.
 
+The lock indicator of a pilot's window is weighted by the power of its 20 ms sums, so
+a window with a short outage in it (0.2 s of signal and 0.8 s of noise read 0.95) still
+counts as locked and its phase is written; on L1 the same holds in kind, less strongly.
+
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
 satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
 -29 m for all of them within 2.4 m (the front end's delay between its two channels);
