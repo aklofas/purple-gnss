@@ -254,7 +254,8 @@ class TrackResult:
         Up to and including it the channel runs as described above, on prompts that
         still carry the secondary code. From the next epoch on the carrier loop works
         on coherent sums of T_PILOT_COH: carrier_error is the four-quadrant phase of a
-        sum, finite on the epoch that completes one and nan between, and phase_lock is
+        sum, finite on the epoch that completes one the loop takes, nan on one it coasts
+        on and between, and phase_lock is
         cos 2φ of the window's sums (1 when locked, -1 with the loop standing half its
         update rate off, near 0 when the carrier spins).
     sec_origin, sec_polarity: epoch k carries chip (k - sec_origin) modulo the code
@@ -269,11 +270,11 @@ class TrackResult:
         data prompts, their secondary chips and sec_polarity removed, along the signal's
         data axis; positive for a symbol 0. They run to the end of the track, the
         unlocked windows before a loss included. None without a sync.
-    held[k]: True on the epochs whose coherent sum the loop coasted on: its coherence was
-        below COAST_COHERENCE, so the signal was gone or too faded to use and the loop
-        ran on at the Doppler and Doppler rate it had. After a stretch of them the phase
-        is an extrapolation and can be whole cycles away while every window still reads
-        phase-locked.
+    held[k]: True on the epoch completing a coherent sum the loop coasted on: the sum's
+        coherence was below COAST_COHERENCE, so the signal was gone or too faded to use
+        and the loop ran on at the Doppler and Doppler rate it had. After a stretch of
+        them the phase is an extrapolation and can be whole cycles away while every
+        window still reads phase-locked.
     """
 
     prn: int

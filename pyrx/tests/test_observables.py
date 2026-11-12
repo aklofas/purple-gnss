@@ -476,9 +476,9 @@ def test_joint_observables_need_the_week():
 
 
 def test_pilot_phase_after_a_held_stretch_is_a_slip():
-    # while the pilot loop's integrator was held the signal was gone or deeply faded and the
-    # loop coasted on noise: the phase may have moved by whole cycles though every window
-    # still reads locked, so the first phase after such a stretch begins a new ambiguity
+    # while the pilot loop coasted the signal was gone or too faded to use and the phase is
+    # an extrapolation: it may be whole cycles away though every window still reads locked,
+    # so the first phase after such a stretch begins a new ambiguity
     track, ln = _still_channel(SFS)
     base = make_joint_observables([track], [ln], [_still_pilot()])
     rx0 = receiver_time0([track], [ln])
