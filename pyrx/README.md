@@ -587,14 +587,25 @@ of an already aligned phase. The sign of that quarter cycle follows IS-GPS-705 (
 lags I5), the relation the data symbols confirm (see "Pilot signals"); it is common
 to all satellites, so it cancels between satellites.
 
-An outage shorter than a window is the pilot loop's weak spot. With the signal gone the
-20 ms loop is driven by noise, and in synthetic outages of 0.4 and 0.8 s it came back
-one to three whole cycles away in half the runs (the L1 loop held its phase in the same
-outages). The window's indicator does not show it: it is weighted by the power of the
-sums, so 0.2 s of signal and 0.8 s of noise still read 0.95. The tracker therefore
-marks every loop update made while its integrator hold was active (the prompt power
-below half its recent mean), and the first `L5Q` after any such update carries the
-loss-of-lock indicator. A loop that coasts through the outage instead is future work.
+The pilot loop coasts through an outage. With the signal gone a 20 ms sum is noise, its
+phase is uniform over the cycle, and a loop that keeps updating on it random-walks its
+Doppler: such a loop came back one to three whole cycles away from most synthetic
+outages of 0.4 to 1.5 s. The tracker therefore judges each sum by its coherence, the
+squared magnitude of the sum over twenty times the summed power of its prompts (1 on a
+clean signal, 0.05 on noise, 0.28 at 25 dB-Hz), and takes it into the loop only at 0.20
+or above. On any other sum the loop runs on at the Doppler and the Doppler rate it had.
+One noise sum in seventy still reaches the threshold, so the first sum taken after a
+coasted one corrects the phase only; the Doppler and its rate take a sum's error when
+the sum before it was taken too. In synthetic outages of 0.4 to 1.5 s at 38 and 45 dB-Hz
+under a steady Doppler ramp of up to 3 Hz/s the loop came back on the same cycle in 141
+runs of 144, where the loop that kept updating did in 52. Two cases stay open. A
+maneuver that begins during the outage is extrapolated at the old rate: with the ramp
+stopping where the outage starts, coasting does no better than updating on noise. And
+from 38 dB-Hz down the rate estimate is noisy enough that a 1.5 s outage costs a cycle
+in about a quarter of the runs. The window's indicator shows none of this: it is
+weighted by the power of the sums, so 0.2 s of signal and 0.8 s of noise still read
+0.95. The tracker therefore marks every coasted sum, and the first `L5Q` after one
+carries the loss-of-lock indicator.
 
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
 satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
@@ -700,9 +711,11 @@ of the signal (`signalspec.py`); for a pilot it runs in stages:
 4. From then on the secondary chip is removed from every prompt and the carrier loop
    is the same third-order update on the four-quadrant phase of 20 ms coherent sums
    (Pocket SDR's pilot loop): no half-cycle ambiguity, and 13 dB more signal in each
-   update. The integrator hold keeps its 10 ms power windows. The phase-lock indicator
-   is cos 2φ of the sums; it reads -1 if the loop ever stood half its 50 Hz update
-   rate off, where the errors alternate and average to zero.
+   update. A sum whose prompts do not add up coherently is not used and the loop
+   coasts on it (see "L5 observations" above for the rule and what it
+   was measured to do); the 1 ms stage's integrator hold ends here. The phase-lock
+   indicator is cos 2φ of the sums; it reads -1 if the loop ever stood half its 50 Hz
+   update rate off, where the errors alternate and average to zero.
 
 The code loop, the C/N0 estimate and the loss rule are L1's. At 24 Msps a chip is
 2.35 samples and the front end's filter rounds the correlation peak, so the

@@ -42,9 +42,9 @@ the 1 ms code period, is the pilot's (`pilot_transmit_times`). Its observations 
 once the secondary code is found. Its carrier phase has no half-cycle ambiguity; where
 the tracker settled on the inverted pilot the reported phase gets the half cycle back,
 and the quarter cycle that aligns L5Q with the band's reference signal L5I (RINEX 3.05
-Table A23) is applied here, as a receiver does. The pilot's loop coasts on noise through
-an outage and can return whole cycles away with its window indicator still high, so the
-first phase after any update made with the loop's integrator held is flagged as a slip.
+Table A23) is applied here, as a receiver does. The pilot's loop coasts through an outage
+on an extrapolation and can return whole cycles away with its window indicator still
+high, so the first phase after any coasted sum is flagged as a slip.
 """
 
 from math import ceil, floor
