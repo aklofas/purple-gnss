@@ -1,7 +1,7 @@
 """The pilot stages of the tracker on synthetic L5 and E5a signals: secondary-code sync,
 the coherent four-quadrant loop, the data component's symbols."""
 
-from math import atan2, pi
+from math import atan2, cos, pi, sin, sqrt
 
 import numpy as np
 import pytest
@@ -14,6 +14,7 @@ from pyrx.signalspec import E5A, L5
 from pyrx.synth import synth_pilot
 from pyrx.tracking import (
     B_PLL,
+    COAST_COHERENCE,
     PILOT_FLL_STAGES,
     PLI_LOCKED,
     SEC_SYNC_RATIO,
@@ -30,6 +31,7 @@ FS = 12e6
 N_COH = round(T_PILOT_COH / CA_PERIOD)
 N_DLL = round(T_DLL / CA_PERIOD)
 K0 = round(T_FLL_PULLIN / CA_PERIOD)  # the first Costas epoch
+W = B_PLL / 0.7845  # the third-order loop's natural frequency
 SPECS = {"L5": (L5, 6), "E5A": (E5A, 2)}
 
 
@@ -50,6 +52,36 @@ def _chips(r, spec, prn):
     """The pilot's secondary chip of every epoch with the sync's polarity, as the tracker wipes it."""
     sec = spec.secondary(prn)
     return sec[(np.arange(len(r.t)) - r.sec_origin) % len(sec)] * r.sec_polarity
+
+
+def _sum(phase, coherence, power=400.0):
+    """A coherent sum of N_COH prompts with the given phase (cycles) and coherence, and the
+    prompts' summed power."""
+    size = sqrt(coherence * N_COH * power)
+    return size * complex(cos(2.0 * pi * phase), sin(2.0 * pi * phase)), power
+
+
+def _with_fade(spec, prn, seconds, cn0, fade_from, fade_len, depth_db=None, fs=FS, **kwargs):
+    """A pilot signal whose amplitude is down by `depth_db` (gone when None) from `fade_from`
+    for `fade_len` seconds; the code starts at sample 700 with secondary chip 5."""
+    args = (spec, prn, fs, 0.0, kwargs.pop("doppler", 0.0), 700, int(fs * seconds))
+    x = synth_pilot(*args, cn0, sec_index=5, **kwargs)
+    clean = synth_pilot(*args, 300.0, sec_index=5, **kwargs)
+    a, b = int(fade_from * fs), int((fade_from + fade_len) * fs)
+    drop = 1.0 if depth_db is None else 1.0 - 10.0 ** (-depth_db / 20.0)
+    x[a:b] -= np.complex64(drop) * clean[a:b]
+    return x
+
+
+def _phase_step(r, doppler, rate, t_from, t_to):
+    """The change of the carrier-phase error across (t_from, t_to), in cycles: its median over
+    the second that starts 1 s after `t_to` minus that over the second before `t_from`. The
+    truth is the Doppler the signal was generated with, `doppler + rate * t`."""
+    te = np.append(r.t[1:], r.t[-1] + CA_PERIOD)
+    err = r.carrier_phase - (doppler * (te - r.t[0]) + 0.5 * rate * (te**2 - r.t[0] ** 2))
+    before = np.median(err[(r.t > t_from - 1.0) & (r.t < t_from - 0.1)])
+    after = np.median(err[(r.t > t_to + 1.0) & (r.t < t_to + 2.0)])
+    return after - before
 
 
 def test_pilot_stage_constants():
@@ -190,42 +222,152 @@ def test_noise_does_not_sync():
     assert r.sec_sync is None
 
 
-def test_hold_flag_is_read_by_the_coherent_update():
-    # a 10 dB fade of 0.3 s after the sync: the hold's 10 ms power windows keep running and
-    # the 20 ms update leaves the integrated term alone while they report a fade
-    seconds, fade_from, fade_len = 4.5, 3.0, 0.3
-    noisy = _signal(L5, 6, seconds, 45.0, seed=6, sec_index=5)
-    clean = _signal(L5, 6, seconds, 300.0, seed=6, sec_index=5)
-    t = np.arange(len(noisy)) / FS
-    fade = (t >= fade_from) & (t < fade_from + fade_len)
-    x = noisy.copy()
-    x[fade] -= clean[fade] * np.complex64(1.0 - 10 ** (-10.0 / 20.0))
+def test_incoherent_sum_coasts():
+    # a sum whose prompts do not add up carries no signal: the loop takes nothing from it,
+    # gives back the proportional term of the last error and runs on at its Doppler rate
+    loop = CarrierLoop(err_phase_prev=0.1, phase_acc=2.0)
+    increment, err = loop.update_coherent(*_sum(0.3, 0.19), T_PILOT_COH)
+    assert increment == pytest.approx(-2.4 * W * 0.1 + 2.0 * T_PILOT_COH, rel=1e-12)
+    assert np.isnan(err) and loop.coasting
+    assert (loop.err_phase_prev, loop.phase_acc) == (0.0, 2.0)
+
+
+def test_coherence_at_the_threshold_is_good():
+    assert COAST_COHERENCE == 0.20
+    loop = CarrierLoop()
+    _, err = loop.update_coherent(*_sum(0.0, COAST_COHERENCE), T_PILOT_COH)
+    assert err == 0.0 and not loop.coasting
+
+
+def test_first_good_sum_after_a_coast_moves_the_phase_only():
+    # the integrated terms take a sum's error only when the sum before it was good too, so
+    # a lone noise sum over the threshold leaves nothing behind
+    dt = T_PILOT_COH
+    loop = CarrierLoop(err_phase_prev=0.1, phase_acc=2.0)
+    loop.update_coherent(*_sum(0.3, 0.05), dt)
+    increment, err = loop.update_coherent(*_sum(0.05, 0.9), dt)
+    assert err == pytest.approx(0.05, rel=1e-12) and not loop.coasting
+    assert increment == pytest.approx(2.4 * W * 0.05 + 2.0 * dt, rel=1e-12)
+    assert loop.phase_acc == 2.0 and loop.err_phase_prev == err
+    increment, err = loop.update_coherent(*_sum(0.03, 0.9), dt)
+    acc = 2.0 + W**3 * 0.03 * dt
+    assert loop.phase_acc == pytest.approx(acc, rel=1e-12)
+    full = 2.4 * W * (0.03 - 0.05) + 1.1 * W * W * 0.03 * dt + acc * dt
+    assert increment == pytest.approx(full, rel=1e-12)
+
+
+def test_zero_power_sum_coasts():
+    loop = CarrierLoop(err_phase_prev=0.1, phase_acc=2.0)
+    increment, err = loop.update_coherent(0j, 0.0, T_PILOT_COH)
+    assert increment == pytest.approx(-2.4 * W * 0.1 + 2.0 * T_PILOT_COH, rel=1e-12)
+    assert np.isnan(err) and loop.coasting
+
+
+def test_coherent_update_does_not_read_the_fade_flag():
+    # the 1 ms stage's integrator hold ends at the sync: the gate has taken its place
+    loop = CarrierLoop(fading=True)
+    loop.update_coherent(*_sum(0.02, 0.9), T_PILOT_COH)
+    assert loop.phase_acc == pytest.approx(W**3 * 0.02 * T_PILOT_COH, rel=1e-12)
+
+
+def test_bad_first_sum_after_the_sync_takes_the_proportional_term_back():
+    loop = CarrierLoop()
+    for _ in range(5):
+        loop.update(complex(1.0, 0.3), False)
+    prev, acc = loop.err_phase_prev, loop.phase_acc
+    assert prev > 0.04 and acc > 0.0
+    increment, _ = loop.update_coherent(*_sum(0.0, 0.1), T_PILOT_COH)
+    assert increment == pytest.approx(-2.4 * W * prev + acc * T_PILOT_COH, rel=1e-12)
+    assert loop.coasting and loop.phase_acc == acc
+
+
+def test_coherent_loop_is_rebuilt_from_the_prompts():
+    # the Doppler of every epoch from the recorded prompts, by the loop's rules restated: a
+    # sum is good when its coherence reaches COAST_COHERENCE; a sum that is not is coasted
+    # (the last error's proportional term taken back, the integrated term still steering);
+    # the first good sum after a coasted one moves the Doppler by its proportional term
+    # only. This signal settles on the inverted pilot, so the rules are seen to work on the
+    # wiped prompts
+    x = _with_fade(L5, 6, 4.5, 45.0, 3.0, 0.4, seed=7)
     r = _track(x, L5, 6, seed=(700 / FS, 3.0, 45.0))
-    assert r.locked and r.sec_sync is not None
+    assert r.locked and r.sec_sync is not None and r.sec_polarity == -1
     chips = _chips(r, L5, 6)
     loop, fd = CarrierLoop(), r.doppler[K0 - 1]
-    total, count, held = 0j, 0, []
+    dt = T_PILOT_COH
+    total, power, count, coasted, kinds = 0j, 0.0, 0, False, set()
     for k in range(K0, len(r.t)):
-        prompt, closes = complex(r.corr[k, 0]), (k + 1) % N_DLL == 0
+        prompt = complex(r.corr[k, 0])
         if k <= r.sec_sync:
-            fd += loop.update(prompt, closes)[0]
+            fd += loop.update(prompt, (k + 1) % N_DLL == 0)[0]
+            prev, acc = loop.err_phase_prev, loop.phase_acc
         else:
-            loop.fade_window(prompt, closes)
             total += prompt * chips[k]
+            power += abs(prompt) ** 2
             count += 1
-            if count == N_COH:
-                before = loop.phase_acc
-                fd += loop.update_coherent(total, T_PILOT_COH)[0]
-                if loop.fading:
-                    assert loop.phase_acc == before, k
-                    held.append(r.t[k])
-                assert r.held[k] == loop.fading, k
-                total, count = 0j, 0
-            else:
+            if count < N_COH:
                 assert not r.held[k], k
+            else:
+                if power > 0.0 and abs(total) ** 2 >= COAST_COHERENCE * N_COH * power:
+                    e = atan2(total.imag, total.real) / (2.0 * pi)
+                    if coasted:
+                        fd += 2.4 * W * (e - prev) + acc * dt
+                        kinds.add("phase only")
+                    else:
+                        acc += W * W * W * e * dt
+                        fd += 2.4 * W * (e - prev) + 1.1 * W * W * e * dt + acc * dt
+                        kinds.add("full")
+                    prev, coasted = e, False
+                else:
+                    fd += -2.4 * W * prev + acc * dt
+                    prev, coasted = 0.0, True
+                    kinds.add("coasted")
+                assert r.held[k] == coasted, k
+                total, power, count = 0j, 0.0, 0
         assert r.doppler[k] == fd, k
-    assert held and fade_from <= min(held) < fade_from + 0.1 and max(held) < fade_from + fade_len + 0.05
+    assert kinds == {"full", "coasted", "phase only"}
     assert r.held.dtype == bool and not r.held[: r.sec_sync + 1].any()
+
+
+@pytest.mark.parametrize("name", SPECS)
+def test_pilot_returns_on_the_same_cycle_after_an_outage(name):
+    # the signal gone for 0.8 s under a 3 Hz/s ramp. A loop that keeps updating on the noise
+    # comes back whole cycles away (three on this seed, on both signals); one that coasts at
+    # constant Doppler is a cycle off by the ramp alone
+    spec, prn = SPECS[name]
+    x = _with_fade(spec, prn, 6.0, 45.0, 3.0, 0.8, doppler=100.0, doppler_rate=3.0, seed=2)
+    r = _track(x, spec, prn, seed=(700 / FS, 100.0, 45.0))
+    assert r.locked and r.sec_sync is not None
+    assert abs(_phase_step(r, 100.0, 3.0, 3.0, 3.8)) < 0.1
+
+
+def test_a_lone_noise_sum_in_an_outage_leaves_the_estimates_alone():
+    # 1.5 s without signal at 38 dB-Hz: one noise sum in seventy reads coherent enough to
+    # pass the gate, and on this seed some do. Were their error to reach the integrated
+    # terms, the loop would return a cycle away
+    fs = 6e6
+    x = _with_fade(L5, 6, 6.7, 38.0, 3.0, 1.5, fs=fs, doppler=100.0, doppler_rate=0.6, seed=3)
+    r = track(ArraySamples(x, fs), 0.0, L5, 6, 700 / fs, 100.0, 38.0)
+    assert r.sec_sync is not None
+    sums = np.arange(r.sec_sync + N_COH, len(r.t), N_COH)  # the epochs completing a sum
+    inside = sums[(r.t[sums] > 3.05) & (r.t[sums] < 4.45)]
+    assert 0 < np.sum(~r.held[inside]) < 5
+    assert abs(_phase_step(r, 100.0, 0.6, 3.0, 4.5)) < 0.1
+
+
+def test_a_fade_the_loop_can_follow_is_not_coasted():
+    # 10 dB down for 1.5 s under the ramp: 35 dB-Hz is a signal the 20 ms loop tracks, and
+    # its sums stay far above the gate
+    x = _with_fade(L5, 6, 6.7, 45.0, 3.0, 1.5, 10.0, doppler=100.0, doppler_rate=3.0, seed=1)
+    r = _track(x, L5, 6, seed=(700 / FS, 100.0, 45.0))
+    assert r.locked and not r.held.any()
+    assert abs(_phase_step(r, 100.0, 3.0, 3.0, 4.5)) < 0.05
+
+
+def test_a_long_outage_still_ends_the_track():
+    # coasting does not keep a channel alive: two windows without signal end it as before
+    x = _with_fade(L5, 6, 6.2, 45.0, 3.0, 3.2, doppler=100.0, seed=1)
+    r = _track(x, L5, 6, seed=(700 / FS, 100.0, 45.0))
+    assert not r.locked and 4.0 < r.lost_at < 6.0
 
 
 def test_an_outage_is_marked_as_held():
