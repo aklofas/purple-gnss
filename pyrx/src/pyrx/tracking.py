@@ -25,8 +25,11 @@ current alignment (Pocket SDR's rule, `SEC_SYNC_RATIO`, here only while the Cost
 phase-locked). Once that sync is found the chip is removed from every prompt, and the
 carrier loop becomes the same third-order update on the four-quadrant phase of
 `T_PILOT_COH` coherent sums (Pocket SDR's pilot loop): whole-cycle phase, and 13 dB more
-signal per update. The data component of the same signal is correlated at the pilot's
-timing and its symbols are kept; it steers nothing.
+signal per update. A sum that carries no signal (its coherence below `COAST_COHERENCE`)
+is not used: the loop coasts through an outage at the Doppler and Doppler rate it had
+instead of updating on noise, which is this receiver's own. The data component of the
+same signal is correlated at the pilot's timing and its symbols are kept; it steers
+nothing.
 """
 
 import multiprocessing
@@ -63,6 +66,10 @@ SEC_SYNC_RATIO = 0.8  # the code's correlation with the last in-phase prompts ov
 SEC_SYNC_LOCK = 0.5
 SEC_SYNC_LOCK_EPOCHS = 100
 T_PILOT_COH = 0.020  # s, the coherent sum of the pilot's carrier loop once the code is synced
+# A coherent sum is taken into the pilot's loop when its coherence, |sum of the prompts|^2 over
+# their count times their summed power, reaches COAST_COHERENCE: 1 on a clean signal, 1/20 on
+# noise, 0.28 at 25 dB-Hz. Below it the sum carries no signal and the loop coasts.
+COAST_COHERENCE = 0.20
 B_DLL = 0.25  # Hz
 T_FLL_PULLIN = 1.0  # s
 T_DLL = 0.010  # s, non-coherent early/late accumulation
@@ -106,6 +113,7 @@ class CarrierLoop:
     fade_sum: float = 0.0  # prompt power over the current T_DLL window
     fade_ref: float = 0.0  # its running mean over the windows before
     fading: bool = False  # the integrator is held over the current window
+    coasting: bool = False  # the last coherent sum carried no signal and was not used
 
     def fade_window(self, prompt: complex, closes_window: bool) -> None:
         """Take one epoch's prompt into the hold's power window; `closes_window` marks the
@@ -146,25 +154,40 @@ class CarrierLoop:
         self.err_phase_prev = err_phase
         return increment, err_phase
 
-    def update_coherent(self, total: complex, dt: float) -> tuple[float, float]:
-        """The same third-order update on the four-quadrant phase of `total`, the coherent
-        sum of the prompts of `dt` seconds with their secondary chips removed; returns
-        (Doppler increment in Hz, phase error in cycles). The previous error and the
-        integrated term carry over from `update`; the hold reads the fade windows, which
-        `fade_window` keeps running epoch by epoch. A zero sum: (0.0, nan).
+    def update_coherent(self, total: complex, power: float, dt: float) -> tuple[float, float]:
+        """The third-order update on the four-quadrant phase of `total`, the coherent sum of
+        the prompts of `dt` seconds with their secondary chips removed; `power` is the sum
+        of those prompts' squared magnitudes. Returns (Doppler increment in Hz, phase error
+        in cycles). The previous error and the integrated term carry over from `update`;
+        its integrator hold is not read here.
+
+        A sum whose coherence is below COAST_COHERENCE is noise: its phase is uniform over
+        the cycle and would random-walk the Doppler. The loop coasts on it instead: the
+        discriminator reads zero, which takes the last error's proportional term back out
+        of the Doppler, and the integrated term (the Doppler rate) keeps steering. Returns
+        (increment, nan). One noise sum in seventy still reaches the threshold, so the
+        first sum taken after a coasted one moves the Doppler by its proportional term
+        only; the integrated terms take a sum's error when the sum before it was taken too.
         """
-        if total == 0:
-            return 0.0, np.nan
-        err_phase = atan2(total.imag, total.real) / (2.0 * pi)
         w = B_PLL / 0.7845
-        if not self.fading:
+        n = round(dt / CA_PERIOD)
+        if not (power > 0.0 and abs(total) ** 2 >= COAST_COHERENCE * n * power):
+            increment = -2.4 * w * self.err_phase_prev + self.phase_acc * dt
+            self.err_phase_prev = 0.0
+            self.coasting = True
+            return increment, np.nan
+        err_phase = atan2(total.imag, total.real) / (2.0 * pi)
+        if self.coasting:
+            increment = 2.4 * w * (err_phase - self.err_phase_prev) + self.phase_acc * dt
+        else:
             self.phase_acc += w * w * w * err_phase * dt
-        increment = (
-            2.4 * w * (err_phase - self.err_phase_prev)
-            + 1.1 * w * w * err_phase * dt
-            + self.phase_acc * dt
-        )
+            increment = (
+                2.4 * w * (err_phase - self.err_phase_prev)
+                + 1.1 * w * w * err_phase * dt
+                + self.phase_acc * dt
+            )
         self.err_phase_prev = err_phase
+        self.coasting = False
         return increment, err_phase
 
 
@@ -246,10 +269,11 @@ class TrackResult:
         data prompts, their secondary chips and sec_polarity removed, along the signal's
         data axis; positive for a symbol 0. They run to the end of the track, the
         unlocked windows before a loss included. None without a sync.
-    held[k]: True on the epochs whose coherent update ran with the integrator held: the
-        prompt power had dropped below FADE_HOLD of its running mean, so the signal was
-        gone or deeply faded and the update worked on noise. The loop can come out of
-        such a stretch whole cycles away while every window still reads phase-locked.
+    held[k]: True on the epochs whose coherent sum the loop coasted on: its coherence was
+        below COAST_COHERENCE, so the signal was gone or too faded to use and the loop
+        ran on at the Doppler and Doppler rate it had. After a stretch of them the phase
+        is an extrapolation and can be whole cycles away while every window still reads
+        phase-locked.
     """
 
     prn: int
@@ -359,6 +383,7 @@ def track(
     sec_sync = None
     sec_origin = sec_polarity = 0
     coh_acc = 0j
+    coh_pow = 0.0
     coh_n = 0
     sum_ps = 0.0  # the power of what the phase-lock indicator is formed from
     n_dll = _N_DLL
@@ -411,16 +436,16 @@ def track(
             fd += increment
         else:
             # the secondary chip removed, the loop works on coherent sums of T_PILOT_COH
-            pll.fade_window(prompt, epoch % n_dll == 0)
             coh_acc += prompt * (sec[(k - sec_origin) % len(sec)] * sec_polarity)
+            coh_pow += abs(prompt) ** 2
             coh_n += 1
             lock_term = None
             if coh_n == _N_COH:
-                increment, out_err_carrier[k] = pll.update_coherent(coh_acc, T_PILOT_COH)
+                increment, out_err_carrier[k] = pll.update_coherent(coh_acc, coh_pow, T_PILOT_COH)
                 fd += increment
-                out_held[k] = pll.fading
+                out_held[k] = pll.coasting
                 lock_term = coh_acc
-                coh_acc, coh_n = 0j, 0
+                coh_acc, coh_pow, coh_n = 0j, 0.0, 0
 
         # pilot: the secondary code at the current alignment against the last in-phase
         # prompts, accepted while the Costas loop is phase-locked; the chip is removed from
