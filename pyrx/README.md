@@ -598,14 +598,19 @@ One noise sum in seventy still reaches the threshold, so the first sum taken aft
 coasted one corrects the phase only; the Doppler and its rate take a sum's error when
 the sum before it was taken too. In synthetic outages of 0.4 to 1.5 s at 38 and 45 dB-Hz
 under a steady Doppler ramp of up to 3 Hz/s the loop came back on the same cycle in 141
-runs of 144, where the loop that kept updating did in 52. Two cases stay open. A
-maneuver that begins during the outage is extrapolated at the old rate: with the ramp
-stopping where the outage starts, coasting does no better than updating on noise. And
-from 38 dB-Hz down the rate estimate is noisy enough that a 1.5 s outage costs a cycle
-in about a quarter of the runs. The window's indicator shows none of this: it is
-weighted by the power of the sums, so 0.2 s of signal and 0.8 s of noise still read
-0.95. The tracker therefore marks every coasted sum, and the first `L5Q` after one
-carries the loss-of-lock indicator.
+runs of 144, where the loop that kept updating did in 52. Coasting is an extrapolation,
+and it fails where the rate it extrapolates is wrong. A maneuver that begins during the
+outage is one case: with the ramp stopping where the outage starts, coasting does no
+better than updating on noise. The seconds after the secondary code is found are
+another: the third-order loop's rate estimate is still settling from the handover
+(about 1.5 Hz/s off in the half second after the sync, 0.3 Hz/s 1.5 s after it, 0.1 Hz/s
+from 2 s on), and an 0.8 s outage that began within 0.2 s of the sync cost a cycle in 10
+runs of 23. A second outage 0.1 to 0.2 s after the first is a third: the return's
+transient is still in the rate estimate, and 5 runs of 16 came back a cycle off. And at
+35 dB-Hz the estimate is noisy enough that 10 outages of 65 cost a cycle. The window's
+indicator shows none of this: it is weighted by the power of the sums, so 0.2 s of
+signal and 0.8 s of noise still read 0.95. The tracker therefore marks every coasted
+sum, and the first `L5Q` after one carries the loss-of-lock indicator.
 
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
 satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
