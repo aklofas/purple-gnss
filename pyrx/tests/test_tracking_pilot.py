@@ -63,10 +63,12 @@ def _sum(phase, coherence, power=400.0):
 
 def _with_fade(spec, prn, seconds, cn0, fade_from, fade_len, depth_db=None, fs=FS, **kwargs):
     """A pilot signal whose amplitude is down by `depth_db` (gone when None) from `fade_from`
-    for `fade_len` seconds; the code starts at sample 700 with secondary chip 5."""
+    for `fade_len` seconds; the code starts at sample 700 with secondary chip 5 unless
+    `sec_index` says otherwise."""
     args = (spec, prn, fs, 0.0, kwargs.pop("doppler", 0.0), 700, int(fs * seconds))
-    x = synth_pilot(*args, cn0, sec_index=5, **kwargs)
-    clean = synth_pilot(*args, 300.0, sec_index=5, **kwargs)
+    kwargs.setdefault("sec_index", 5)
+    x = synth_pilot(*args, cn0, **kwargs)
+    clean = synth_pilot(*args, 300.0, **kwargs)
     a, b = int(fade_from * fs), int((fade_from + fade_len) * fs)
     drop = 1.0 if depth_db is None else 1.0 - 10.0 ** (-depth_db / 20.0)
     x[a:b] -= np.complex64(drop) * clean[a:b]
@@ -263,11 +265,16 @@ def test_zero_power_sum_coasts():
     assert np.isnan(err) and loop.coasting
 
 
-def test_coherent_update_does_not_read_the_fade_flag():
-    # the 1 ms stage's integrator hold ends at the sync: the gate has taken its place
-    loop = CarrierLoop(fading=True)
-    loop.update_coherent(*_sum(0.02, 0.9), T_PILOT_COH)
-    assert loop.phase_acc == pytest.approx(W**3 * 0.02 * T_PILOT_COH, rel=1e-12)
+def test_coherent_update_holds_the_integrator_in_a_fade():
+    # the integrator hold runs on after the sync: a sum taken while the prompt power is below
+    # half its recent mean moves the Doppler and leaves the rate estimate alone
+    dt = T_PILOT_COH
+    loop = CarrierLoop(err_phase_prev=0.01, phase_acc=2.0, fading=True)
+    increment, err = loop.update_coherent(*_sum(0.02, 0.9), dt)
+    assert err == pytest.approx(0.02, rel=1e-12) and not loop.coasting
+    assert loop.phase_acc == 2.0
+    full = 2.4 * W * (0.02 - 0.01) + 1.1 * W * W * 0.02 * dt + 2.0 * dt
+    assert increment == pytest.approx(full, rel=1e-12)
 
 
 def test_bad_first_sum_after_the_sync_takes_the_proportional_term_back():
@@ -281,16 +288,28 @@ def test_bad_first_sum_after_the_sync_takes_the_proportional_term_back():
     assert loop.coasting and loop.phase_acc == acc
 
 
-def test_coherent_loop_is_rebuilt_from_the_prompts():
+@pytest.mark.parametrize(
+    ("depth_db", "sec_index", "on_close", "expected"),
+    [
+        (None, 5, False, {"full", "coasted", "phase only"}),
+        (10.0, 5, False, {"full", "integrator held"}),
+        (4.0, 0, True, {"full", "integrator held"}),
+    ],
+)
+def test_coherent_loop_is_rebuilt_from_the_prompts(depth_db, sec_index, on_close, expected):
     # the Doppler of every epoch from the recorded prompts, by the loop's rules restated: a
     # sum is good when its coherence reaches COAST_COHERENCE; a sum that is not is coasted
     # (the last error's proportional term taken back, the integrated term still steering);
     # the first good sum after a coasted one moves the Doppler by its proportional term
-    # only. This signal settles on the inverted pilot, so the rules are seen to work on the
-    # wiped prompts
-    x = _with_fade(L5, 6, 4.5, 45.0, 3.0, 0.4, seed=7)
+    # only; a good sum completed while the fade window holds the integrator does not move
+    # the integrated term. The signal is gone for 0.4 s, or 10 dB down for as long, or 4 dB
+    # down with the sync falling so that every sum ends on the epoch that closes a fade
+    # window: there the window is closed first and the sum reads the new flag. All three
+    # settle on the inverted pilot, so the rules are seen to work on the wiped prompts
+    x = _with_fade(L5, 6, 4.5, 45.0, 3.0, 0.4, depth_db, seed=7, sec_index=sec_index)
     r = _track(x, L5, 6, seed=(700 / FS, 3.0, 45.0))
     assert r.locked and r.sec_sync is not None and r.sec_polarity == -1
+    assert ((r.sec_sync + 1) % N_DLL == 0) == on_close
     chips = _chips(r, L5, 6)
     loop, fd = CarrierLoop(), r.doppler[K0 - 1]
     dt = T_PILOT_COH
@@ -301,6 +320,7 @@ def test_coherent_loop_is_rebuilt_from_the_prompts():
             fd += loop.update(prompt, (k + 1) % N_DLL == 0)[0]
             prev, acc = loop.err_phase_prev, loop.phase_acc
         else:
+            loop.fade_window(prompt, (k + 1) % N_DLL == 0)
             total += prompt * chips[k]
             power += abs(prompt) ** 2
             count += 1
@@ -313,9 +333,10 @@ def test_coherent_loop_is_rebuilt_from_the_prompts():
                         fd += 2.4 * W * (e - prev) + acc * dt
                         kinds.add("phase only")
                     else:
-                        acc += W * W * W * e * dt
+                        if not loop.fading:
+                            acc += W * W * W * e * dt
                         fd += 2.4 * W * (e - prev) + 1.1 * W * W * e * dt + acc * dt
-                        kinds.add("full")
+                        kinds.add("integrator held" if loop.fading else "full")
                     prev, coasted = e, False
                 else:
                     fd += -2.4 * W * prev + acc * dt
@@ -324,7 +345,7 @@ def test_coherent_loop_is_rebuilt_from_the_prompts():
                 assert r.held[k] == coasted, k
                 total, power, count = 0j, 0.0, 0
         assert r.doppler[k] == fd, k
-    assert kinds == {"full", "coasted", "phase only"}
+    assert kinds >= expected and (depth_db is None or "coasted" not in kinds)
     assert r.held.dtype == bool and not r.held[: r.sec_sync + 1].any()
 
 
@@ -343,7 +364,7 @@ def test_pilot_returns_on_the_same_cycle_after_an_outage(name):
 def test_a_lone_noise_sum_in_an_outage_leaves_the_estimates_alone():
     # 1.5 s without signal at 38 dB-Hz, from 5 s so that the rate estimate has settled: one
     # noise sum in seventy reads coherent enough to pass the gate, and on this seed one
-    # does. Were its error to reach the integrated terms, the loop would return two cycles
+    # does. Were its error to reach the integrated terms, the loop would return a cycle
     # away
     fs = 6e6
     x = _with_fade(L5, 6, 8.7, 38.0, 5.0, 1.5, fs=fs, doppler=100.0, doppler_rate=0.6, seed=6)
