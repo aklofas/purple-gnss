@@ -158,8 +158,10 @@ class CarrierLoop:
         """The third-order update on the four-quadrant phase of `total`, the coherent sum of
         the prompts of `dt` seconds with their secondary chips removed; `power` is the sum
         of those prompts' squared magnitudes. Returns (Doppler increment in Hz, phase error
-        in cycles). The previous error and the integrated term carry over from `update`;
-        its integrator hold is not read here.
+        in cycles). The previous error and the integrated term carry over from `update`,
+        and so does its integrator hold: the caller keeps `fade_window` running epoch by
+        epoch, and a sum completed while that flag is up (the last closed T_DLL window's
+        prompt power below FADE_HOLD of its running mean) leaves the integrated term alone.
 
         A sum whose coherence is below COAST_COHERENCE is noise: its phase is uniform over
         the cycle and would random-walk the Doppler. The loop coasts on it instead: the
@@ -168,6 +170,11 @@ class CarrierLoop:
         (increment, nan). One noise sum in seventy still reaches the threshold, so the
         first sum taken after a coasted one moves the Doppler by its proportional term
         only; the integrated terms take a sum's error when the sum before it was taken too.
+
+        The two rules cover different fades. Behind an obstruction the signal is mostly
+        attenuated and flickering, not gone: its weak sums pass the coherence gate with a
+        noisy phase, and the hold is what keeps them out of the rate estimate that the
+        loop then coasts on.
         """
         w = B_PLL / 0.7845
         n = round(dt / CA_PERIOD)
@@ -180,7 +187,8 @@ class CarrierLoop:
         if self.coasting:
             increment = 2.4 * w * (err_phase - self.err_phase_prev) + self.phase_acc * dt
         else:
-            self.phase_acc += w * w * w * err_phase * dt
+            if not self.fading:
+                self.phase_acc += w * w * w * err_phase * dt
             increment = (
                 2.4 * w * (err_phase - self.err_phase_prev)
                 + 1.1 * w * w * err_phase * dt
@@ -437,6 +445,7 @@ def track(
             fd += increment
         else:
             # the secondary chip removed, the loop works on coherent sums of T_PILOT_COH
+            pll.fade_window(prompt, epoch % n_dll == 0)
             coh_acc += prompt * (sec[(k - sec_origin) % len(sec)] * sec_polarity)
             coh_pow += abs(prompt) ** 2
             coh_n += 1

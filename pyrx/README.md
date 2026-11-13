@@ -596,18 +596,36 @@ clean signal, 0.05 on noise, 0.28 at 25 dB-Hz), and takes it into the loop only 
 or above. On any other sum the loop runs on at the Doppler and the Doppler rate it had.
 One noise sum in seventy still reaches the threshold, so the first sum taken after a
 coasted one corrects the phase only; the Doppler and its rate take a sum's error when
-the sum before it was taken too. In synthetic outages of 0.4 to 1.5 s at 38 and 45 dB-Hz
-under a steady Doppler ramp of up to 3 Hz/s the loop came back on the same cycle in 141
-runs of 144, where the loop that kept updating did in 52. Coasting is an extrapolation,
-and it fails where the rate it extrapolates is wrong. A maneuver that begins during the
-outage is one case: with the ramp stopping where the outage starts, coasting does no
-better than updating on noise. The seconds after the secondary code is found are
-another: the third-order loop's rate estimate is still settling from the handover
-(about 1.5 Hz/s off in the half second after the sync, 0.3 Hz/s 1.5 s after it, 0.1 Hz/s
-from 2 s on), and an 0.8 s outage that began within 0.2 s of the sync cost a cycle in 10
-runs of 23. A second outage 0.1 to 0.2 s after the first is a third: the return's
-transient is still in the rate estimate, and 5 runs of 16 came back a cycle off. And at
-35 dB-Hz the estimate is noisy enough that 10 outages of 65 cost a cycle. The window's
+the sum before it was taken too. The integrator hold (see "Tracking loops") stays in
+force beside the gate: behind an obstruction the signal is more often attenuated and
+flickering than gone, its weak sums pass the gate with a noisy phase, and the hold keeps
+them out of the rate estimate the loop then coasts on. In synthetic outages of 0.4 to
+1.5 s at 38 and 45 dB-Hz under a steady Doppler ramp of up to 3 Hz/s the loop came back
+on the same cycle in 143 runs of 144, where the loop that kept updating did in 52.
+Coasting is an extrapolation, and it fails where the rate it extrapolates is wrong. A
+maneuver that begins during the outage is one case: with the ramp stopping where the
+outage starts, coasting does no better than updating on noise. The seconds after the
+secondary code is found are another: the third-order loop's rate estimate is still
+settling from the handover (about 1.5 Hz/s off in the half second after the sync, 0.3
+Hz/s 1.5 s after it, 0.1 Hz/s from 2 s on), and an 0.8 s outage that began within 0.2 s
+of the sync cost a cycle in 10 runs of 23. A second outage 0.1 to 0.2 s after the first
+is a third: the return's transient is still in the rate estimate, and 4 runs of 16 came
+back a cycle off. And at 35 dB-Hz the estimate is noisy enough that 11 outages of 65
+cost a cycle and one more ended the track.
+
+Two five-minute recordings from the roof of a moving car (fifteen and fourteen pilot
+channels, an obstruction every few seconds) put the synthetic numbers in proportion. A
+building or a tree mostly attenuates: the gate found sums without signal in about 200 of
+700 fades and coasted 42 and 34 s of the 70 and 58 channel-minutes tracked. Against the
+same loop without the gate the phase-locked time was the same within 1.5 % and the `L5Q`
+phases numbered 1392 for 1406 and 1225 for 1222. What the recordings do not show is that
+a coasted return is on the right cycle. The satellite's L1 phase is a check where it
+stayed locked through a fade, and in all 132 such fades the two loops passed it alike
+(the geometry-free combination did not move in 124 and stepped by the same amount in
+both loops in 8, so not by the pilot's doing), but the gate had coasted in only 7 of
+them, for one or two sums. In the fades with coasted stretches less than 0.2 s apart, a
+flickering signal, both loops returned from 90 of 132 and stood whole cycles from each
+other after 19, and nothing in the recordings says which was right. The window's
 indicator shows none of this: it is weighted by the power of the sums, so 0.2 s of
 signal and 0.8 s of noise still read 0.95. The tracker therefore marks every coasted
 sum, and the first `L5Q` after one carries the loss-of-lock indicator.
@@ -718,7 +736,7 @@ of the signal (`signalspec.py`); for a pilot it runs in stages:
    (Pocket SDR's pilot loop): no half-cycle ambiguity, and 13 dB more signal in each
    update. A sum whose prompts do not add up coherently is not used and the loop
    coasts on it (see "L5 observations" above for the rule and what it
-   was measured to do); the 1 ms stage's integrator hold ends here. The phase-lock
+   was measured to do); the integrator hold of the 1 ms stage runs on. The phase-lock
    indicator is cos 2φ of the sums; it reads -1 if the loop ever stood half its 50 Hz
    update rate off, where the errors alternate and average to zero.
 
