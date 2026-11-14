@@ -480,6 +480,7 @@ def test_pll_hold_rule_is_rebuilt_from_the_prompts():
     fd, held = _rebuild_third_order(track)
     k0 = round(T_FLL_PULLIN / CA_PERIOD)
     np.testing.assert_array_equal(track.doppler[k0:], fd[k0:])
+    np.testing.assert_array_equal(track.held, held)
     # nothing held before the reference is seeded
     assert not held[: k0 + round(T_DLL / CA_PERIOD)].any()
     t_held = track.t[held]
@@ -489,3 +490,4 @@ def test_pll_hold_rule_is_rebuilt_from_the_prompts():
     steady = track_l1ca(ArraySamples(y, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
     _, held_steady = _rebuild_third_order(steady)
     assert not held_steady.any()
+    assert steady.held is not None and not steady.held.any()
