@@ -25,12 +25,14 @@ after Pocket SDR's rules): on a channel's first observation and on those within 
 first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
 re-acquired after a gap begins with a slip), on the first observation with a phase
 after any epoch without phase lock since the previous one with a phase (an unlocked
-window can lie wholly between sparse observations), on an observation since whose
-predecessor with a phase the carrier loop's integrator was held for `FADE_SLIP` or more
-within some `FADE_SPAN` (a fade: the signal's phase jumps in one and the Costas loop
-settles on the nearest half cycle, with every window still reading phase-locked, and two
-such slips between subframes leave the data polarity as it was; the flag says a slip was
-possible, most phases that carry it are continuous), and on the first observation
+window can lie wholly between sparse observations), on an observation when some
+`FADE_SPAN` that ends after the channel's previous observation with a phase, and no
+later than its own epoch, contains `FADE_SLIP` or more of the carrier loop's integrator
+hold (a fade: the signal's phase jumps in one and the Costas loop settles on the nearest
+half cycle, with every window still reading phase-locked, and two such slips between
+subframes leave the data polarity as it was; the flag outlasts the fade by up to the
+span, while the loop settles, and says a slip was possible: most phases that carry it
+are continuous), and on the first observation
 after the data polarity changed,
 that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the polarity is not
 established by a decoded subframe: before the first subframe, and from the end of
