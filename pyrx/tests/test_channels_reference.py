@@ -24,7 +24,7 @@ from pyrx.channels import REACQ_INTERVAL, track_prns
 from pyrx.cli import rinex_main
 from pyrx.gpstime import C_LIGHT, gps_datetime
 from pyrx.navdecode import decode_lnav
-from pyrx.observables import LLI_SLIP, make_observables
+from pyrx.observables import LLI_SLIP, make_observables, receiver_time0
 from pyrx.rinex import read_rinex_observations
 from pyrx.signals import signal_frequency, wavelength
 from pyrx.tracking import PLI_LOCKED
@@ -95,6 +95,31 @@ def test_cold_start_obstruction_against_pocket_sdr(captures):
     assert g06[i_next][1].lli & LLI_SLIP
     second = by_prn[6][1]
     assert g06[i_next][0] - g06[0][0] >= second.t[0] - by_prn[6][0].t[0] - 1.0  # next segment
+
+
+G13_STEPS = (120.08, 121.78, 149.72, 151.26)  # s into the file
+
+
+@pytest.mark.slow
+def test_cold_start_fades_flag_the_l1_phase(captures):
+    # against its L5 pilot, G13's L1 phase steps half a cycle at each of these instants: in a
+    # fade, with the phase-lock indicator high, and two by two within one subframe, so the
+    # data polarity is the same afterwards. The loop's integrator hold marks the fades: the
+    # first observation after each step carries the slip flag with its phase, and the quiet
+    # ten seconds between the two pairs carry none
+    path = capture_file(captures, f"{CAPTURE}/ch1.bin")
+    (seg,) = track_prns(path, 24e6, False, 6e6, [13], t_start=100.0, duration=60.0)
+    around = (seg.t > G13_STEPS[0] - 3.0) & (seg.t < G13_STEPS[-1] + 3.0)
+    assert seg.locked and np.all(seg.phase_lock[around] >= PLI_LOCKED)
+    ln = decode_lnav(seg)
+    rx0 = receiver_time0([seg], [ln])
+    obs = [(e.tow - rx0, e.obs[0]) for e in make_observables([seg], [ln])]
+    for step in G13_STEPS:
+        t, o = next((t, o) for t, o in obs if t > step)
+        assert t - step < 1.0 and o.lli & LLI_SLIP and np.isfinite(o.carrier_phase), step
+    quiet = [o for t, o in obs if 137.0 < t < 147.0]
+    assert len(quiet) == 10 and not any(o.lli for o in quiet)
+    assert all(np.isfinite(o.carrier_phase) for o in quiet)
 
 
 STATIC = "sky/20261103_030551_carroof-static"

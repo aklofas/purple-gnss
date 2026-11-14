@@ -547,15 +547,38 @@ one. The loss-of-lock indicator written with `L1C`: value 1 (bit 0, slip possibl
 channel's first observation and those within its first 2 s (Pocket SDR's rule), on
 the first observation with a phase after any tracking epoch since the previous one
 with a phase that was not phase-locked (an unlocked window can lie between sparse
-observations), and on the first observation after a polarity change; value 2 (bit 1, half-cycle ambiguity) where no
+observations), after a fade of the carrier loop (below), and on the first observation
+after a polarity change; value 2 (bit 1, half-cycle ambiguity) where no
 decoded subframe establishes the polarity, that is before a channel's first
 subframe and between the last subframe before a polarity change and the first
 after it. An RTK engine restarts the satellite's ambiguity at every change of that
 flag (RTKLIB's rule), so a polarity change costs the ambiguity twice, when the flag is
 set and when it clears; the phase is written flagged rather than blanked or flagged for
-the whole interval. A slip that leaves the polarity unchanged (a whole cycle) is not detected
-inside a file. No signal-strength flags are written. The standalone solution does
+the whole interval. No signal-strength flags are written. The standalone solution does
 not use the carrier phase.
+
+A moving receiver's phase slips in fades. Under trees and past obstructions the signal
+drops 3 to 15 dB for tens of milliseconds and its phase jumps; the Costas loop then
+settles on the nearest half cycle while the phase-lock indicator stays high. One such
+slip shows as a polarity change up to a subframe (6 s) later; two between subframes
+leave the polarity as it was and the phase a whole cycle off. The loop marks these
+fades itself: it holds its integrator while the 10 ms prompt power is below half its
+running mean. An observation is therefore flagged (value 1) when, since the channel's
+previous observation with a phase, the hold was active for 50 ms or more within some
+half second. The flag says a slip was possible, not that one happened. Measured on the
+car-roof captures against the L5 pilot of the five satellites that have one, whose
+phase shows every L1 step: of the L1 phases written, 23 on the cold-start drive and 24
+on the driving capture are discontinuous from the epoch before (more than 4 cm against
+the pilot); without the fade rule 21 of each carried no flag, with it none and 2 (steps
+of 5.9 and 4.5 cm at 38 dB-Hz with little or no hold before them, not half cycles). The
+price is flags: 34.7 % of the cold-start capture's L1 phases and 11.2 % of the driving
+capture's carry one (1.6 % and 1.9 % without the rule), on those five satellites
+fifteen and six flagged phases per discontinuity, and an RTK engine restarts the
+satellite's ambiguity at each. The parked capture gains none: there the hold fires
+only in stray 10 ms windows on the two satellites near 37 dB-Hz, never for 50 ms
+within a half second. A wider carrier loop is no remedy: at 10, 15 and 20 Hz the same
+satellites slip two to two and a half times as often as at 5 Hz. The rule is checked
+only where a pilot exists, and a slip outside a fade would not be flagged.
 
 ### L5 observations
 
