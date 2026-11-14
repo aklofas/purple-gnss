@@ -255,6 +255,10 @@ class TrackResult:
     code_error[k]: s of code time, the early-minus-late discriminator on the epochs
         that update the DLL, nan between them and where the accumulated early and late
         magnitudes are both zero.
+    held[k]: True on an epoch at which the Costas loop's integrator was held: the prompt
+        power of the last complete T_DLL window was below FADE_HOLD of its running mean
+        (a fade, in which the carrier phase can come back half a cycle or more away).
+        False through the pull-in. A pilot channel gives the field the meaning below.
 
     A pilot signal's channel (`signal` names the signal) adds:
 
@@ -278,11 +282,11 @@ class TrackResult:
         data prompts, their secondary chips and sec_polarity removed, along the signal's
         data axis; positive for a symbol 0. They run to the end of the track, the
         unlocked windows before a loss included. None without a sync.
-    held[k]: True on the epoch completing a coherent sum the loop coasted on: the sum's
-        coherence was below COAST_COHERENCE, so the signal was gone or too faded to use
-        and the loop ran on at the Doppler and Doppler rate it had. After a stretch of
-        them the phase is an extrapolation and can be whole cycles away while every
-        window still reads phase-locked.
+    held[k]: on a pilot channel, True on the epoch completing a coherent sum the loop
+        coasted on: the sum's coherence was below COAST_COHERENCE, so the signal was gone
+        or too faded to use and the loop ran on at the Doppler and Doppler rate it had.
+        After a stretch of them the phase is an extrapolation and can be whole cycles
+        away while every window still reads phase-locked.
     """
 
     prn: int
@@ -363,7 +367,7 @@ def track(
     out_err_carrier = np.full(n_max, np.nan)
     out_err_code = np.full(n_max, np.nan)
     out_data = np.empty(n_max, dtype=np.complex64) if pilot else None
-    out_held = np.zeros(n_max, dtype=bool) if pilot else None
+    out_held = np.zeros(n_max, dtype=bool)
 
     # plain floats throughout: a numpy float32 seed would otherwise propagate into
     # t_code and limit the code time to ~1e-10 s
@@ -443,6 +447,8 @@ def track(
         elif sec_sync is None:
             increment, out_err_carrier[k] = pll.update(prompt, epoch % n_dll == 0)
             fd += increment
+            if not pilot:
+                out_held[k] = pll.fading
         else:
             # the secondary chip removed, the loop works on coherent sums of T_PILOT_COH
             pll.fade_window(prompt, epoch % n_dll == 0)
@@ -550,7 +556,7 @@ def track(
         data_prompt=out_data[:k] if pilot else None,
         symbols=symbols,
         symbol_epoch=symbol_epoch,
-        held=out_held[:k] if pilot else None,
+        held=out_held[:k],
     )
 
 
