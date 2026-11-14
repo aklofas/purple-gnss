@@ -376,6 +376,16 @@ def test_a_fade_of_fifty_ms_flags_the_next_phase():
     assert epochs == base
 
 
+def test_the_flag_outlasts_a_fade_by_the_rest_of_the_span():
+    # the fiftieth held epoch is observation 6's own: a span ending up to 450 epochs later
+    # still holds all fifty, so observation 7 is flagged too (the loop is still settling)
+    epochs, base, _ = _faded_channel(range(951, 1001))
+    assert _newly_flagged(epochs, base) == [6, 7]
+    # a fade over well before the observation flags that one alone
+    epochs, base, _ = _faded_channel(range(500, 550))
+    assert _newly_flagged(epochs, base) == [6]
+
+
 def test_fade_time_is_counted_within_half_a_second():
     span = round(FADE_SPAN / CA_PERIOD)
     # two 25 ms holds, the second ending 499 epochs after the first began: one span holds both
