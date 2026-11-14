@@ -25,7 +25,12 @@ after Pocket SDR's rules): on a channel's first observation and on those within 
 first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
 re-acquired after a gap begins with a slip), on the first observation with a phase
 after any epoch without phase lock since the previous one with a phase (an unlocked
-window can lie wholly between sparse observations), and on the first observation
+window can lie wholly between sparse observations), on an observation since whose
+predecessor with a phase the carrier loop's integrator was held for `FADE_SLIP` or more
+within some `FADE_SPAN` (a fade: the signal's phase jumps in one and the Costas loop
+settles on the nearest half cycle, with every window still reading phase-locked, and two
+such slips between subframes leave the data polarity as it was; the flag says a slip was
+possible, most phases that carry it are continuous), and on the first observation
 after the data polarity changed,
 that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the polarity is not
 established by a decoded subframe: before the first subframe, and from the end of
@@ -62,6 +67,8 @@ from pyrx.tracking import PLI_LOCKED, TrackResult
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
 T_LOCK = 2.0  # s into a channel over which its observations carry the slip flag
 SUBFRAME_EPOCHS = SUBFRAME_BITS * EPOCHS_PER_BIT
+FADE_SLIP = 0.050  # s of integrator hold within FADE_SPAN after which a phase is flagged
+FADE_SPAN = 0.5  # s
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
 L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3.05 Table A23)
@@ -161,6 +168,17 @@ def _carrier_state(ln: LnavResult, polarity, k: int, last_k: int) -> tuple[bool,
     return bool(ln.stream.inverted) != bool(flipped[j]), lli
 
 
+def _faded(tr: TrackResult) -> np.ndarray | None:
+    """Per epoch, whether the carrier loop's integrator was held for FADE_SLIP or more of the
+    FADE_SPAN ending with it; None for a track without the record."""
+    if tr.held is None:
+        return None
+    count = np.cumsum(tr.held)
+    span = round(FADE_SPAN / CA_PERIOD)
+    count[span:] -= count[:-span].copy()
+    return count >= round(FADE_SLIP / CA_PERIOD)
+
+
 def _weeks_on(first: int, interval: float) -> int:
     """Whole weeks between the time origin's week and the first epoch (index `first` on the
     grid): 1 when every epoch lies past the week boundary, so that `tow` restarts."""
@@ -202,6 +220,7 @@ def make_observables(
     if week is None and origin_week is not None:
         week = origin_week + weeks_on
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
+    faded = [_faded(tr) for tr, _, _, _, _ in per]
     last_k = [-1] * len(per)  # epoch of each channel's previous observation
     last_phase_k = [-1] * len(per)  # epoch of each channel's previous observation with a phase
     epochs = []
@@ -225,6 +244,8 @@ def make_observables(
             since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
             locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
             if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
+                lli |= LLI_SLIP
+            if faded[c] is not None and faded[c][last_phase_k[c] + 1 : k + 1].any():
                 lli |= LLI_SLIP
             phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
             obs.append(

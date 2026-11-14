@@ -3,6 +3,7 @@ from functools import cache
 
 import numpy as np
 import pytest
+from support import synth_l1ca_faded
 
 from pyrx.bitsync import BitStream
 from pyrx.codes import CA_PERIOD
@@ -10,6 +11,8 @@ from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, Subframe
 from pyrx.navdecode import LnavResult, decode_lnav
 from pyrx.observables import (
+    FADE_SLIP,
+    FADE_SPAN,
     L5Q_ALIGN,
     LLI_HALF_CYCLE,
     LLI_SLIP,
@@ -335,6 +338,104 @@ def test_observation_intervals_down_to_the_epoch_rate_and_below_work(interval):
     phases = [o.carrier_phase for e in epochs for o in e.obs]
     assert all(np.isfinite(phases))
     assert sum(o.lli & LLI_SLIP for e in epochs for o in e.obs if (e.tow - epochs[0].tow) > 2.1) == 0
+
+
+def _faded_channel(held_epochs, interval=1.0, phase_lock=None):
+    """`_still_channel` with the integrator hold marked at `held_epochs` (offsets from the
+    tracking epoch of the sixth observation at a 1 s interval), its observations, those of
+    the same channel without a hold, and that epoch."""
+    sfs = [(1500, 5044, False), (7500, 5050, False)]
+    track, ln = _still_channel(sfs, phase_lock=phase_lock)
+    rx0 = receiver_time0([track], [ln])
+    t5 = make_observables([track], [ln])[5].tow
+    k1 = int(np.searchsorted(track.t, t5 - rx0, side="right")) - 1
+    base = make_observables([track], [ln], interval=interval)
+    held = np.zeros(30000, dtype=bool)
+    held[k1 + np.array(held_epochs, dtype=int)] = True
+    epochs = make_observables([dataclasses.replace(track, held=held)], [ln], interval=interval)
+    assert [e.tow for e in epochs] == [e.tow for e in base]
+    return epochs, base, k1
+
+
+def _newly_flagged(epochs, base):
+    return [
+        i
+        for i, (e, b) in enumerate(zip(epochs, base, strict=True))
+        if e.obs[0].lli & LLI_SLIP and not b.obs[0].lli & LLI_SLIP
+    ]
+
+
+def test_a_fade_of_fifty_ms_flags_the_next_phase():
+    # the loop's integrator hold marks a fade; in one the carrier can come back half a cycle
+    # or more away with every window reading phase-locked
+    epochs, base, _ = _faded_channel(range(100, 100 + round(FADE_SLIP / CA_PERIOD)))
+    assert _newly_flagged(epochs, base) == [6]
+    assert epochs[6].obs[0].carrier_phase == base[6].obs[0].carrier_phase
+    assert [e for i, e in enumerate(epochs) if i != 6] == [b for i, b in enumerate(base) if i != 6]
+    epochs, base, _ = _faded_channel(range(100, 100 + round(FADE_SLIP / CA_PERIOD) - 1))
+    assert epochs == base
+
+
+def test_fade_time_is_counted_within_half_a_second():
+    span = round(FADE_SPAN / CA_PERIOD)
+    # two 25 ms holds, the second ending 499 epochs after the first began: one span holds both
+    epochs, base, _ = _faded_channel([*range(100, 125), *range(100 + span - 25, 100 + span)])
+    assert _newly_flagged(epochs, base) == [6]
+    epochs, base, _ = _faded_channel([*range(100, 125), *range(101 + span, 126 + span)])
+    assert epochs == base
+
+
+def test_a_fade_flags_the_observations_while_it_is_within_the_span():
+    # at 10 Hz: the 50th held epoch is offset 149, and a span ending up to offset 599 still
+    # holds all fifty, so the five observations at offsets 200 to 600 are flagged
+    epochs, base, _ = _faded_channel(range(100, 150), interval=0.1)
+    track, ln = _still_channel([(1500, 5044, False), (7500, 5050, False)])
+    t5 = make_observables([track], [ln])[5].tow  # the observation the offsets count from
+    at = [round((base[i].tow - t5) / 0.1) for i in _newly_flagged(epochs, base)]
+    assert at == [2, 3, 4, 5, 6]
+
+
+def test_a_fade_with_several_observations_per_epoch():
+    # two observations per tracking epoch: the scan since the previous phase is empty for the
+    # second one, so each of the 451 faded epochs flags one observation
+    epochs, base, _ = _faded_channel(range(100, 150), interval=0.0005)
+    assert len(_newly_flagged(epochs, base)) == 451
+
+
+def test_a_track_without_a_hold_record_and_a_fade_at_its_start():
+    track, ln = _still_channel([(1500, 5044, False), (7500, 5050, False)])
+    assert track.held is None
+    base = make_observables([track], [ln])
+    held = np.zeros(30000, dtype=bool)
+    # inside the first span after the pull-in, before the channel's first observation
+    held[1000:1060] = True
+    assert make_observables([dataclasses.replace(track, held=held)], [ln]) == base
+    held[:] = False
+    assert make_observables([dataclasses.replace(track, held=held)], [ln]) == base
+
+
+def test_faded_signal_flags_its_observations():
+    # a tracked 40 dB-Hz signal 10 dB down from 8 s for 2 s: the phases in and just after the
+    # fade carry the flag, the ones before it (past the lock-in) do not
+    fs = 2.5e6
+    x = synth_l1ca_faded(4, fs, 0.0, 500, int(fs * 14.0), 40.0, 8.0, 2.0, 10.0, seed=0)
+    track = track_l1ca(ArraySamples(x, fs), 0.0, 4, 500 / fs, 3.0, 40.0)
+    assert track.locked and track.held.any()
+    sfs = []
+    for epoch, tow in ((1500, 5044), (7500, 5050)):
+        bits = np.zeros(300, dtype=np.uint8)
+        bits[:8] = PREAMBLE
+        sfs.append(Subframe(4, 1, tow, {"wn": 142}, epoch, bits))
+    stream = BitStream(np.zeros(1, np.uint8), np.array([1500]), 1500 % 20, 1.0, False)
+    ln = LnavResult(4, stream, sfs, None, None)
+    epochs = make_observables([track], [ln])
+    rx0 = receiver_time0([track], [ln])
+    slips = [e.tow - rx0 for e in epochs if e.obs[0].lli & LLI_SLIP]
+    plain = make_observables([dataclasses.replace(track, held=None)], [ln])
+    before = [e.tow - rx0 for e in plain if e.obs[0].lli & LLI_SLIP]
+    assert any(8.0 < t <= 10.5 for t in slips) and not any(8.0 < t <= 10.5 for t in before)
+    assert not any(3.5 < t <= 8.0 for t in slips)
+    assert [e.obs[0].carrier_phase for e in epochs] == [e.obs[0].carrier_phase for e in plain]
 
 
 SFS = [(1500, 5044, False), (7500, 5050, False), (13500, 5056, False), (19500, 5062, False)]
