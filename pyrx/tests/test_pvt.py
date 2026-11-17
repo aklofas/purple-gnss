@@ -5,6 +5,7 @@ import pytest
 from scipy.stats import chi2
 from support import IONO
 
+from pyrx import models
 from pyrx.ephemeris import Ionosphere
 from pyrx.models import azimuth_elevation
 from pyrx.observations import Epoch, Observation
@@ -201,3 +202,21 @@ def test_unknown_weights_are_rejected():
     ephs = constellation()
     with pytest.raises(ValueError, match="weights"):
         solve_epoch(truth_epoch(ephs, USUD, 0.0), ephs, weights="snr")
+
+
+def test_the_solver_converts_its_position_to_geodetic_once_per_iteration(monkeypatch):
+    # the azimuth of every satellite is taken from one receiver position: it is handed the
+    # latitude, longitude and height the iteration already has
+    ephs = constellation()
+    ep = truth_epoch(ephs, USUD, 1e-4)
+    calls = []
+    real = models.geodetic
+    monkeypatch.setattr(models, "geodetic", lambda xyz: calls.append(1) or real(xyz))
+    plain = solve_epoch(ep, ephs)
+    assert calls == []
+    monkeypatch.undo()
+    position = models.geodetic(USUD)
+    for eph in ephs:
+        sat = satellite_state(eph, TOW).position
+        assert azimuth_elevation(USUD, sat, position) == azimuth_elevation(USUD, sat)
+    assert np.linalg.norm(plain.position - USUD) < 1.0

@@ -108,7 +108,7 @@ def _position(epoch, sats, iono, mask, x, by_cn0):
             dion = dtrp = 0.0
             var = 1.0
             if on_earth:
-                az, el = azimuth_elevation(x[:3], s.position)
+                az, el = azimuth_elevation(x[:3], s.position, (lat, lon, h))
                 if el < mask:
                     continue
                 dion = klobuchar(iono, lat, lon, az, el, epoch.tow)

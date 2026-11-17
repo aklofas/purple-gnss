@@ -302,13 +302,14 @@ class Rtk:
 
     def _residuals(self, obs, xyz, sats, which, doy, mask):
         """Undifferenced phase and code residuals (m) per satellite and signal, with geometry."""
-        lat, _, h = geodetic(xyz)
+        llh = geodetic(xyz)
+        lat, _, h = llh
         zhd = zenith_hydrostatic(lat, h)
         lam = np.array([wavelength(sig) for sig in obs.signals])
         out = {}
         for sat, entry in sats.items():
             s = entry[which]
-            _, el = azimuth_elevation(xyz, s.position)
+            _, el = azimuth_elevation(xyz, s.position, llh)
             if el < mask:
                 continue
             rho, e = geometric_range(xyz, s.position)
