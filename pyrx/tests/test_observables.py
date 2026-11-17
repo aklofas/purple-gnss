@@ -700,6 +700,156 @@ def test_pilot_contributes_from_the_epoch_after_its_secondary_code_was_found():
     assert starts[1601] <= first.tow - rx0 < starts[1601] + 0.0005
 
 
+def _still_e5a(travel=0.080, prn=11, n=30000, k_start=0, sec_sync=1500, polarity=1, wraps=14,
+               phase_lock=None, held=None, doppler=-420.0):  # fmt: skip
+    """A Galileo E5a pilot segment beside `_still_channel(SFS)`: code starts 1 ms apart, the
+    one of its epoch 0 transmitted on a whole millisecond about `travel` s before it arrives
+    by the receiver clock (the true travel time is returned: the millisecond rounds it).
+    Epoch k carries the chip of the 100-chip secondary code that the millisecond of its
+    transmit time names; `wraps` moves `sec_origin` by whole code lengths."""
+    track, ln = _still_channel(SFS)
+    rx0 = receiver_time0([track], [ln])
+    t = (k_start + np.arange(n)) * CA_PERIOD
+    delay = 0.2e-3  # the code starts' place in the receiver's millisecond
+    ms0 = round((rx0 + t[0] + delay - travel) / CA_PERIOD)  # millisecond of week of epoch 0
+    true_travel = rx0 + t[0] + delay - ms0 * CA_PERIOD
+    pilot = TrackResult(
+        prn, t, np.zeros((n, 4), np.complex64), (t + delay) % CA_PERIOD, np.full(n, doppler),
+        doppler * CA_PERIOD * np.arange(1, n + 1), np.zeros(n), np.full(n, 44.0),
+        np.ones(n) if phase_lock is None else phase_lock, True, None, np.zeros(n), np.zeros(n),
+        signal="E5A", sec_sync=sec_sync, sec_origin=(-ms0) % 100 + 100 * wraps,
+        sec_polarity=polarity, data_prompt=np.zeros(n, np.complex64), held=held,
+    )  # fmt: skip
+    return pilot, true_travel
+
+
+def _e5q(epoch, sat="E11"):
+    """(pseudorange, phase, doppler, cn0, lli) of a satellite's E5Q at an epoch."""
+    i, j = epoch.sats.index(sat), epoch.signals.index("E5Q")
+    return [getattr(epoch, f)[i, j] for f in ("pseudorange", "carrier_phase", "doppler", "cn0", "lli")]
+
+
+GALILEO = ("L5", "E5A")
+
+
+@pytest.mark.parametrize("travel", [0.0355, 0.066, 0.080, 0.0995, 0.1345])
+@pytest.mark.parametrize("wraps", [-3, 0, 14])
+def test_galileo_pilot_takes_its_time_from_its_secondary_code(travel, wraps):
+    # the code start with secondary chip 0 left at a multiple of 100 ms; which one follows
+    # from the receiver clock, the travel time taken between 35 and 135 ms
+    track, ln = _still_channel(SFS)
+    pilot, true_travel = _still_e5a(travel, wraps=wraps)
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
+    single = make_observables([track], [ln])
+    assert [(o.week, o.tow) for o in joint] == [(e.week, e.tow) for e in single]
+    seen = 0
+    for o in joint:
+        assert o.signals == ("G1C", "G5Q", "E5Q")
+        if "E11" not in o.sats:
+            assert o.sats == ("G04",)
+            continue
+        seen += 1
+        assert o.sats == ("E11", "G04")
+        assert _e5q(o)[0] == pytest.approx(C_LIGHT * true_travel, abs=1e-3)
+        assert np.all(np.isnan(o.pseudorange[0, :2])) and np.isnan(o.pseudorange[1, 2])
+    assert seen > 20 and abs(true_travel - travel) < 1e-3
+
+
+@pytest.mark.parametrize("travel", [0.0345, 0.1355])
+def test_a_travel_time_outside_the_window_is_taken_a_code_length_off(travel):
+    # 100 ms of ambiguity: outside 35 to 135 ms the neighboring multiple is the one taken
+    track, ln = _still_channel(SFS)
+    pilot, true_travel = _still_e5a(travel)
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
+    off = 0.1 if travel < 0.1 else -0.1
+    assert _e5q(joint[-1])[0] == pytest.approx(C_LIGHT * (true_travel + off), abs=1e-3)
+
+
+@pytest.mark.parametrize("polarity", [1, -1])
+def test_joint_e5q_values(polarity):
+    track, ln = _still_channel(SFS)
+    pilot, _ = _still_e5a(polarity=polarity)
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
+    rx0 = receiver_time0([track], [ln])
+    seen = 0
+    for o in joint:
+        t = o.tow - rx0
+        if t <= pilot.t[pilot.sec_sync + 1]:
+            assert "E11" not in o.sats  # nothing before the sync
+            continue
+        seen += 1
+        _, phase, doppler, cn0, lli = _e5q(o)
+        assert doppler == -420.0 and cn0 == 44.0
+        # the negated accumulated phase, the half cycle of an inverted pilot, and RINEX's
+        # quarter cycle that aligns E5a-Q with E5a-I
+        adr = -420.0 * (t - 0.2e-3)
+        half = 0.5 if polarity < 0 else 0.0
+        assert phase == pytest.approx(-(adr + half) - 0.25, abs=1e-6)
+        assert lli == (LLI_SLIP if seen == 1 or t <= 2.0 else 0)
+    assert seen > 20 and SIGNALS["E5A"].phase_align == -0.25
+
+
+def test_galileo_pilot_flags_follow_the_gps_pilot_rules():
+    # a window without phase lock blanks the phase and flags the next one; a coasted sum
+    # flags the phases up to the one that holds the loop's return
+    lock = np.ones(30000)
+    lock[9000:10000] = 0.1
+    held = np.zeros(30000, dtype=bool)
+    held[15100:15301:20] = True
+    track, ln = _still_channel(SFS)
+    pilot, _ = _still_e5a(phase_lock=lock, held=held)
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0, _e5q(o)) for o in joint if "E11" in o.sats]  # by file time
+    blank = [n for n, (_, r) in enumerate(rows) if np.isnan(r[1])]
+    assert len(blank) == 1 and 9.0 <= rows[blank[0]][0] <= 10.0
+    assert np.isfinite(rows[blank[0]][1][0])
+    after_coast = next(n for n, (t, _) in enumerate(rows) if t > 15.301)
+    flagged = [n for n, (t, r) in enumerate(rows) if r[4] and t > 3.0]
+    assert flagged == [blank[0], blank[0] + 1, after_coast]
+
+
+def test_a_galileo_and_a_gps_satellite_of_one_number_are_two_rows():
+    track, ln = _still_channel(SFS)
+    e5a, _ = _still_e5a(prn=4)
+    joint = make_joint_observables([track], [ln], [_still_pilot(), e5a], pilot_signals=GALILEO)
+    last = joint[-1]
+    assert last.sats == ("E04", "G04")
+    assert np.isnan(last.pseudorange[0, :2]).all() and np.isfinite(last.pseudorange[0, 2])
+    assert np.isfinite(last.pseudorange[1, :2]).all() and np.isnan(last.pseudorange[1, 2])
+    # and the GPS rows are what they are without Galileo
+    plain = make_joint_observables([track], [ln], [_still_pilot()])
+    for o, u in zip(joint, plain, strict=True):
+        i = o.sats.index("G04")
+        np.testing.assert_array_equal(o.pseudorange[i, :2], u.pseudorange[0])
+        np.testing.assert_array_equal(o.carrier_phase[i, :2], u.carrier_phase[0])
+        np.testing.assert_array_equal(o.lli[i, :2], u.lli[0])
+
+
+def test_galileo_pilot_without_the_secondary_code_is_left_out():
+    track, ln = _still_channel(SFS)
+    pilot, _ = _still_e5a()
+    joint = make_joint_observables(
+        [track], [ln], [dataclasses.replace(pilot, sec_sync=None)], pilot_signals=GALILEO
+    )
+    assert all(o.sats == ("G04",) and o.signals == ("G1C", "G5Q", "E5Q") for o in joint)
+
+
+def test_galileo_pilot_across_the_week_rollover():
+    track, ln = _still_channel(SFS_ACROSS)
+    rx0 = receiver_time0([track], [ln])
+    t = np.arange(30000) * CA_PERIOD
+    ms0 = round((rx0 + 0.2e-3 - 0.080) / CA_PERIOD)
+    travel = rx0 + 0.2e-3 - ms0 * CA_PERIOD
+    pilot = dataclasses.replace(_still_e5a()[0], sec_origin=(-ms0) % 100)
+    assert (pilot.t == t).all()
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
+    rows = [(o.tow, _e5q(o)[0]) for o in joint if "E11" in o.sats]
+    assert rows[0][0] < 604800.0 < rows[-1][0] and len(rows) > 20
+    # near 604800 s a double resolves 3.5 cm of range
+    assert all(pr == pytest.approx(C_LIGHT * travel, abs=0.05) for _, pr in rows)
+
+
 def test_pilot_reacquired_gets_a_new_anchor():
     # two pilot segments under one L1 segment: blanks in the 5Q columns across the gap, a
     # slip on the second segment's first observations, the L1 columns unbroken
@@ -847,3 +997,6 @@ def test_observation_builders_refuse_a_track_of_the_wrong_signal():
         make_joint_observables([track], [ln], [track])
     with pytest.raises(ValueError, match="E5A is not an L5 pilot track"):
         make_joint_observables([track], [ln], [dataclasses.replace(pilot, signal="E5A")])
+    # and with Galileo asked for, only pilots are taken
+    with pytest.raises(ValueError, match="L1CA is not an L5 or E5A pilot track"):
+        make_joint_observables([track], [ln], [track], pilot_signals=GALILEO)
