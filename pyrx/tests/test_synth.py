@@ -92,10 +92,15 @@ def test_synth_pilot_default_symbols_follow_the_seed():
     b = synth_pilot(L5, 6, PILOT_FS, 0.0, 0.0, 0, n, 70.0, seed=1)
     c = synth_pilot(L5, 6, PILOT_FS, 0.0, 0.0, 0, n, 70.0, seed=2)
     assert np.array_equal(a, b) and not np.array_equal(a, c)
-    signs = np.sign(_pilot_prompts(a, L5, 6, 0, 59)[:, 1].real * L5.data_secondary(6)[np.arange(59) % 10])
-    per_symbol = signs[:50].reshape(5, 10)
-    assert np.all(per_symbol == per_symbol[:, :1])  # constant within a symbol
-    assert len(set(per_symbol[:, 0])) == 2  # and the symbols differ
+
+    def symbols(x):
+        prompts = _pilot_prompts(x, L5, 6, 0, 59)[:, 1].real
+        per_symbol = np.sign(prompts * L5.data_secondary(6)[np.arange(59) % 10])[:50].reshape(5, 10)
+        assert np.all(per_symbol == per_symbol[:, :1])  # constant within a symbol
+        return per_symbol[:, 0].tolist()
+
+    assert len(set(symbols(a))) == 2  # the symbols differ within a signal
+    assert symbols(a) != symbols(c)  # and with the seed, not the noise alone
 
 
 def test_synth_pilot_is_independent_of_the_block_size(monkeypatch):
@@ -112,7 +117,8 @@ def test_synth_pilot_doppler_rate_moves_the_carrier():
     # epochs turns by 175 Hz * 1 ms, once the secondary code is wiped
     k0 = 150
     blocks = [x[(k0 + i) * PILOT_N : (k0 + i + 1) * PILOT_N] for i in range(2)]
-    # the code has slipped by less than a hundredth of a chip in 0.15 s; correlate at phase 0
+    # the code rate follows the Doppler, so the code has slipped 0.18 chip in 0.15 s; the
+    # prompt at phase 0 is the smaller for it, and its angle is what is measured
     p = [correlate(b, PILOT_FS, 0.0, 0.0, L5.code(6), L5.chip_rate, 0.0, np.zeros(1))[0] for b in blocks]
     sec = L5.secondary(6)
     turn = np.angle(p[1] * sec[(k0 + 1) % 20] * np.conj(p[0] * sec[k0 % 20])) / (2 * np.pi)
