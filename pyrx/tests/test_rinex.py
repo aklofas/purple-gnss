@@ -252,6 +252,27 @@ def test_read_rinex_nav_galileo_record(tmp_path):
     assert e.toc == 600.0 and e.sqrt_a == pytest.approx(5440.608743668)
 
 
+def test_read_rinex_nav_galileo_records_with_and_without_the_spare_field(tmp_path):
+    # the line with the data sources and the week ends in a spare field that some records of
+    # a combined file write as a number and others leave blank: mixed for one satellite, the
+    # ones that write it must not have their accuracy read as their health word
+    head, body = GAL_NAV.split("END OF HEADER\n")
+    record = body.split("\n")[:8]
+    assert record[5].endswith(" 0.000000000000e+00")
+    later = list(record)
+    later[0] = later[0].replace("00 10 00", "00 20 00")
+    later[3] = later[3].replace(" 6.000000000000e+02", " 1.200000000000e+03")
+    later[5] = later[5][: -len(" 0.000000000000e+00")]
+    text = head + "END OF HEADER\n" + "\n".join(record + later) + "\n"
+    (tmp_path / "m.nav").write_text(text)
+    ephs, _ = read_rinex_nav(tmp_path / "m.nav")
+    assert [(e.prn, e.toe) for e in ephs] == [(1, 600.0), (1, 1200.0)]
+    for e in ephs:
+        assert e.health == 0 and e.ura == ura_index(3.12)
+        assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10
+        assert e.wn == 2190 % 1024 and e.idot == -1.050043738536e-10
+
+
 def test_read_rinex_nav_skips_fnav_records(tmp_path):
     (tmp_path / "m.nav").write_text(GAL_NAV)
     ephs, _ = read_rinex_nav(tmp_path / "m.nav")
