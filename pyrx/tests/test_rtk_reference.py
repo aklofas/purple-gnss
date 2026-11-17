@@ -228,5 +228,9 @@ def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
     )  # fmt: skip
     assert _same_as_rtklib(fixes, ref) >= 20
     # and the count is at work: without it other epochs fix
-    plain = solve_rtk(rover, base, ephs, station, delta, RtkOptions(backward=options.backward), iono)
-    assert {_key(f) for f in fixes if f.status == "fix"} != {_key(f) for f in plain if f.status == "fix"}
+    plain = solve_rtk(
+        rover, base, ephs, station, delta, RtkOptions(backward=options.backward), iono
+    )
+    assert {_key(f) for f in fixes if f.status == "fix"} != {
+        _key(f) for f in plain if f.status == "fix"
+    }

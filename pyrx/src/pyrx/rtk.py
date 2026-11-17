@@ -31,7 +31,7 @@ not seen, and the ambiguity survives it when the satellite is common again withi
 """
 
 from dataclasses import dataclass, replace
-from math import isfinite, radians, sin
+from math import isfinite, radians, sin, sqrt
 
 import numpy as np
 
@@ -54,6 +54,11 @@ from pyrx.pvt import solve_epoch
 from pyrx.signals import wavelength
 
 DTTOL = 0.025  # s, base and rover epochs closer than this are the same epoch
+# cycles: a phase in question continues its ambiguity when it fits the other phases of the
+# epoch within the first (half the distance to the nearest slip of a Costas loop, which
+# settles half a cycle away) and that fit is predicted, state and noise, within the second
+CHECK_INNOVATION = 0.25
+CHECK_SIGMA = 0.125
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,7 @@ class RtkOptions:
     min_lock: int = 0  # updates an ambiguity begun again waits before the integer search
     min_fix_sats: int = 0  # satellites the searched ambiguities must span for a fix
     slip_threshold: float = 0.05  # m, geometry-free jump
+    slips: str = "restart"  # or "check": a phase the rover flags is looked at first
     max_innovation: float = 30.0  # m, a double difference beyond this is dropped; 0 for no limit
     phase_error: float = 0.003  # m, a priori phase error (constant and per sine of elevation)
     code_ratio: float = 100.0  # code error relative to phase
@@ -209,6 +215,8 @@ class Rtk:
         self.base_arp = station_arp(base)
         self.rover_delta = np.asarray(rover_delta_enu, dtype=float)
         self.opt = options or RtkOptions()
+        if self.opt.slips not in ("restart", "check"):
+            raise ValueError(f"slips is 'restart' or 'check', not {self.opt.slips!r}")
         self.iono = iono
         self.keys: list[
             tuple[str, str]
@@ -222,6 +230,9 @@ class Rtk:
         self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
         self.held: set[tuple[str, str]] = set()  # slips of epochs that ended early, to apply
         self.begun: set[tuple[str, str]] = set()  # every ambiguity there has been a state for
+        self.asked: set[tuple[str, str]] = set()  # phases in question at this epoch
+        self.fresh: dict[tuple[str, str], tuple[float, bool]] = {}  # what a restart begins with
+        self.gf_now: dict[tuple[str, str], float] = {}  # geometry-free values of this epoch
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
@@ -374,6 +385,8 @@ class Rtk:
         first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
 
         sd = self._update_biases(signals, cols, common, yr, yb, tt, _time(base), first_sigs)
+        if self.asked:
+            self._test_asked(signals, common, sd, yr, age, first_sigs)
         dd = self._double_differences(signals, common, sd, yr, age)
         if dd is None:
             return None
@@ -405,12 +418,22 @@ class Rtk:
         existing states of each signal to the current single-differenced clock and
         creates the missing ones. Returns the single differences (phase m, code m) by
         (satellite, signal).
+
+        With `slips="check"` a phase only the rover flags, on an ambiguity updated at the
+        previous epoch, is in question instead: left in `asked` for `_test_asked` unless
+        the satellite's other signal settles it here. The geometry-free difference of the
+        two is then compared with its value at the last epoch neither was in question (or
+        at the last restart of either), so a slip spread over flagged epochs is measured
+        whole: a step restarts both, as always; without one, a phase in question beside an
+        unflagged one is continuous.
         """
         opt = self.opt
+        check = opt.slips == "check"
         for key in self.held:  # slips of the epochs since the last one that came this far
             if key in self.biases:
                 self._remove(key)
         self.held.clear()
+        self.asked, self.gf_now = set(), {}
         sd = {}  # (sat, signal) -> (phase m, code m)
         halves = {}
         for sat in common:
@@ -418,6 +441,8 @@ class Rtk:
             yb_p, yb_c, _, _, lli_b = yb[sat]
             ref_sig = first_sigs[sat[0]]
             ref_phase = None
+            ref_asked = ref_clear = False  # the first signal: in question, unflagged
+            restarted = []
             for j, sig in enumerate(signals):
                 jb = cols[j]
                 if jb is None:
@@ -429,33 +454,61 @@ class Rtk:
                 # receiver has a phase; a base epoch reused for several rover epochs
                 # reports its slips once
                 slip = isfinite(yr_p[j]) and self._flagged(self.lli_rover, key, int(lli_r[j]))
+                asked = check and slip
                 if isfinite(yb_p[jb]) and self.base_seen.get(key) != t_base:
                     self.base_seen[key] = t_base
-                    slip |= self._flagged(self.lli_base, key, int(lli_b[jb]))
+                    if self._flagged(self.lli_base, key, int(lli_b[jb])):
+                        slip, asked = True, False
                 phase = None
                 if isfinite(yr_p[j]) and isfinite(yb_p[jb]):
                     phase = yr_p[j] - yb_p[jb]
                     code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
                     now = int(lli_r[j] | lli_b[jb])
                     halves[key] = bool((before if opt.backward else now) & 2)
+                    clear = not slip
+                    asked = (
+                        asked and code is not None and key in self.biases and self.biases[key].outc == 1
+                    )  # fmt: skip
+                    slip = slip and not asked
                     if sig == ref_sig:
-                        ref_phase = phase
+                        ref_phase, ref_asked, ref_clear = phase, asked, clear
                     elif ref_phase is not None:  # geometry-free against the first signal
                         gf = ref_phase - phase
                         prev = self.gf.get(key)
+                        question = ref_asked or asked
                         if prev is not None and abs(gf - prev) > opt.slip_threshold:
-                            slip = True
+                            slip, asked, ref_asked, question = True, False, False, False
+                            self.asked.discard((sat, ref_sig))
                             if (sat, ref_sig) in self.biases:
                                 self._remove((sat, ref_sig))
-                        self.gf[key] = gf
+                                restarted.append(ref_sig)
+                        elif prev is not None and ref_asked and clear:
+                            ref_asked, ref_clear = False, True
+                            self.asked.discard((sat, ref_sig))
+                        elif prev is not None and asked and ref_clear:
+                            asked = False
+                        # the reference waits while a phase of the pair is in question; a
+                        # restart of either moves it on below
+                        if prev is None or not question:
+                            self.gf[key] = gf
+                        self.gf_now[key] = gf
+                else:
+                    asked = False
                 if slip and key in self.biases:
                     self._remove(key)
+                    restarted.append(sig)
+                if asked:
+                    self.asked.add(key)
                 if phase is not None and code is not None:
                     sd[key] = (phase, code)
                     if key in self.biases:
                         i = self._index(key)
                         self.P[i, i] += opt.bias_noise**2 * abs(tt)
+            if check:
+                for sig in restarted:
+                    self._forget_references(sat, sig, ref_sig, signals)
         # align existing states to the current single-differenced clock, create the rest
+        self.fresh = {}
         for sig in signals:
             lam = wavelength(sig)
             news = {k: (v[0] - v[1]) / lam for k, v in sd.items() if k[1] == sig}
@@ -466,15 +519,84 @@ class Rtk:
                     if k[1] == sig:
                         self.x[self._index(k)] += offset
             for k, v in news.items():
-                if k not in self.biases:
+                created = k not in self.biases
+                if created:
                     self._add(k, v, opt.bias_sigma**2)
-                self.biases[k].half = halves[k]
+                # a phase that continues through a flag keeps an established half cycle
+                established = check and not created and not self.biases[k].half
+                self.biases[k].half = halves[k] and not established
+                if k in self.asked:
+                    self.fresh[k] = (v, halves[k])
         return sd
 
-    def _double_differences(self, signals, common, sd, yr, age):
+    def _forget_references(self, sat, sig, ref_sig, signals):
+        """After a restart of one signal of a satellite: the geometry-free references it
+        is part of that this epoch did not measure anew are of no use."""
+        others = (
+            [s for s in signals if s[0] == sat[0] and s != ref_sig] if sig == ref_sig else [sig]
+        )
+        for other in others:
+            if (sat, other) in self.gf_now:
+                self.gf[(sat, other)] = self.gf_now[(sat, other)]
+            else:
+                self.gf.pop((sat, other), None)
+
+    def _test_asked(self, signals, common, sd, yr, age, first_sigs):
+        """Decide the phases in question against the rest of the epoch.
+
+        A trial update on copies of the state, with every code and the phases not in
+        question, says where the rover is relative to the ambiguities that are trusted.
+        Each phase in question is double-differenced against the highest satellite of its
+        signal that is not: it continues when that innovation is within CHECK_INNOVATION
+        and its predicted standard deviation within CHECK_SIGMA; otherwise, or with
+        nothing to difference against, its ambiguity restarts on this phase. The epoch's
+        one update then runs on everything as usual.
+        """
+        keep = set()
+        trial = self._double_differences(signals, common, sd, yr, age, self.asked)
+        if trial is not None:
+            H, v, R, _ = trial
+            try:
+                K = self.P @ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+            except np.linalg.LinAlgError:
+                K = None
+            if K is not None:
+                dx = K @ v
+                P = (np.eye(len(self.x)) - K @ H) @ self.P
+                for sat, sig in sorted(self.asked):
+                    sure = [
+                        s for s in common
+                        if s[0] == sat[0] and (s, sig) in sd and (s, sig) not in self.asked
+                    ]  # fmt: skip
+                    if not sure:
+                        continue
+                    ref = max(sure, key=lambda s: yr[s][3])
+                    lam = wavelength(sig)
+                    i, j = self._index((sat, sig)), self._index((ref, sig))
+                    h = np.zeros(len(self.x))
+                    h[:3] = -yr[sat][2] + yr[ref][2]
+                    h[i], h[j] = lam, -lam
+                    res = sd[(sat, sig)][0] - sd[(ref, sig)][0] - lam * (self.x[i] - self.x[j])
+                    noise = self._variance(yr[sat][3], age, False) + self._variance(
+                        yr[ref][3], age, False
+                    )
+                    innovation = (res - h @ dx) / lam
+                    sigma = sqrt(h @ P @ h + noise) / lam
+                    if abs(innovation) <= CHECK_INNOVATION and sigma <= CHECK_SIGMA:
+                        keep.add((sat, sig))
+        for key in sorted(self.asked - keep):
+            value, half = self.fresh[key]
+            self._remove(key)
+            self._add(key, value, self.opt.bias_sigma**2)
+            self.biases[key].half = half
+            self._forget_references(*key, first_sigs[key[0][0]], signals)
+        self.asked = set()
+
+    def _double_differences(self, signals, common, sd, yr, age, without=frozenset()):
         """Double-differenced phase and code against the highest satellite per system
         (RTKLIB ddres): design matrix, innovations, covariance and the (satellite, signal)
-        states used; None when no difference can be formed."""
+        states used; None when no difference can be formed. The phases of `without` are
+        left out."""
         opt = self.opt
         rows, v, blocks = [], [], []
         used = set()
@@ -485,6 +607,8 @@ class Rtk:
                     if sig[0] != system:
                         continue
                     valid = [sat for sat in common if sat[0] == system and (sat, sig) in sd]
+                    if kind == "phase" and without:
+                        valid = [sat for sat in valid if (sat, sig) not in without]
                     if len(valid) < 2:
                         continue
                     ref = max(valid, key=lambda sat: yr[sat][3])
