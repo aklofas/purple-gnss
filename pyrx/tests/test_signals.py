@@ -100,6 +100,40 @@ def test_read_rinex_header(tmp_path):
     np.testing.assert_array_equal(h.delta_enu, [0.0, 0.0, 0.441])
 
 
+def _with_record(tmp_path, label, fields):
+    """The fixture file with the 60 columns before `label` replaced by `fields`."""
+    lines = RINEX.splitlines(keepends=True)
+    [i] = [n for n, line in enumerate(lines) if line[60:].strip() == label]
+    lines[i] = f"{fields:<60s}{label}\n"
+    (tmp_path / "t.obs").write_text("".join(lines))
+    return tmp_path / "t.obs"
+
+
+@pytest.mark.parametrize("label", ["APPROX POSITION XYZ", "ANTENNA: DELTA H/E/N"])
+def test_a_blank_header_record_reads_as_absent(tmp_path, label):
+    # a blank position is how a file of a moving receiver says it has none
+    h = read_rinex_header(_with_record(tmp_path, label, ""))
+    position_blank = label == "APPROX POSITION XYZ"
+    blank, kept = (h.position, h.delta_enu) if position_blank else (h.delta_enu, h.position)
+    np.testing.assert_array_equal(blank, [0.0, 0.0, 0.0])
+    assert np.any(kept != 0.0)
+
+
+def test_header_numbers_filling_their_fields_are_read_by_column(tmp_path):
+    # three F14.4 fields with no blank between them
+    record = "-12345678.9012-23456789.0123-34567890.1234"
+    h = read_rinex_header(_with_record(tmp_path, "APPROX POSITION XYZ", record))
+    np.testing.assert_array_equal(h.position, [-12345678.9012, -23456789.0123, -34567890.1234])
+
+
+@pytest.mark.parametrize(
+    "fields", ["  4628684.7755   119996.7157", "  4628684.7755     x.xxxx     4372109.7032"]
+)
+def test_a_malformed_header_record_is_refused(tmp_path, fields):
+    with pytest.raises(ValueError, match="malformed APPROX POSITION XYZ"):
+        read_rinex_header(_with_record(tmp_path, "APPROX POSITION XYZ", fields))
+
+
 def test_write_rinex_observations_round_trip(tmp_path):
     (tmp_path / "t.obs").write_text(RINEX)
     signals = ("G1C", "G2W", "E1C", "E5Q")
