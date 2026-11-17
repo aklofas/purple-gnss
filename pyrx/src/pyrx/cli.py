@@ -25,6 +25,7 @@ from pyrx.rinex import (
     read_rinex_nav,
     read_rinex_obs,
     read_rinex_observations,
+    signal_strength_unit,
     write_rinex_nav,
     write_rinex_obs,
     write_rinex_observations,
@@ -460,7 +461,12 @@ def pvt_main(argv: list[str] | None = None) -> int:
     except ValueError as e:  # a file outside the profile the readers accept
         print(e, file=sys.stderr)
         return 2
-    sols = solve(epochs, ephs, iono, args.mask, args.weights)
+    weights = args.weights
+    unit = signal_strength_unit(args.obs)
+    if weights == "cn0" and unit not in ("", "DBHZ"):  # the C/N0 term takes S1C as dB-Hz
+        print(f"{args.obs}: SIGNAL STRENGTH UNIT {unit}, not DBHZ: rtklib weights", file=sys.stderr)
+        weights = "rtklib"
+    sols = solve(epochs, ephs, iono, args.mask, weights)
     elapsed = time.perf_counter() - t0
     if args.verbose:
         for sol in sols:

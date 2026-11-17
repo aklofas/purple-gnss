@@ -258,6 +258,32 @@ def test_pvt_main_weights_by_cn0_unless_asked_for_rtklibs(tmp_path, capsys):
     assert lines["cn0"] == _solution_line(solve(epochs, eph_read, iono, weights="cn0")[0])
 
 
+@pytest.mark.parametrize(("unit", "falls_back"), [("DBHZ", False), ("", False), ("S/N", True)])
+def test_pvt_main_weights_by_cn0_only_for_a_strength_in_db_hz(tmp_path, capsys, unit, falls_back):
+    # the C/N0 term reads S1C as dB-Hz: a file that declares another unit gets RTKLIB's weights
+    ephs = constellation()
+    ep = truth_epoch(ephs, USUD, 1e-3, tow=28800.0)
+    bad = replace(ep.obs[2], pseudorange=ep.obs[2].pseudorange + 20.0, cn0=30.0)
+    ep = replace(ep, obs=ep.obs[:2] + [bad] + ep.obs[3:])
+    obs, nav = tmp_path / "s.obs", tmp_path / "s.nav"
+    write_rinex_obs(obs, [ep])
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
+    rows = {}
+    for mode in ("cn0", "rtklib"):
+        assert pvt_main([str(obs), str(nav), "-o", str(tmp_path / "a.pos"), "--weights", mode]) == 0
+        rows[mode] = (tmp_path / "a.pos").read_text()
+    assert rows["cn0"] != rows["rtklib"] and capsys.readouterr().err == ""
+    lines = obs.read_text().splitlines(keepends=True)
+    [i] = [n for n, line in enumerate(lines) if line[60:].strip() == "SYS / # / OBS TYPES"]
+    lines.insert(i + 1, f"{unit:<60s}SIGNAL STRENGTH UNIT\n")
+    obs.write_text("".join(lines))
+    assert pvt_main([str(obs), str(nav), "-o", str(tmp_path / "a.pos")]) == 0
+    err = capsys.readouterr().err
+    assert (tmp_path / "a.pos").read_text() == rows["rtklib" if falls_back else "cn0"]
+    assert err.count("\n") == (1 if falls_back else 0)
+    assert not falls_back or ("SIGNAL STRENGTH UNIT S/N" in err and "rtklib" in err)
+
+
 def test_pvt_and_rtk_report_a_rejected_file_with_exit_2(tmp_path, capsys):
     ephs = constellation()
     obs, nav = tmp_path / "s.obs", tmp_path / "s.nav"
