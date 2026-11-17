@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from conftest import capture_file
 from pyrx.acquisition import acquire_l1ca
 from pyrx.samples import read_samples
 from pyrx.synth import synth_l1ca
@@ -36,9 +37,7 @@ def test_total_loss_on_synthetic_signal():
 
 
 def test_lo_loss_on_recording(captures):
-    path = captures / RECORDING
-    if not path.is_file():
-        pytest.skip(f"{RECORDING} not found")
+    path = capture_file(captures, RECORDING)
     x = read_samples(path, FS, iq=False, duration=N_MS * 1e-3).real
     results = [acquire_l1ca(x[: round(FS * 0.01)], FS, F_IF, prn) for prn in range(1, 33)]
     best = max(results, key=lambda a: a.cn0 if a.detected else -1.0)

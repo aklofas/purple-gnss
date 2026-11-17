@@ -2,8 +2,9 @@
 one cocotb test case per pytest function. SIM selects the simulator (icarus, verilator).
 
 Cases on the recordings are skipped here, at the pytest level, unless PYRX_CAPTURES names
-their directory: a case must not skip inside the simulator (cocotb runs a case named by
-`testcase=` whatever its `skip=` says), and `run_cocotb` fails if one does."""
+their directory (failed instead when PYRX_REQUIRE_CAPTURES is set, so that a gate run
+cannot pass by skipping them): a case must not skip inside the simulator (cocotb runs a
+case named by `testcase=` whatever its `skip=` says), and `run_cocotb` fails if one does."""
 
 import hashlib
 import os
@@ -25,11 +26,21 @@ if CAPTURES:
     # the simulator runs in its own directory, so a relative path has to be made absolute here
     CAPTURES = os.environ["PYRX_CAPTURES"] = str(Path(CAPTURES).resolve())
 _have_recording = bool(CAPTURES and (Path(CAPTURES) / RECORDING).is_file())
-if os.environ.get("PYRX_REQUIRE_CAPTURES") and not _have_recording:
-    raise RuntimeError("PYRX_REQUIRE_CAPTURES is set and PYRX_CAPTURES does not name the recording")
-needs_captures = pytest.mark.skipif(
-    not _have_recording, reason="PYRX_CAPTURES does not name the directory holding the recording"
-)
+needs_captures = pytest.mark.needs_captures  # a case on the recording
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "needs_captures: the case reads the recording")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    # before any fixture: a build is not worth making for a case that cannot run
+    if item.get_closest_marker("needs_captures") and not _have_recording:
+        reason = "PYRX_CAPTURES does not name the directory holding the recording"
+        if os.environ.get("PYRX_REQUIRE_CAPTURES"):
+            pytest.fail(f"{reason} (PYRX_REQUIRE_CAPTURES is set)")
+        pytest.skip(reason)
 
 _built: dict[Path, Runner] = {}
 
