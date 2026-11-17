@@ -328,6 +328,58 @@ def make_observables(
     return [] if run is None else l1_observables(run, week)
 
 
+@dataclass
+class _Sampled:
+    """A segment read at one receiver time."""
+
+    k: int  # the epoch whose code start is the last before it
+    f: float  # how far it lies from that code start to the next, 0 to 1
+    adr: float  # cycles, the accumulated Doppler phase there
+    locked: bool  # epoch k's window is phase-locked
+    slip: bool  # a first observation, one in the segment's first T_LOCK, or a window without
+    # phase lock since the segment's previous phase
+
+
+class _Segment:
+    """A track segment sampled at receiver times in order: the bracketing of a time by two
+    code starts, the interpolation between them, and the ledger of the previous observation
+    and the previous one with a phase, which the loss-of-lock rules of both signals read."""
+
+    def __init__(self, tr: TrackResult, starts: np.ndarray, k_min: int):
+        self.tr, self.starts, self.k_min = tr, starts, k_min
+        self.last_k = -1  # epoch of the previous observation
+        self.last_phase_k = -1  # epoch of the previous observation with a phase
+
+    def at(self, t: float) -> _Sampled | None:
+        """The segment at `t` (s from the source start); None before epoch `k_min` or
+        outside the segment."""
+        tr, tc = self.tr, self.starts
+        k = int(np.searchsorted(tc, t, side="right")) - 1
+        if k < self.k_min or k + 1 >= len(tc):
+            return None
+        f = (t - tc[k]) / (tc[k + 1] - tc[k])
+        # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
+        adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
+        # unlocked (or unknown, nan) at this epoch or at any epoch since the previous
+        # observation with a phase: an unlocked window can lie between sparse observations
+        # (the slice is empty when several observations fall in one tracking epoch)
+        since_phase = tr.phase_lock[self.last_phase_k + 1 : k + 1] >= PLI_LOCKED
+        locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
+        slip = tr.t[k] - tr.t[0] <= T_LOCK or self.last_k < 0 or not since_phase.all()
+        return _Sampled(k, f, adr, locked, bool(slip))
+
+    def since_phase(self, marks: np.ndarray | None, k: int) -> bool:
+        """Whether a per-epoch mark (a fade, a coasted sum) is set between the previous
+        observation with a phase and epoch k: an event at an epoch is the business of the
+        phases after it, the phase of epoch k being the loop's state before its update."""
+        return marks is not None and bool(marks[max(self.last_phase_k, 0) : k].any())
+
+    def observed(self, s: _Sampled) -> None:
+        self.last_k = s.k
+        if s.locked:
+            self.last_phase_k = s.k
+
+
 def l1_observables(run: Run, week: int | None = None) -> list[Epoch]:
     """`make_observables` on a prepared run."""
     rx0, interval, weeks_on = run.rx0, run.interval, run.weeks_on
@@ -337,37 +389,26 @@ def l1_observables(run: Run, week: int | None = None) -> list[Epoch]:
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
     faded = [_faded(tr) for tr, _, _, _, _ in per]
     half_open = [_half_cycle_open(tr, pol) for (tr, *_), pol in zip(per, polarity, strict=True)]
-    last_k = [-1] * len(per)  # epoch of each channel's previous observation
-    last_phase_k = [-1] * len(per)  # epoch of each channel's previous observation with a phase
+    segments = [_Segment(tr, tc, max(k0, 1)) for tr, _, tc, _, k0 in per]
     epochs = []
     for i in range(first, last + 1):
         t = i * interval - rx0
         t_rx = i * interval  # in the week of the time origin, as the transmit times are
         tow = t_rx - weeks_on * WEEK_S
         obs = []
-        for c, (tr, ln, tc, tt, k0) in enumerate(per):
-            k = int(np.searchsorted(tc, t, side="right")) - 1
-            if k < max(k0, 1) or k + 1 >= len(tc):
+        for c, (tr, ln, _, tt, _) in enumerate(per):
+            seg = segments[c]
+            at = seg.at(t)
+            if at is None:
                 continue
-            f = (t - tc[k]) / (tc[k + 1] - tc[k])
-            t_tx = tt[k] + f * CA_PERIOD
-            # carrier_phase[k-1] is the accumulated Doppler phase at tc[k], the end of epoch k-1
-            adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
-            inverted, lli = _carrier_state(ln, polarity[c], k, last_k[c])
-            # unlocked (or unknown, nan) at this epoch or at any epoch since the previous
-            # observation with a phase: an unlocked window can lie between sparse observations
-            # (the slice is empty when several observations fall in one tracking epoch)
-            since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
-            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
-            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
-                lli |= LLI_SLIP
-            # a held epoch is the business of the phases after it: the phase of epoch k is
-            # the loop's state before that epoch's update
-            if faded[c] is not None and faded[c][max(last_phase_k[c], 0) : k].any():
+            k = at.k
+            t_tx = tt[k] + at.f * CA_PERIOD
+            inverted, lli = _carrier_state(ln, polarity[c], k, seg.last_k)
+            if at.slip or seg.since_phase(faded[c], k):
                 lli |= LLI_SLIP
             if half_open[c] is not None and half_open[c][k]:
                 lli |= LLI_HALF_CYCLE
-            phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
+            phase = -(at.adr + (0.5 if inverted else 0.0)) if at.locked else np.nan
             obs.append(
                 Observation(
                     tr.prn,
@@ -378,9 +419,7 @@ def l1_observables(run: Run, week: int | None = None) -> list[Epoch]:
                     lli,
                 )
             )
-            last_k[c] = k
-            if locked:
-                last_phase_k[c] = k
+            seg.observed(at)
         if obs:
             epochs.append(Epoch(week, float(tow), sorted(obs, key=lambda o: o.prn)))
     return epochs
@@ -469,36 +508,28 @@ def joint_observables(
         if time0 is not None and tr.sec_sync is not None:
             anchored.append((tr, starts, time0))
     coasting = [_coasting(tr) for tr, _, _ in anchored]
-    last_k = [-1] * len(anchored)
-    last_phase_k = [-1] * len(anchored)
+    segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, _ in anchored]
     out = []
     for e in epochs:
         t_rx = e.tow + weeks_on * WEEK_S
         t = t_rx - rx0
         rows = {f"G{o.prn:02d}": [o, None] for o in e.obs}
-        for c, (tr, tc, time0) in enumerate(anchored):
-            k = int(np.searchsorted(tc, t, side="right")) - 1
-            if k <= tr.sec_sync or k + 1 >= len(tc):
+        for c, (tr, _, time0) in enumerate(anchored):
+            seg = segments[c]
+            at = seg.at(t)
+            if at is None:
                 continue
-            f = (t - tc[k]) / (tc[k + 1] - tc[k])
-            t_tx = time0 + (k + f) * CA_PERIOD
-            adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
-            since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
-            locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
-            coasted = coasting[c] is not None and coasting[c][max(last_phase_k[c], 0) : k].any()
-            lli = 0
-            if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all() or coasted:
-                lli = LLI_SLIP
+            k = at.k
+            t_tx = time0 + (k + at.f) * CA_PERIOD
+            lli = LLI_SLIP if at.slip or seg.since_phase(coasting[c], k) else 0
             half = 0.5 if tr.sec_polarity < 0 else 0.0
-            phase = -(adr + half) + L5Q_ALIGN if locked else np.nan
+            phase = -(at.adr + half) + L5Q_ALIGN if at.locked else np.nan
             pilot_obs = Observation(
                 tr.prn, C_LIGHT * (t_rx - t_tx), float(phase), float(tr.doppler[k]),
                 float(tr.cn0[k]), lli,
             )  # fmt: skip
             rows.setdefault(f"G{tr.prn:02d}", [None, None])[1] = pilot_obs
-            last_k[c] = k
-            if locked:
-                last_phase_k[c] = k
+            seg.observed(at)
         sats = tuple(sorted(rows))
         values = np.full((5, len(sats), 2), np.nan)
         values[4] = 0.0
