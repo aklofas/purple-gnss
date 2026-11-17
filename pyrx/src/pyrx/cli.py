@@ -519,6 +519,26 @@ def rtk_main(argv: list[str] | None = None) -> int:
     )  # fmt: skip
     p.add_argument("--signals", default="G1C,G2W", help="signals to use, e.g. G1C,G2W,E1C,E5Q")
     p.add_argument("--mode", choices=("kinematic", "static"), default="kinematic")
+    p.add_argument(
+        "--slips", choices=("check", "restart"), default="check",
+        help="a phase the rover flags as a possible slip: looked at before its ambiguity "
+        "restarts (default), or restarted outright as RTKLIB does",
+    )  # fmt: skip
+    p.add_argument(
+        "--min-lock", type=int, default=5, metavar="N",
+        help="updates an ambiguity begun again waits before the integer search (default 5; "
+        "RTKLIB 0)",
+    )  # fmt: skip
+    p.add_argument(
+        "--fix-sats",
+        type=int,
+        default=6,
+        metavar="N",
+        help="satellites the integer search must span for a fix (default 6; RTKLIB 0)",
+    )
+    p.add_argument(
+        "--backward", action="store_true", help="run the filter from the last epoch to the first"
+    )
     _add_positioning_arguments(p)
     args = p.parse_args(argv)
 
@@ -537,7 +557,11 @@ def rtk_main(argv: list[str] | None = None) -> int:
     station = Station(np.array(args.base_xyz), np.asarray(base_delta, dtype=float))
     fixes = solve_rtk(
         rover, base, ephs, station, np.asarray(rover_delta, dtype=float),
-        RtkOptions(mode=args.mode, mask_deg=args.mask), iono,
+        RtkOptions(
+            mode=args.mode, mask_deg=args.mask, slips=args.slips, min_lock=args.min_lock,
+            min_fix_sats=args.fix_sats, backward=args.backward,
+        ),
+        iono,
     )  # fmt: skip
     elapsed = time.perf_counter() - t0
 

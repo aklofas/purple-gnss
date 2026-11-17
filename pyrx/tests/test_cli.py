@@ -259,6 +259,62 @@ def test_pvt_main_weights_by_cn0_unless_asked_for_rtklibs(tmp_path, capsys):
     assert lines["cn0"] == _solution_line(solve(epochs, eph_read, iono, weights="cn0")[0])
 
 
+def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, capsys):
+    # a 1 Hz pair whose rover flags a continuous phase twice: the command keeps that
+    # ambiguity, waits five updates after a restart and fixes on six satellites, where the
+    # library's engine restarts at every flag unless told otherwise, as RTKLIB does
+    from pyrx.models import Station
+    from pyrx.rinex import read_rinex_header, read_rinex_observations
+    from pyrx.rtk import RtkOptions, solve_rtk
+
+    rng = np.random.default_rng(21)
+    ephs = constellation()
+    pairs = [
+        synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), AMB_R, AMB_B, rng)
+        for k in range(12)
+    ]
+    for k in (5, 8):
+        lli = pairs[k][0].lli.copy()
+        lli[pairs[k][0].sats.index("G03"), 0] = 1
+        pairs[k] = (replace(pairs[k][0], lli=lli), pairs[k][1])
+    rov, base, nav = (tmp_path / n for n in ("r.obs", "b.obs", "n.nav"))
+    write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
+    write_rinex_observations(base, [p[1] for p in pairs], "BASE")
+    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
+    args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C"]
+    command = ["--slips", "check", "--min-lock", "5", "--fix-sats", "6"]
+    rtklib = ["--slips", "restart", "--min-lock", "0", "--fix-sats", "0"]
+    rows = {}
+    for name, flags in {"default": [], "command": command, "rtklib": rtklib, "back": ["--backward"]}.items():
+        out = tmp_path / f"{name}.pos"
+        assert rtk_main([*args, "-o", str(out), *flags]) == 0
+        rows[name] = out.read_text().splitlines()[1:]
+    capsys.readouterr()
+    assert rows["default"] == rows["command"] != rows["rtklib"]
+
+    def library(**options):
+        station = Station(np.array(USUD), read_rinex_header(base).delta_enu)
+        fixes = solve_rtk(
+            read_rinex_observations(rov, ("G1C",)), read_rinex_observations(base, ("G1C",)),
+            *read_rinex_nav(nav)[:1], station, read_rinex_header(rov).delta_enu,
+            RtkOptions(**options), read_rinex_nav(nav)[1],
+        )  # fmt: skip
+        return [
+            f"{f.week} {f.tow:.3f} {f.position[0]:.4f} {f.position[1]:.4f} {f.position[2]:.4f} "
+            f"{1 if f.status == 'fix' else 2} {f.ns} {f.ratio:.1f} {f.age:.2f}"
+            for f in fixes
+        ]
+
+    ours = {"slips": "check", "min_lock": 5, "min_fix_sats": 6}
+    assert rows["rtklib"] == library()
+    assert rows["command"] == library(**ours)
+    assert rows["back"] == library(**ours, backward=True) != rows["command"]
+    assert [float(r.split()[1]) for r in rows["back"]] == [TOW + 1.0 * k for k in range(12)]
+    with pytest.raises(SystemExit):
+        rtk_main([*args, "--slips", "maybe"])
+    capsys.readouterr()
+
+
 @pytest.mark.parametrize(("unit", "falls_back"), [("DBHZ", False), ("", False), ("S/N", True)])
 def test_pvt_main_weights_by_cn0_only_for_a_strength_in_db_hz(tmp_path, capsys, unit, falls_back):
     # the C/N0 term reads S1C as dB-Hz: a file that declares another unit gets RTKLIB's weights
