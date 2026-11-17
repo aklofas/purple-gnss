@@ -82,6 +82,14 @@ LLI_HALF_CYCLE = 2
 # paths through a front end differed by 0.1 microsecond on the two front ends measured, and
 # a pilot locked on something else lands anywhere in the millisecond
 ANCHOR_TOLERANCE = 1e-6
+# s: a pilot whose secondary code is at least this long takes its time from it. The travel
+# times of the satellites in view span some 30 ms, and the receiver clock is right within 20
+SECONDARY_TIME = 0.100
+# s of the receiver clock: the lower end of the code length in which such a pilot's travel
+# time is taken. The clock is the latest GPS transmit time at sample 0 plus
+# TRAVEL_TIME_NOMINAL, up to 20 ms behind true time, and a Galileo satellite is 57 ms (the
+# two in eccentric orbits, at perigee) to 97 ms away: 39 to 98 ms by that clock
+TRAVEL_TIME_MIN = 0.035
 # epochs from the one completing a pilot's coasted sum to the one completing the next sum,
 # whose update is in the phases after it
 COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)
@@ -452,6 +460,19 @@ def _pilot_time0(starts: np.ndarray, l1: list[tuple[np.ndarray, np.ndarray]]) ->
     return float(origins[0]) * CA_PERIOD
 
 
+def _secondary_time0(tr: TrackResult, starts: np.ndarray, rx0: float, period: float) -> float:
+    """Transmit time of a pilot segment's epoch 0 from its own secondary code of `period` s.
+
+    The code start that carries secondary chip 0 was transmitted at a multiple of the
+    period, so epoch 0's code start left `sec_origin` code periods before one. Which multiple
+    follows from the receiver time `rx0 + starts[0]` at which it arrived: the one that puts
+    the travel time in [TRAVEL_TIME_MIN, TRAVEL_TIME_MIN + period).
+    """
+    travel = rx0 + starts[0] + tr.sec_origin * CA_PERIOD  # plus a whole number of periods
+    multiple = floor((travel - TRAVEL_TIME_MIN) / period)
+    return (multiple * round(period / CA_PERIOD) - tr.sec_origin) * CA_PERIOD
+
+
 def pilot_transmit_times(
     track: TrackResult, l1: list[tuple[TrackResult, LnavResult]]
 ) -> np.ndarray | None:
@@ -470,52 +491,71 @@ def make_joint_observables(
     pilots: list[TrackResult],
     interval: float = 1.0,
     week: int | None = None,
+    pilot_signals: tuple[str, ...] = ("L5",),
 ) -> list[Observations]:
-    """The L1 C/A observations of `make_observables` with the L5 pilot segments `pilots` of
-    the same recording time beside them, as signals `G1C` and `G5Q`.
+    """The L1 C/A observations of `make_observables` with the pilot segments `pilots` of the
+    same recording time beside them: signals `G1C` and those the pilots of `pilot_signals`
+    are reported as (`G5Q` for L5, `E5Q` for E5A), in that order.
 
     The epochs, the receiver clock and every L1 value are `make_observables`'. A pilot
-    segment contributes from the epoch after its secondary code was found, on the time of
-    its satellite's L1 channel; one without a consistent anchor contributes nothing. Raises
-    ValueError when the week is unknown (no subframe 1 decoded and none given), and for a
-    pilot of another signal than L5: the rows are written as G5Q with its quarter cycle.
+    segment contributes from the epoch after its secondary code was found. An L5 pilot is on
+    the time of its satellite's L1 channel, and one without a consistent anchor contributes
+    nothing; a pilot with a secondary code of 100 ms takes its time from that code and the
+    receiver clock. Raises ValueError when the week is unknown (no subframe 1 decoded and
+    none given), and for a track that is not a pilot of one of `pilot_signals`.
     """
-    for tr in pilots:
-        if tr.signal != "L5":
-            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L5 pilot track")
+    _check_pilots(pilots, pilot_signals)
     run = prepare(tracks, lnavs, interval)
-    return [] if run is None else joint_observables(run, l1_observables(run, week), pilots)
+    if run is None:
+        return []
+    return joint_observables(run, l1_observables(run, week), pilots, pilot_signals)
+
+
+def _check_pilots(pilots: list[TrackResult], pilot_signals: tuple[str, ...]) -> None:
+    for tr in pilots:
+        if tr.signal not in pilot_signals or not SIGNALS[tr.signal].pilot:
+            wanted = " or ".join(pilot_signals)
+            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an {wanted} pilot track")
 
 
 def joint_observables(
-    run: Run, epochs: list[Epoch], pilots: list[TrackResult]
+    run: Run,
+    epochs: list[Epoch],
+    pilots: list[TrackResult],
+    pilot_signals: tuple[str, ...] = ("L5",),
 ) -> list[Observations]:
     """`make_joint_observables` on a prepared run and the L1 epochs `l1_observables` made of
     it, so that a caller holding both forms neither again."""
-    for tr in pilots:
-        if tr.signal != "L5":
-            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L5 pilot track")
+    _check_pilots(pilots, pilot_signals)
     if not epochs:
         return []
     if epochs[0].week is None:
         raise ValueError("week unknown: no ephemeris decoded and none given")
     chans, rx0, weeks_on = run.chans, run.rx0, run.weeks_on
-    anchored = []
+    timed = []  # (segment, its code starts, transmit time of its epoch 0, its description)
     for tr in pilots:
+        if tr.sec_sync is None:
+            continue
+        spec = SIGNALS[tr.signal]
         starts = code_starts(tr)
-        l1 = [(tc, tt) for l1_tr, _, tc, tt in chans if l1_tr.prn == tr.prn]
-        time0 = _pilot_time0(starts, l1)
-        if time0 is not None and tr.sec_sync is not None:
-            anchored.append((tr, starts, time0))
-    coasting = [_coasting(tr) for tr, _, _ in anchored]
-    segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, _ in anchored]
-    pilot = SIGNALS["L5"]  # the signal the pilots are reported as, and its phase alignment
+        period = len(spec.secondary(tr.prn)) * CA_PERIOD
+        if period >= SECONDARY_TIME:
+            time0 = _secondary_time0(tr, starts, rx0, period)
+        else:
+            l1 = [(tc, tt) for l1_tr, _, tc, tt in chans if l1_tr.prn == tr.prn]
+            time0 = _pilot_time0(starts, l1)
+        if time0 is not None:
+            timed.append((tr, starts, time0, spec))
+    coasting = [_coasting(tr) for tr, *_ in timed]
+    segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, _, _ in timed]
+    signals = ("G1C", *(SIGNALS[name].rinex for name in pilot_signals))
+    column = {name: 1 + j for j, name in enumerate(pilot_signals)}
     out = []
     for e in epochs:
         t_rx = e.tow + weeks_on * WEEK_S
         t = t_rx - rx0
-        rows = {f"G{o.prn:02d}": [o, None] for o in e.obs}
-        for c, (tr, _, time0) in enumerate(anchored):
+        rows = {f"G{o.prn:02d}": [o] + [None] * len(pilot_signals) for o in e.obs}
+        for c, (tr, _, time0, spec) in enumerate(timed):
             seg = segments[c]
             at = seg.at(t)
             if at is None:
@@ -524,22 +564,22 @@ def joint_observables(
             t_tx = time0 + (k + at.f) * CA_PERIOD
             lli = LLI_SLIP if at.slip or seg.since_phase(coasting[c], k) else 0
             half = 0.5 if tr.sec_polarity < 0 else 0.0
-            phase = -(at.adr + half) + pilot.phase_align if at.locked else np.nan
+            phase = -(at.adr + half) + spec.phase_align if at.locked else np.nan
             pilot_obs = Observation(
                 tr.prn, C_LIGHT * (t_rx - t_tx), float(phase), float(tr.doppler[k]),
                 float(tr.cn0[k]), lli,
             )  # fmt: skip
-            rows.setdefault(f"{pilot.rinex[0]}{tr.prn:02d}", [None, None])[1] = pilot_obs
+            sat = f"{spec.rinex[0]}{tr.prn:02d}"
+            rows.setdefault(sat, [None] * len(signals))[column[tr.signal]] = pilot_obs
             seg.observed(at)
         sats = tuple(sorted(rows))
-        values = np.full((5, len(sats), 2), np.nan)
+        values = np.full((5, len(sats), len(signals)), np.nan)
         values[4] = 0.0
         for i, sat in enumerate(sats):
             for j, o in enumerate(rows[sat]):
                 if o is not None:
                     values[:, i, j] = (o.pseudorange, o.carrier_phase, o.doppler, o.cn0, o.lli)
         pr, phase, doppler, cn0, lli = values
-        signals = ("G1C", pilot.rinex)
         lli = lli.astype(int)
         out.append(Observations(e.week, e.tow, sats, signals, pr, phase, doppler, cn0, lli))
     return out

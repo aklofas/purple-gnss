@@ -80,5 +80,6 @@ L5 = SignalSpec(
 E5A = SignalSpec(
     "E5A", "E5Q", FREQUENCY["E5"], L5_CHIP_RATE, L5_LENGTH, range(1, 37), gal_e5aq,
     secondary=gal_cs100, data_code=gal_e5ai, data_secondary=_cs20, symbol_epochs=20, data_axis=-1j,
+    phase_align=-0.25,
 )  # fmt: skip
 SIGNALS = {s.name: s for s in (L1CA, L5, E5A)}
