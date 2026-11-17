@@ -10,7 +10,7 @@ from pyrx.channels import track_prn, track_prns
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn
 from pyrx.observables import LLI_HALF_CYCLE, LLI_SLIP, make_observables
 from pyrx.samples import SampleFile, read_samples
-from pyrx.signalspec import L5
+from pyrx.signalspec import E1, L5
 from pyrx.synth import synth_pilot, write_iq_int8
 from pyrx.tracking import PLI_LOCKED, track_l1ca
 
@@ -191,15 +191,49 @@ def test_pilot_walk_through_track_prns(tmp_path):
     assert [s.prn for s in segs] == [6] and segs[0].sec_sync is not None
 
 
+def _e1_file(tmp_path, seconds=3.4, code_offset=4321):
+    x = synth_pilot(E1, 11, PILOT_FS, 0.0, 700.0, code_offset, int(PILOT_FS * seconds), 45.0, seed=3)
+    path = tmp_path / "e1.bin"
+    write_iq_int8(x, path)
+    return path
+
+
+def test_e1_walk_finds_the_pilot_at_its_code_start(tmp_path):
+    path = _e1_file(tmp_path)
+    rejected = []
+    segs = track_prn(path, PILOT_FS, True, 0.0, 11, interval=20.0, rejected=rejected, signal="E1")
+    assert len(segs) == 1 and rejected == []
+    seg = segs[0]
+    assert seg.signal == "E1" and seg.sec_sync is not None and not seg.side_peak and seg.locked
+    # the segment's first epoch begins a code period of the generated signal
+    start = (seg.t[0] * PILOT_FS - 4321) / (PILOT_FS * 4e-3)
+    assert abs(start - round(start)) < 2e-4
+    assert abs(seg.doppler[-1] - 700.0) < 2.0 and abs(np.median(seg.cn0[2000:]) - 45.0) < 1.5
+
+
+@pytest.mark.parametrize("half", [0.5, -0.5])
+def test_e1_walk_turns_away_a_seed_on_a_side_peak(tmp_path, monkeypatch, half):
+    # a detection half a chip from the code start: its trial ends on the side peak
+    path = _e1_file(tmp_path)
+    chip = 1.0 / E1.chip_rate
+    seed = AcqResult(11, 4321 / PILOT_FS + half * chip, 700.0, 45.0, True, np.zeros((1, 1), np.float32), np.zeros(1))
+    monkeypatch.setattr(channels, "acquire_signal", lambda *a, **k: seed)
+    rejected = []
+    segs = track_prn(path, PILOT_FS, True, 0.0, 11, interval=20.0, rejected=rejected, signal="E1")
+    assert segs == [] and rejected == [(11, 0.0)]
+
+
 def test_pilot_trial_needs_the_sync_and_a_locked_last_window():
-    def trial(sec_sync, windows):
+    def trial(sec_sync, windows, side_peak=False):
         n = 1000 * len(windows) + 300  # an incomplete last window has no indicator
         lock = np.full(n, np.nan)
         for i, value in enumerate(windows):
             lock[1000 * i : 1000 * (i + 1)] = value
-        return SimpleNamespace(sec_sync=sec_sync, phase_lock=lock)
+        return SimpleNamespace(sec_sync=sec_sync, phase_lock=lock, side_peak=side_peak)
 
     assert channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.95]))
+    # ended on a side peak of its correlation, however well it was locked before
+    assert not channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.95], side_peak=True))
     assert not channels._pilot_holds(trial(None, [-0.3, 0.9, 0.95]))  # never synced
     assert not channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.1]))  # synced, then gone
     assert not channels._pilot_holds(trial(1500, []))  # too short to judge

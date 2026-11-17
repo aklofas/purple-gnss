@@ -43,9 +43,11 @@ def _bit_syncs(track: TrackResult) -> bool:
 
 
 def _pilot_holds(track: TrackResult) -> bool:
-    """True when the secondary code was found and the last complete window is phase-locked."""
+    """True when the secondary code was found, the last complete window is phase-locked and
+    the trial did not end on a side peak of the replica's correlation."""
     windows = track.phase_lock[np.isfinite(track.phase_lock)]
-    return track.sec_sync is not None and len(windows) > 0 and windows[-1] >= PLI_LOCKED
+    held = track.sec_sync is not None and len(windows) > 0 and windows[-1] >= PLI_LOCKED
+    return held and not track.side_peak
 
 
 def track_prn(
