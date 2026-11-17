@@ -68,6 +68,7 @@ from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
 from pyrx.observations import Epoch, Observation, Observations
+from pyrx.signalspec import L5, SIGNALS
 from pyrx.tracking import PLI_LOCKED, T_PILOT_COH, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
@@ -77,7 +78,7 @@ FADE_SLIP = 0.050  # s of integrator hold within FADE_SPAN after which a phase i
 FADE_SPAN = 0.5  # s
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
-L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3.05 Table A23)
+L5Q_ALIGN = L5.phase_align  # cycles added to the L5Q phase to align it with L5I
 # s a pilot's code start may lie from the L1 channel's code period grid: the two bands'
 # paths through a front end differed by 0.1 microsecond on the two front ends measured, and
 # a pilot locked on something else lands anywhere in the millisecond
@@ -509,6 +510,7 @@ def joint_observables(
             anchored.append((tr, starts, time0))
     coasting = [_coasting(tr) for tr, _, _ in anchored]
     segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, _ in anchored]
+    pilot = SIGNALS["L5"]  # the signal the pilots are reported as, and its phase alignment
     out = []
     for e in epochs:
         t_rx = e.tow + weeks_on * WEEK_S
@@ -523,12 +525,12 @@ def joint_observables(
             t_tx = time0 + (k + at.f) * CA_PERIOD
             lli = LLI_SLIP if at.slip or seg.since_phase(coasting[c], k) else 0
             half = 0.5 if tr.sec_polarity < 0 else 0.0
-            phase = -(at.adr + half) + L5Q_ALIGN if at.locked else np.nan
+            phase = -(at.adr + half) + pilot.phase_align if at.locked else np.nan
             pilot_obs = Observation(
                 tr.prn, C_LIGHT * (t_rx - t_tx), float(phase), float(tr.doppler[k]),
                 float(tr.cn0[k]), lli,
             )  # fmt: skip
-            rows.setdefault(f"G{tr.prn:02d}", [None, None])[1] = pilot_obs
+            rows.setdefault(f"{pilot.rinex[0]}{tr.prn:02d}", [None, None])[1] = pilot_obs
             seg.observed(at)
         sats = tuple(sorted(rows))
         values = np.full((5, len(sats), 2), np.nan)
@@ -538,7 +540,7 @@ def joint_observables(
                 if o is not None:
                     values[:, i, j] = (o.pseudorange, o.carrier_phase, o.doppler, o.cn0, o.lli)
         pr, phase, doppler, cn0, lli = values
-        signals = ("G1C", "G5Q")
+        signals = ("G1C", pilot.rinex)
         lli = lli.astype(int)
         out.append(Observations(e.week, e.tow, sats, signals, pr, phase, doppler, cn0, lli))
     return out

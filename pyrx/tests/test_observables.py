@@ -25,6 +25,7 @@ from pyrx.observables import (
 )
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
+from pyrx.signalspec import SIGNALS
 from pyrx.synth import frame, synth_l1ca
 from pyrx.tracking import T_PILOT_COH, TrackResult, track_l1ca
 
@@ -670,6 +671,19 @@ def test_joint_5q_values(polarity):
         assert lli == (LLI_SLIP if seen == 1 or t <= 2.0 else 0)
         assert not lli & LLI_HALF_CYCLE
     assert seen > 20 and L5Q_ALIGN == -0.25
+
+
+def test_joint_builder_takes_the_pilot_identity_from_its_description(monkeypatch):
+    # the signal a pilot is reported as and the alignment of its phase are its description's
+    track, ln = _still_channel(SFS)
+    usual = make_joint_observables([track], [ln], [_still_pilot()])
+    other = dataclasses.replace(SIGNALS["L5"], rinex="G5X", phase_align=0.125)
+    monkeypatch.setitem(SIGNALS, "L5", other)
+    joint = make_joint_observables([track], [ln], [_still_pilot()])
+    assert all(o.signals == ("G1C", "G5X") for o in joint)
+    shift = [o.carrier_phase[0, 1] - u.carrier_phase[0, 1] for o, u in zip(joint, usual, strict=True)]
+    shift = [d for d in shift if np.isfinite(d)]
+    assert len(shift) > 20 and np.allclose(shift, 0.125 - L5Q_ALIGN, rtol=0, atol=1e-9)
 
 
 def test_pilot_reacquired_gets_a_new_anchor():

@@ -48,6 +48,9 @@ class SignalSpec:
     # where a symbol 0 lies on the data component's prompt when the pilot's prompt, its
     # secondary code removed, is real and positive
     data_axis: complex = 0j
+    # cycles added to the reported carrier phase to align it with its band's reference signal
+    # (RINEX 3.05 Table A23)
+    phase_align: float = 0.0
 
     @property
     def pilot(self) -> bool:
@@ -71,6 +74,7 @@ L1CA = SignalSpec("L1CA", "G1C", FREQUENCY["G1"], CA_CHIP_RATE, CA_LENGTH, range
 L5 = SignalSpec(
     "L5", "G5Q", FREQUENCY["G5"], L5_CHIP_RATE, L5_LENGTH, range(1, 33), gps_l5q,
     secondary=_nh20, data_code=gps_l5i, data_secondary=_nh10, symbol_epochs=10, data_axis=1j,
+    phase_align=-0.25,
 )  # fmt: skip
 # Galileo OS SIS ICD 2.3.1.2, Eq. 3: the E5a signal is e_E5a-I + j e_E5a-Q on its carrier
 E5A = SignalSpec(
