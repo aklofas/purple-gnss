@@ -214,8 +214,12 @@ def make_observables(
     A channel is used from its first bit-synced epoch on; channels without a
     subframe, or with subframes that disagree on the time tag, are skipped.
     `week` is the week of the first observation epoch; it defaults to the one
-    implied by any decoded subframe 1 and stays None when there is none.
+    implied by any decoded subframe 1 and stays None when there is none. Raises ValueError
+    for a track of another signal than L1 C/A.
     """
+    for tr in tracks:
+        if tr.signal != "L1CA":
+            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L1 C/A track")
     chans = _usable(tracks, lnavs)
     if not chans:
         return []
@@ -336,8 +340,12 @@ def make_joint_observables(
     The epochs, the receiver clock and every L1 value are `make_observables`'. A pilot
     segment contributes from the epoch after its secondary code was found, on the time of
     its satellite's L1 channel; one without a consistent anchor contributes nothing. Raises
-    ValueError when the week is unknown (no subframe 1 decoded and none given).
+    ValueError when the week is unknown (no subframe 1 decoded and none given), and for a
+    pilot of another signal than L5: the rows are written as G5Q with its quarter cycle.
     """
+    for tr in pilots:
+        if tr.signal != "L5":
+            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L5 pilot track")
     epochs = make_observables(tracks, lnavs, interval, week)
     if not epochs:
         return []

@@ -657,3 +657,18 @@ def test_pilot_observations_in_the_first_two_seconds_are_flagged():
     early = [l5[4] for t, l5 in rows if 1.502 < t <= 2.0]
     later = [l5[4] for t, l5 in rows if t > 2.25 and np.isfinite(l5[0])]
     assert len(early) == 2 and set(early) == {LLI_SLIP} and later and not any(later)
+
+
+def test_observation_builders_refuse_a_track_of_the_wrong_signal():
+    # an L5 pilot has no data bits to time it and an L1 track no secondary code; an E5a
+    # pilot would be written as G5Q
+    track, ln = _still_channel(SFS)
+    pilot = _still_pilot()
+    with pytest.raises(ValueError, match="L5 is not an L1 C/A track"):
+        make_observables([pilot], [ln])
+    with pytest.raises(ValueError, match="L5 is not an L1 C/A track"):
+        make_joint_observables([pilot], [ln], [pilot])
+    with pytest.raises(ValueError, match="L1CA is not an L5 pilot track"):
+        make_joint_observables([track], [ln], [track])
+    with pytest.raises(ValueError, match="E5A is not an L5 pilot track"):
+        make_joint_observables([track], [ln], [dataclasses.replace(pilot, signal="E5A")])
