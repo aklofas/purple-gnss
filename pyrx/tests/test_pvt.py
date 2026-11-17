@@ -5,7 +5,7 @@ import pytest
 from scipy.stats import chi2
 from support import IONO
 
-from pyrx import models
+from pyrx import models, pvt
 from pyrx.ephemeris import Ionosphere
 from pyrx.models import azimuth_elevation
 from pyrx.observations import Epoch, Observation
@@ -205,18 +205,22 @@ def test_unknown_weights_are_rejected():
 
 
 def test_the_solver_converts_its_position_to_geodetic_once_per_iteration(monkeypatch):
-    # the azimuth of every satellite is taken from one receiver position: it is handed the
-    # latitude, longitude and height the iteration already has
+    # the azimuths of an iteration are all taken from one receiver position: each is handed
+    # the latitude, longitude and height of that iterate, converted once
     ephs = constellation()
     ep = truth_epoch(ephs, USUD, 1e-4)
-    calls = []
-    real = models.geodetic
-    monkeypatch.setattr(models, "geodetic", lambda xyz: calls.append(1) or real(xyz))
-    plain = solve_epoch(ep, ephs)
-    assert calls == []
-    monkeypatch.undo()
-    position = models.geodetic(USUD)
-    for eph in ephs:
-        sat = satellite_state(eph, TOW).position
-        assert azimuth_elevation(USUD, sat, position) == azimuth_elevation(USUD, sat)
-    assert np.linalg.norm(plain.position - USUD) < 1.0
+    converted, inside, handed = [], [], []
+    geodetic, azimuth = models.geodetic, models.azimuth_elevation
+
+    def azimuth_recorded(rx, sat, rx_geodetic=None):
+        handed.append((rx.copy(), rx_geodetic))
+        return azimuth(rx, sat, rx_geodetic)
+
+    monkeypatch.setattr(pvt, "geodetic", lambda xyz: converted.append(1) or geodetic(xyz))
+    monkeypatch.setattr(models, "geodetic", lambda xyz: inside.append(1) or geodetic(xyz))
+    monkeypatch.setattr(pvt, "azimuth_elevation", azimuth_recorded)
+    fix = solve_epoch(ep, ephs)
+    assert np.linalg.norm(fix.position - USUD) < 1.0
+    assert len(converted) >= 2 and len(handed) == len(ephs) * len(converted)
+    assert inside == []  # no azimuth converted the position again
+    assert all(given == geodetic(rx) for rx, given in handed)  # and each got its own iterate's
