@@ -761,7 +761,7 @@ of the signal (`signalspec.py`); for a pilot it runs in stages:
    reaches 0.8 of their mean magnitude), and the match is accepted only while the
    Costas loop is phase-locked (cos 2φ of the last 100 prompts at least 0.5). Without
    that condition the 20-chip code matched noise within a second on every absent PRN
-   tried.
+   tried. A window holding an epoch of exact zeros (a gap in a file) is not compared.
 4. From then on the secondary chip is removed from every prompt and the carrier loop
    is the same third-order update on the four-quadrant phase of 20 ms coherent sums
    (Pocket SDR's pilot loop): no half-cycle ambiguity, and 13 dB more signal in each
