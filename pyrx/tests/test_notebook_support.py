@@ -87,6 +87,18 @@ def test_synthetic_recording_is_cached_and_sized(tmp_path):
     assert path.stat().st_mtime == mtime
 
 
+def test_reference_runner_turns_away_a_frequency_rtklib_would_ignore(tmp_path):
+    # this build of RTKLIB reads l1, l1+2, l1+2+3 and runs its default on anything else
+    try:
+        nbsupport.rnx2rtkp_rtk(
+            "r.obs", "b.obs", "a.nav", tmp_path, np.zeros(3), 0.0, 0.0, nbsupport.RTK_SPAN, "l1+l2"
+        )
+    except ValueError as e:
+        assert "l1+l2" in str(e)
+    else:
+        raise AssertionError("no ValueError")
+
+
 def test_reference_runners_return_none_without_rtklib(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert nbsupport.rnx2rtkp_single("a.obs", "a.nav", tmp_path, nbsupport.PVT_SPAN) is None

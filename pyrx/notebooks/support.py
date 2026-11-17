@@ -521,10 +521,13 @@ def rnx2rtkp_single(obs, nav, out_dir, span) -> dict[tuple[int, float], np.ndarr
 
 
 def rnx2rtkp_rtk(
-    rover, base, nav, out_dir, base_xyz, base_up, rover_up, span, freq="l1+l2", navsys=1
+    rover, base, nav, out_dir, base_xyz, base_up, rover_up, span, freq="l1+2", navsys=1
 ) -> dict[tuple[int, float], dict] | None:
     """RTKLIB's kinematic relative solutions keyed by (week, tow to 0.1 s): `xyz`, `q`
-    (1 fixed, 2 float), `ns`, `ratio`."""
+    (1 fixed, 2 float), `ns`, `ratio`. `freq` is `l1`, `l1+2` or `l1+2+3`: this build of
+    RTKLIB runs its default (two frequencies) on any other value without a word."""
+    if freq not in ("l1", "l1+2", "l1+2+3"):
+        raise ValueError(f"pos1-frequency={freq}: RTKLIB reads l1, l1+2 or l1+2+3")
     exe = _rnx2rtkp()
     if exe is None:
         return None

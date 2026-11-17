@@ -218,17 +218,25 @@ def _rtk_run(rover, base, nav, out_dir, conf, name, ts, te) -> dict[tuple[int, f
     return sols
 
 
+def _frequencies(freq: str) -> str:
+    """`freq` if this build of RTKLIB reads it: it runs its default (two frequencies) on any
+    other value of `pos1-frequency` without a word."""
+    if freq not in ("l1", "l1+2", "l1+2+3"):
+        raise ValueError(f"pos1-frequency={freq}: RTKLIB reads l1, l1+2 or l1+2+3")
+    return freq
+
+
 def rnx2rtkp_rtk(
-    rover, base, nav, out_dir, base_xyz, base_up, rover_up, mode="kinematic", freq="l1+l2",
+    rover, base, nav, out_dir, base_xyz, base_up, rover_up, mode="kinematic", freq="l1+2",
     navsys=1, ts=None, te=None, soltype="forward", arlockcnt=0,
 ) -> dict[tuple[int, float], dict]:  # fmt: skip
     """RTKLIB's relative solutions keyed by (week, tow to 0.1 s): `xyz`, `q`, `ns`, `ratio`.
 
     `soltype` forward or backward (the filter's direction), `arlockcnt` the updates a
-    restarted ambiguity waits before the integer search. In this build of RTKLIB the
-    frequencies are `l1`, `l1+2`, `l1+2+3`; any other value is ignored without a word."""
+    restarted ambiguity waits before the integer search. `freq` is `l1`, `l1+2` or `l1+2+3`
+    (RTKLIB's frequency slots: the second is L2 and E5b, the third L5 and E5a)."""
     conf = RTK_CONF.format(
-        mode=mode, freq=freq, navsys=navsys, rover_up=rover_up, base_up=base_up,
+        mode=mode, freq=_frequencies(freq), navsys=navsys, rover_up=rover_up, base_up=base_up,
         base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype=soltype,
         arlockcnt=arlockcnt,
     )  # fmt: skip
@@ -243,7 +251,7 @@ def rnx2rtkp_ttff(
     Each window runs from its start to `length_s` after it, both ends included.
     """
     conf = RTK_CONF.format(
-        mode=mode, freq=freq, navsys=navsys, rover_up=rover_up, base_up=base_up,
+        mode=mode, freq=_frequencies(freq), navsys=navsys, rover_up=rover_up, base_up=base_up,
         base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype="forward",
         arlockcnt=0,
     )  # fmt: skip
