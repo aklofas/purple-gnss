@@ -15,6 +15,8 @@ def test_the_three_signals():
     assert [s.pilot for s in (L1CA, L5, E5A)] == [False, True, True]
     assert [s.symbol_epochs for s in (L1CA, L5, E5A)] == [0, 10, 20]
     assert [s.prns for s in (L1CA, L5, E5A)] == [range(1, 33), range(1, 33), range(1, 37)]
+    # RINEX 3.05 Table A23: L5Q is a quarter cycle from the band's reference signal L5I
+    assert [s.phase_align for s in (L1CA, L5)] == [0.0, -0.25]
 
 
 def test_codes_of_the_signals():
