@@ -669,3 +669,81 @@ def test_segment_lines_end_a_segment_at_the_next_one_of_its_own_satellite(capsys
         "PRN  7  epochs 12  P 20007.0 km  D 7.0 Hz",
         "PRN  7 from 12.0 s  epochs 18  P 20007.0 km  D 7.0 Hz",
     ]
+
+
+def _e5a_pilot(l1, prn, start=0, n=14000, sec_sync=1500):
+    """A constructed Galileo E5a pilot segment on the sample clock of the L1 track `l1`: code
+    starts 0.2 ms into the receiver's millisecond, the secondary code found 1.5 s in."""
+    t = l1.t[0] + (start + np.arange(n)) * 1e-3
+    return TrackResult(
+        prn, t, np.zeros((n, 4), np.complex64), (t + 0.2e-3) % 1e-3, np.full(n, -300.0),
+        -0.3 * np.arange(1, n + 1), np.zeros(n), np.full(n, 43.0), np.ones(n), True, None,
+        np.zeros(n), np.zeros(n), signal="E5A", sec_sync=sec_sync, sec_origin=0, sec_polarity=1,
+        data_prompt=np.zeros(n, np.complex64),
+    )  # fmt: skip
+
+
+def test_rinex_main_galileo_output(tmp_path, capsys, monkeypatch):
+    # the whole output of a run with --l5 and --galileo on constructed pilots: an E5a pilot of
+    # a satellite number GPS has too, one that begins later, and one that never found its
+    # secondary code
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    n = int(fs * (len(seq) * 0.020 + 0.1))
+    f = tmp_path / "s.bin"
+    write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq), f)
+    l5 = tmp_path / "l5.bin"
+    l5.write_bytes(b"\0" * 64)  # the pilot walks are replaced below
+    real = cli.track_prns
+    asked = {}
+
+    def walk(path, fs_, iq, f_if, prns, **kwargs):
+        signal = kwargs.get("signal", "L1CA")
+        asked[signal] = (str(path), fs_, iq, f_if, list(prns))
+        if signal == "L1CA":
+            walk.l1 = real(path, fs_, iq, f_if, prns, **kwargs)
+            return walk.l1
+        if signal == "L5":
+            return [_pilot_beside(walk.l1[0], 500, 14000, 30e-9)]
+        (l1,) = walk.l1
+        return [
+            _e5a_pilot(l1, 4),
+            _e5a_pilot(l1, 11, start=6000, n=8000),
+            _e5a_pilot(l1, 30, sec_sync=None),
+        ]
+
+    monkeypatch.setattr(cli, "track_prns", walk)
+    obs = tmp_path / "o.obs"
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--l5", str(l5)]
+    assert rinex_main([*args, "--l5-f-if", "1500", "--galileo"]) == 0
+    out = capsys.readouterr().out
+    # the E5a pilots of every Galileo satellite are looked for in the --l5 file
+    assert asked["E5A"] == (str(l5), 2.5e6, True, 1500.0, list(range(1, 37)))
+    lines = out.splitlines()
+    i = next(n for n, ln in enumerate(lines) if ln.startswith("E5Q PRN  4  epochs "))
+    assert lines[i - 1].startswith("G5Q PRN  4  epochs ")
+    assert lines[i + 1].startswith("E5Q PRN 11  epochs ") and lines[i + 2] == "E5Q PRN 30  no time tag"
+    text = obs.read_text()
+    assert "M: MIXED" in text
+    assert "E    4 C5Q L5Q D5Q S5Q" in text and "G    8 C1C L1C D1C S1C C5Q L5Q D5Q S5Q" in text
+    assert "E L5Q  0.00000" in text and "G L5Q  0.00000" in text
+    records = text.splitlines()
+    assert sum(ln.startswith("E04") for ln in records) == int(lines[i].split()[4])
+    assert sum(ln.startswith("E11") for ln in records) == int(lines[i + 1].split()[4]) > 3
+    assert not any(ln.startswith("E30") for ln in records)
+    check_golden("cli_rinex_galileo.out", without_elapsed(out))
+    check_golden("cli_rinex_galileo.obs", without_date(text))
+    # the GPS records are those of a run without --galileo
+    plain = tmp_path / "plain.obs"
+    assert rinex_main([*args[:7], str(plain), *args[8:]]) == 0
+    gps = [ln for ln in plain.read_text().splitlines() if ln.startswith("G")]
+    assert [ln for ln in records if ln.startswith("G") and len(ln) > 60] == [
+        ln for ln in gps if len(ln) > 60
+    ]
+
+
+def test_rinex_main_galileo_needs_the_l5_recording(tmp_path, capsys):
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"\1" * 64)
+    code = rinex_main([str(f), "--fs", "2.5e6", "--obs", str(tmp_path / "o.obs"), "--galileo"])
+    assert code == 2 and "--galileo" in capsys.readouterr().err
