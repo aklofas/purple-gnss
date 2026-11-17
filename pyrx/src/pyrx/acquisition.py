@@ -109,6 +109,6 @@ def acquire_signal(
     """PCPS acquisition of PRN `prn` of the signal `spec`, on the component it is tracked on."""
     period = spec.code_length / spec.chip_rate
     return acquire(
-        samples, fs, f_if, spec.code(prn), spec.chip_rate, period,
+        samples, fs, f_if, spec.replica(prn), spec.replica_rate, period,
         prn=prn, two_period=spec.pilot, **kwargs,
     )  # fmt: skip

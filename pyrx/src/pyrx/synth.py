@@ -112,8 +112,9 @@ def synth_pilot(
     interface specification has them (`spec.data_axis`); `cn0_dbhz` is the C/N0 of the
     pilot alone. A code period starts at sample index `code_offset`; that period carries
     chip `sec_index` of the pilot's secondary code, and the data component's secondary
-    code and symbols run on the same count, so a symbol starts wherever the count is a
-    multiple of `spec.symbol_epochs`. `symbols` (0/1, a 1 inverts) are indexed by that
+    code and symbols run on the same count of 1 ms epochs, so a symbol starts wherever the
+    count is a multiple of `spec.symbol_epochs`. Every chip of both components is
+    multiplied by the signal's subcarrier. `symbols` (0/1, a 1 inverts) are indexed by that
     count over `spec.symbol_epochs`, the ends held; random from `seed` when None. The
     carrier sits at `f_if + doppler + doppler_rate * t` Hz, t from sample 0, and the code
     rate follows the Doppler.
@@ -121,8 +122,11 @@ def synth_pilot(
     rng = np.random.default_rng(seed)
     code, data_code = spec.code(prn), spec.data_code(prn)
     sec, data_sec = spec.secondary(prn), spec.data_secondary(prn)
+    epoch_chips = spec.code_length // spec.epochs  # chips in a 1 ms epoch
+    sec_index *= spec.epochs  # as an entry of the secondary code, which is held per epoch
+    subcarrier = np.array(spec.subcarrier, dtype=np.float64)
     if symbols is None:
-        periods = int(n / fs * spec.chip_rate / spec.code_length) + 2
+        periods = int(n / fs * spec.chip_rate / epoch_chips) + 2
         symbols = rng.integers(0, 2, size=(sec_index + periods) // spec.symbol_epochs + 2)
     sym = 1.0 - 2.0 * np.asarray(symbols, dtype=np.float64)
     pilot_axis = np.conj(spec.data_axis)
@@ -135,10 +139,13 @@ def synth_pilot(
         swept = doppler * (t - t0) + 0.5 * doppler_rate * (t * t - t0 * t0)  # Doppler cycles
         chips = spec.chip_rate * ((t - t0) + swept / spec.carrier)
         chip = np.floor(chips).astype(np.int64) % spec.code_length
-        count = sec_index + np.floor(chips / spec.code_length).astype(np.int64)
+        count = sec_index + np.floor(chips / epoch_chips).astype(np.int64)
         pilot = code[chip] * sec[count % len(sec)]
         symbol = sym[np.clip(count // spec.symbol_epochs, 0, len(sym) - 1)]
         data = data_code[chip] * data_sec[count % len(data_sec)] * symbol
+        if len(subcarrier) > 1:
+            part = np.floor(chips * len(subcarrier)).astype(np.int64) % len(subcarrier)
+            pilot, data = pilot * subcarrier[part], data * subcarrier[part]
         cycles = (f_if + doppler) * t + 0.5 * doppler_rate * t * t
         carrier = np.exp(2j * np.pi * (cycles % 1.0))
         # in-phase and quadrature noise drawn sample by sample, so the block size does not

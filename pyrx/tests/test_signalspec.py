@@ -1,13 +1,26 @@
 import numpy as np
 import pytest
 
-from pyrx.codes import GAL_CS20, NH10, NH20, gal_cs100, gal_e5ai, gal_e5aq, gps_ca, gps_l5i, gps_l5q
+from pyrx.codes import (
+    GAL_CS20,
+    GAL_CS25,
+    NH10,
+    NH20,
+    gal_cs100,
+    gal_e1b,
+    gal_e1c,
+    gal_e5ai,
+    gal_e5aq,
+    gps_ca,
+    gps_l5i,
+    gps_l5q,
+)
 from pyrx.signals import FREQUENCY
-from pyrx.signalspec import E5A, L1CA, L5, SIGNALS
+from pyrx.signalspec import E1, E5A, L1CA, L5, SIGNALS
 
 
 def test_the_three_signals():
-    assert SIGNALS == {"L1CA": L1CA, "L5": L5, "E5A": E5A}
+    assert SIGNALS == {"L1CA": L1CA, "L5": L5, "E5A": E5A, "E1": E1}
     assert [s.rinex for s in (L1CA, L5, E5A)] == ["G1C", "G5Q", "E5Q"]
     assert [s.carrier for s in (L1CA, L5, E5A)] == [FREQUENCY["G1"], FREQUENCY["G5"], FREQUENCY["E5"]]
     assert [s.chip_rate for s in (L1CA, L5, E5A)] == [1.023e6, 10.23e6, 10.23e6]
@@ -47,3 +60,36 @@ def test_secondary_codes_cannot_be_written_through(spec):
         with pytest.raises(ValueError, match="read-only"):
             code[0] = -code[0]
         np.testing.assert_array_equal(code, before)
+
+
+def test_the_galileo_e1_signal():
+    # the pilot E1-C leads; its 4092-chip code lasts 4 ms, four of the tracker's epochs, and
+    # every chip is one cycle of the BOC(1,1) subcarrier
+    assert (E1.name, E1.rinex, E1.carrier) == ("E1", "E1C", FREQUENCY["E1"])
+    assert (E1.chip_rate, E1.code_length, E1.epochs) == (1.023e6, 4092, 4)
+    assert E1.prns == range(1, 37) and E1.pilot
+    assert E1.subcarrier == (1, -1) and E1.replica_rate == 2.046e6
+    assert np.array_equal(E1.code(11), gal_e1c(11)) and np.array_equal(E1.data_code(11), gal_e1b(11))
+    replica = E1.replica(11)
+    assert replica.shape == (8184,) and replica.dtype == np.int8
+    assert np.array_equal(replica[0::2], gal_e1c(11)) and np.array_equal(replica[1::2], -gal_e1c(11))
+    assert np.array_equal(E1.data_replica(11)[0::2], gal_e1b(11))
+    # the 25-chip secondary code, each chip over the four epochs of a code period
+    assert np.array_equal(E1.secondary(11), np.repeat(GAL_CS25, 4))
+    # a symbol of E1-B is one code period, with no secondary code on it
+    assert E1.symbol_epochs == 4 and E1.data_secondary(11).tolist() == [1]
+    # ICD Eq. 11: the two components on one axis with opposite signs
+    assert E1.data_axis == -1
+    # RINEX 3.05 Table A23: L1C half a cycle from the band's reference signal L1B
+    assert E1.phase_align == 0.5
+    # side peaks half a chip either side; the discriminator nine times as steep as a plain
+    # code's at a quarter chip
+    assert E1.side_taps == (0.5, -0.5) and E1.dll_slope == 9.0
+
+
+def test_plain_signals_are_their_own_replica():
+    for spec, prn in ((L1CA, 3), (L5, 6), (E5A, 2)):
+        assert spec.epochs == 1 and spec.subcarrier == (1,) and spec.replica_rate == spec.chip_rate
+        assert spec.replica(prn) is spec.code(prn)
+        assert spec.side_taps == () and spec.dll_slope == 1.0
+    assert L5.data_replica(6) is L5.data_code(6)
