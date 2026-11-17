@@ -1,11 +1,12 @@
 import numpy as np
 import pytest
 
-from pyrx.observations import Observations, to_epoch
+from pyrx.observations import Epoch, Observation, Observations, to_epoch
 from pyrx.rinex import (
     read_rinex_header,
     read_rinex_obs,
     read_rinex_observations,
+    write_rinex_obs,
     write_rinex_observations,
 )
 from pyrx.signals import signal_frequency, wavelength
@@ -267,14 +268,22 @@ def test_writer_declares_a_phase_shift_per_phase_code(tmp_path):
     assert lines.index("G L1C".ljust(60) + "SYS / PHASE SHIFT") < lines.index(END_OF_HEADER[:-1])
 
 
-def test_an_epoch_of_a_hundred_satellites_keeps_its_count_in_three_columns(tmp_path):
+@pytest.mark.parametrize("writer", ["L1", "signals"])
+def test_an_epoch_of_a_hundred_satellites_keeps_its_count_in_three_columns(tmp_path, writer):
     # the count is I3 in columns 33 to 35, right after the epoch flag
-    sats = tuple(f"G{n:02d}" for n in range(1, 100)) + ("E01",)
-    values = np.full((100, 1), 2.0e7)
-    lli = np.zeros((100, 1), dtype=int)
-    epoch = Observations(2190, 0.0, sats, ("G1C",), values, values, values, values, lli)
-    write_rinex_observations(tmp_path / "w.obs", [epoch], "TEST")
-    [line] = [x for x in (tmp_path / "w.obs").read_text().splitlines() if x.startswith(">")]
-    assert line[29:] == "  0100" and len(line) == 35
-    [back] = read_rinex_observations(tmp_path / "w.obs", ("G1C",))
-    assert len(back.sats) == 99  # the Galileo satellite has no G1C
+    path = tmp_path / "w.obs"
+    if writer == "L1":
+        obs = [Observation(prn, 2.0e7, 2.0e7, 2.0e7, 2.0e7) for prn in range(100)]
+        write_rinex_obs(path, [Epoch(2190, 0.0, obs)])
+    else:
+        sats = tuple(f"G{n:02d}" for n in range(100))
+        values = np.full((100, 1), 2.0e7)
+        lli = np.zeros((100, 1), dtype=int)
+        epoch = Observations(2190, 0.0, sats, ("G1C",), values, values, values, values, lli)
+        write_rinex_observations(path, [epoch], "TEST")
+    lines = path.read_text().splitlines()
+    [at] = [n for n, x in enumerate(lines) if x.startswith(">")]
+    assert lines[at][29:] == "  0100" and len(lines[at]) == 35
+    assert len(lines) == at + 101 and lines[-1].startswith("G99")
+    [back] = read_rinex_observations(path, ("G1C",))
+    assert len(back.sats) == 100
