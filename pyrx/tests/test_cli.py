@@ -501,6 +501,48 @@ def test_rinex_main_adds_l5_observations(tmp_path, capsys, monkeypatch):
     assert [ln[: 3 + 16 * 4].rstrip() for ln in records] == [ln.rstrip() for ln in l1_only]
 
 
+def test_rinex_main_l5_output(tmp_path, capsys, monkeypatch):
+    # the whole output of a run with --l5, on a constructed pilot with a coasted stretch
+    # between two observations and a window without phase lock
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    n = int(fs * (len(seq) * 0.020 + 0.1))
+    f = tmp_path / "s.bin"
+    write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq), f)
+    l5 = tmp_path / "l5.bin"
+    l5.write_bytes(b"\0" * 64)  # the L5 walk is replaced below; only the file's presence counts
+    real = cli.track_prns
+
+    def walk(path, fs_, iq, f_if, prns, **kwargs):
+        if kwargs.get("signal") != "L5":
+            walk.l1 = real(path, fs_, iq, f_if, prns, **kwargs)
+            return walk.l1
+        pilot = _pilot_beside(walk.l1[0], 500, 14000, 30e-9)
+        held = np.zeros(14000, dtype=bool)
+        held[6100:6301:20] = True  # eleven coasted sums
+        lock = np.ones(14000)
+        lock[9000:10000] = 0.1
+        return [replace(pilot, held=held, phase_lock=lock)]
+
+    monkeypatch.setattr(cli, "track_prns", walk)
+    obs = tmp_path / "o.obs"
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--l5", str(l5)]
+    assert rinex_main(args) == 0
+    out = capsys.readouterr().out
+    records = [ln for ln in obs.read_text().splitlines() if ln.startswith("G04")]
+    l5q = [ln[3 + 16 * 5 : 3 + 16 * 6] for ln in records]  # the L5Q field with its indicator
+    assert l5q[0].strip() == "" and len(records[0].rstrip()) == 3 + 16 * 4 - 2  # L1 alone
+    # one phase blank in the unlocked window with its pseudorange kept, and the slip flag on
+    # the phases of the first 2 s, after the coasted stretch and after the unlocked window
+    blank = [n for n, ln in enumerate(records) if len(ln) > 3 + 16 * 5 and not l5q[n].strip()]
+    assert len(blank) == 1 and records[blank[0]][3 + 16 * 4 : 3 + 16 * 5].strip()
+    flagged = [n for n, field in enumerate(l5q) if field[14:15] == "1"]
+    first = next(n for n, field in enumerate(l5q) if field.strip())
+    assert flagged[0] == first and blank[0] + 1 in flagged and len(flagged) == 3
+    check_golden("cli_rinex_l5.out", without_elapsed(out))
+    check_golden("cli_rinex_l5.obs", without_date(obs.read_text()))
+
+
 def test_rinex_main_reports_a_missing_or_empty_l5_file(tmp_path, capsys):
     f = tmp_path / "s.bin"
     f.write_bytes(b"\0" * 64)
