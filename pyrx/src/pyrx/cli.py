@@ -17,7 +17,7 @@ from pyrx.channels import TRIAL, track_prns
 from pyrx.gpstime import WEEK_S, gps_datetime
 from pyrx.models import Station, geodetic
 from pyrx.navdecode import decode_lnav, ephemerides_by_prn, ionosphere_of, tow1_by_prn
-from pyrx.observables import make_joint_observables, make_observables, receiver_time0
+from pyrx.observables import joint_observables, l1_observables, prepare
 from pyrx.plots import plot_acquisition, plot_cn0, plot_tracking, write_track_log
 from pyrx.pvt import ELEVATION_MASK, WEIGHTS, solve
 from pyrx.rinex import (
@@ -167,6 +167,26 @@ def _in_segment(t_file: float, r: TrackResult, t_end: float | None) -> bool:
     """Whether an observation at `t_file` seconds into the recording belongs to segment `r`,
     which ends where the PRN's next segment starts (`t_end`, None for the last one)."""
     return r.t[0] <= t_file and (t_end is None or t_file < t_end)
+
+
+def _print_segments(segments: list[TrackResult], prefix: str, rx0: float, rows) -> None:
+    """One line per track segment: its observations among `rows(segment)`, the (time of week,
+    pseudorange, Doppler) of its satellite's signal in every epoch, counted where the
+    pseudorange exists, with the first one's values; `no time tag` for a segment without."""
+    for i, r in enumerate(segments):
+        label = f"{prefix}{_segment_label(segments, i)}"
+        later = i + 1 < len(segments) and segments[i + 1].prn == r.prn
+        t_end = segments[i + 1].t[0] if later else None
+        mine = [
+            (p, d)
+            for tow, p, d in rows(r)
+            if _in_segment((tow - rx0) % WEEK_S, r, t_end) and np.isfinite(p)
+        ]
+        if not mine:
+            print(f"{label}  no time tag")
+            continue
+        first_p, first_d = mine[0]
+        print(f"{label}  epochs {len(mine)}  P {first_p / 1e3:.1f} km  D {first_d:.1f} Hz")
 
 
 def _plot_name(tracks: list[TrackResult], i: int, prefix: str) -> str:
@@ -346,25 +366,18 @@ def rinex_main(argv: list[str] | None = None) -> int:
         return 2
     tracks, t0 = tracked
     lnavs = [decode_lnav(r) for r in tracks]
-    epochs = make_observables(tracks, lnavs, args.interval, args.week)
+    run = prepare(tracks, lnavs, args.interval)
+    epochs = [] if run is None else l1_observables(run, args.week)
     elapsed = time.perf_counter() - t0
-    rx0 = receiver_time0(tracks, lnavs) if epochs else 0.0
-    for i, r in enumerate(tracks):
-        label = _segment_label(tracks, i)
-        t_end = tracks[i + 1].t[0] if i + 1 < len(tracks) and tracks[i + 1].prn == r.prn else None
-        mine = [
-            o
-            for e in epochs
-            for o in e.obs
-            if o.prn == r.prn and _in_segment((e.tow - rx0) % WEEK_S, r, t_end)
-        ]
-        if not mine:
-            print(f"{label}  no time tag")
-            continue
-        print(
-            f"{label}  epochs {len(mine)}  P {mine[0].pseudorange / 1e3:.1f} km  "
-            f"D {mine[0].doppler:.1f} Hz"
-        )
+    rx0 = run.rx0 if epochs else 0.0
+    _print_segments(
+        tracks,
+        "",
+        rx0,
+        lambda r: [
+            (e.tow, o.pseudorange, o.doppler) for e in epochs for o in e.obs if o.prn == r.prn
+        ],
+    )
     if not epochs or epochs[0].week is None:
         what = "no observations" if not epochs else "week unknown (no subframe 1); give --week"
         print(f"{what}, nothing written", file=sys.stderr)
@@ -395,24 +408,15 @@ def rinex_main(argv: list[str] | None = None) -> int:
                 "that the file is the L5 band of the same capture",
                 file=sys.stderr,
             )
-        joint = make_joint_observables(tracks, lnavs, pilots, args.interval, args.week)
+        joint = joint_observables(run, epochs, pilots)
         elapsed = time.perf_counter() - t0
-        for i, r in enumerate(pilots):
-            label = f"G5Q {_segment_label(pilots, i)}"
-            later = i + 1 < len(pilots) and pilots[i + 1].prn == r.prn
-            t_end = pilots[i + 1].t[0] if later else None
+
+        def pilot_rows(r):
             sat = f"G{r.prn:02d}"
-            mine = [
-                (e.pseudorange[e.sats.index(sat), 1], e.doppler[e.sats.index(sat), 1])
-                for e in joint
-                if sat in e.sats and _in_segment((e.tow - rx0) % WEEK_S, r, t_end)
-            ]
-            mine = [m for m in mine if np.isfinite(m[0])]
-            if not mine:
-                print(f"{label}  no time tag")
-                continue
-            first_p, first_d = mine[0]
-            print(f"{label}  epochs {len(mine)}  P {first_p / 1e3:.1f} km  D {first_d:.1f} Hz")
+            at = [(e, e.sats.index(sat)) for e in joint if sat in e.sats]
+            return [(e.tow, e.pseudorange[i, 1], e.doppler[i, 1]) for e, i in at]
+
+        _print_segments(pilots, "G5Q ", rx0, pilot_rows)
         write_rinex_observations(args.obs, joint, args.marker, marker_type=args.marker_type)
     print(
         f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "
