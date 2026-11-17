@@ -62,6 +62,8 @@
 
 **C/N0 weighting.** Giving a pseudorange less weight in the fix the weaker its signal was, since its noise grows as C/N0 falls at any elevation. [A standalone fix](08-standalone-fix.md).
 
+**Coasting.** Running a tracking loop on at its Doppler and Doppler rate through a correlation sum that carries no signal, instead of updating on its noise; the phase is extrapolated and can come back a cycle away. [Staying locked](05-tracking.md).
+
 **Code phase.** Where in its repeating period the received code is at a given sample; the raw timing measurement. [Finding a satellite](04-acquisition.md).
 
 **Coherent integration.** Summing correlator products with their signs and phases intact, so that the signal adds up in amplitude while noise adds up only in power; limited by data-bit flips, the frequency error and the oscillator. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md), [Staying locked](05-tracking.md).
@@ -134,6 +136,8 @@
 
 **Forward error correction.** FEC, redundancy added to a message so that the receiver can correct some bit errors itself, without a retransmission. Modern signals use it where LNAV uses parity. [Reading the message](06-navigation-message.md).
 
+**Four-quadrant discriminator.** The full phase angle of a prompt sum, atan2(Q, I), which covers the whole cycle; usable on a pilot, whose sign does not flip with data. [Staying locked](05-tracking.md).
+
 **FPGA.** Field-programmable gate array, a chip of programmable digital logic; in a hardware receiver it mostly holds correlators, many running in parallel. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md).
 
 **Frame synchronization.** Finding the subframe boundaries in the bit stream, from the preamble, the parity and the 300-bit spacing between preambles; it also settles the sign the Costas loop leaves open. [Reading the message](06-navigation-message.md).
@@ -167,6 +171,8 @@
 **Integer least squares.** Finding the integer vector closest to a real-valued estimate, measured in the metric of its covariance; the problem LAMBDA solves for RTK ambiguities. [RTK](09-rtk.md).
 
 **Integrate and dump.** Summing the correlator products over one code period, reporting the sum and starting afresh. [Staying locked](05-tracking.md).
+
+**Integrator.** A running sum of past errors in a tracking loop's filter; holding it keeps a faded signal from winding it up while the rest of the loop runs on. [Staying locked](05-tracking.md).
 
 **IODE.** Issue of data, ephemeris: the number that identifies one set of broadcast ephemeris parameters. [Reading the message](06-navigation-message.md).
 
@@ -205,6 +211,8 @@
 **Loop bandwidth.** How quickly a tracking loop responds: a wide one follows fast changes but lets more noise through, a narrow one averages noise away but loses lock on fast changes. [Staying locked](05-tracking.md).
 
 **Loop filter.** The part of a tracking loop that smooths the discriminator's output and turns it into a frequency command for the NCO. [Staying locked](05-tracking.md).
+
+**Loop order.** The number of running sums around a tracking loop, the NCO's sum of frequency into phase included: a second-order loop has one integrator in its filter, a third-order loop two. [Staying locked](05-tracking.md).
 
 **Loss-of-lock indicator.** LLI, the flag a receiver reports with each carrier phase when lock was not continuous since the previous epoch, or when the phase may be half a cycle out; RINEX carries it. [The measurements](07-measurements.md), [RTK](09-rtk.md).
 
@@ -286,7 +294,7 @@
 
 **SBAS.** Satellite-based augmentation, meter-level corrections broadcast from geostationary satellites (WAAS, EGNOS). [RTK](09-rtk.md).
 
-**Secondary code.** A slow, known sign pattern laid over the primary code of many pilot signals, which the receiver must align with and remove before integrating longer. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md).
+**Secondary code.** A slow, known sign pattern laid over the primary code of many pilot signals, which the receiver must align with and remove before integrating longer. [The signal](02-the-signal.md), [Finding a satellite](04-acquisition.md), [Staying locked](05-tracking.md).
 
 **Single difference.** The difference of two receivers' measurements of one satellite, which cancels the satellite's clock. [RTK](09-rtk.md).
 
