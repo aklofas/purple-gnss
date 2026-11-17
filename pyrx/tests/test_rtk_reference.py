@@ -379,6 +379,23 @@ def test_the_file_with_galileo_has_the_gps_rows_of_the_gps_file(captures, captur
             np.testing.assert_array_equal(getattr(a, field), getattr(b, field))
 
 
+@pytest.mark.parametrize("backward", [False, True])
+def test_galileo_rows_without_a_base_for_them_change_nothing(captures, backward):
+    # the rover's file with Galileo against the base's GPS-only file: a system only one
+    # receiver has takes no part, and every epoch comes out as from the GPS file
+    rover, base, ephs, iono, station, delta, _ = _car(captures, DRIVING, L1_L5)
+    options = RtkOptions(backward=backward, **COMMAND)
+    plain = solve_rtk(rover, base, ephs, station, delta, options, iono)
+    mixed = read_rinex_observations(capture_file(captures, f"{DRIVING}/pyrx_gal.obs"), WITH_E5A)
+    gps_base = read_rinex_observations(capture_file(captures, CAR_BASE), WITH_E5A)
+    more = ephs + _galileo_ephemerides(captures)
+    fixes = solve_rtk(mixed, gps_base, more, station, delta, options, iono)
+    assert len(fixes) == len(plain) > 270
+    for a, b in zip(fixes, plain, strict=True):
+        assert (a.tow, a.status, a.ns, a.ratio) == (b.tow, b.status, b.ns, b.ratio)
+        np.testing.assert_array_equal(a.position, b.position)
+
+
 @pytest.mark.parametrize("capture", [STATIC, COLD_START])
 def test_galileo_pseudoranges_fit_the_broadcast_orbits_at_the_gps_fix(captures, capture):
     # A Galileo pilot takes its time from its own secondary code and the receiver's GPS
