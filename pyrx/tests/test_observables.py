@@ -16,6 +16,7 @@ from pyrx.observables import (
     L5Q_ALIGN,
     LLI_HALF_CYCLE,
     LLI_SLIP,
+    code_starts,
     make_joint_observables,
     make_observables,
     pilot_transmit_times,
@@ -25,8 +26,9 @@ from pyrx.observables import (
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
 from pyrx.synth import frame, synth_l1ca
-from pyrx.tracking import TrackResult, track_l1ca
+from pyrx.tracking import T_PILOT_COH, TrackResult, track_l1ca
 
+PILOT_SUM = round(T_PILOT_COH / CA_PERIOD)  # epochs in a pilot loop's coherent sum
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 
 
@@ -586,29 +588,65 @@ def test_joint_observables_need_the_week():
     assert make_joint_observables([track], [no_wn], [_still_pilot()], week=142)[0].week == 142
 
 
-def test_pilot_phase_after_a_held_stretch_is_a_slip():
-    # while the pilot loop coasted the signal was gone or too faded to use and the phase is
-    # an extrapolation: it may be whole cycles away though every window still reads locked,
-    # so the first phase after such a stretch begins a new ambiguity
+def _pilot_epoch_after(seconds):
+    """The still L1 channel with its decode, the joint observations with the still pilot,
+    the index of the first observation later than `seconds` into the recording and the
+    pilot epoch it falls in."""
     track, ln = _still_channel(SFS)
     base = make_joint_observables([track], [ln], [_still_pilot()])
     rx0 = receiver_time0([track], [ln])
     times = [o.tow - rx0 for o in base]  # s into the recording, one per second
-    i = next(n for n, t in enumerate(times) if t > 10.0)
-    k = round(times[i] * 1000)  # the epoch of that observation
-    held = np.zeros(30000, dtype=bool)
-    held[k + 100 : k + 500] = True  # wholly between observations i and i + 1
-    held[k + 2900 : k + 3100] = True  # around observation i + 3
+    i = next(n for n, t in enumerate(times) if t > seconds)
+    k = int(np.searchsorted(code_starts(_still_pilot()), times[i], side="right")) - 1
+    return track, ln, base, i, k
+
+
+def _slip_changes(joint, base):
+    pairs = list(zip(joint, base, strict=True))
+    return [n for n, (o, b) in enumerate(pairs) if _g5q(o)[0][4] != _g5q(b)[0][4]]
+
+
+def test_pilot_phase_after_a_coasted_stretch_is_a_slip():
+    # while the pilot loop coasted the signal was gone or too faded to use and the phase is
+    # an extrapolation: it may be whole cycles away though every window still reads locked,
+    # so a phase after such a stretch begins a new ambiguity
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    held = np.zeros(30000, dtype=bool)  # the tracker marks the epoch completing a coasted sum
+    held[k + 100 : k + 501 : PILOT_SUM] = True  # wholly between observations i and i + 1
+    held[k + 2900 : k + 3101 : PILOT_SUM] = True  # around observation i + 3
     pilot = dataclasses.replace(_still_pilot(), held=held)
     joint = make_joint_observables([track], [ln], [pilot])
-    pairs = list(zip(joint, base, strict=True))
-    flagged = [n for n, (o, b) in enumerate(pairs) if _g5q(o)[0][4] != _g5q(b)[0][4]]
+    flagged = _slip_changes(joint, base)
     assert flagged == [i + 1, i + 3, i + 4]
     assert all(_g5q(joint[n])[0][4] == LLI_SLIP for n in flagged)
-    for o, b in pairs:
+    for o, b in zip(joint, base, strict=True):
         # the values themselves are untouched, and so is L1's indicator
         np.testing.assert_array_equal(_g5q(o)[0][:4], _g5q(b)[0][:4])
         assert _g5q(o)[1][4] == _g5q(b)[1][4]
+
+
+@pytest.mark.parametrize("offset", [-PILOT_SUM - 1, -PILOT_SUM, -1, 0, 1, PILOT_SUM, PILOT_SUM + 1])
+def test_the_first_pilot_phase_holding_the_return_from_a_coast_is_a_slip(offset):
+    # the loop returns to the signal with the first sum it takes after the coasted ones, and
+    # that update reaches the phase one epoch after the sum is complete: an observation
+    # between the last coasted sum and that epoch is still on the old cycle, so the one
+    # after it has to be flagged too
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    last = k + offset  # the epoch completing the last coasted sum
+    held = np.zeros(30000, dtype=bool)
+    held[last - 10 * PILOT_SUM : last + 1 : PILOT_SUM] = True
+    still = _still_pilot()
+    phase = still.carrier_phase.copy()
+    phase[last + PILOT_SUM + 1 :] += 1.0  # the loop comes back a whole cycle away
+    pilot = dataclasses.replace(still, held=held, carrier_phase=phase)
+    joint = make_joint_observables([track], [ln], [pilot])
+    moved = [
+        n for n, (o, b) in enumerate(zip(joint, base, strict=True))
+        if _g5q(o)[0][1] != _g5q(b)[0][1]
+    ]  # fmt: skip
+    assert moved[0] == (i if offset == -PILOT_SUM - 1 else i + 1)
+    assert _g5q(joint[moved[0]])[0][4] == LLI_SLIP
+    assert _slip_changes(joint, base) == list(range(i, moved[0] + 1))
 
 
 def test_pilot_observations_in_the_first_two_seconds_are_flagged():

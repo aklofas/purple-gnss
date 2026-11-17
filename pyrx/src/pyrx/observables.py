@@ -51,7 +51,9 @@ the tracker settled on the inverted pilot the reported phase gets the half cycle
 and the quarter cycle that aligns L5Q with the band's reference signal L5I (RINEX 3.05
 Table A23) is applied here, as a receiver does. The pilot's loop coasts through an outage
 on an extrapolation and can return whole cycles away with its window indicator still
-high, so the first phase after any coasted sum is flagged as a slip.
+high. It returns with the first sum it takes after the coasted ones, and that update
+reaches the phase one epoch after the sum is complete, so every phase from a coasted sum
+to the first one that holds the return is flagged as a slip.
 """
 
 from math import ceil, floor
@@ -64,7 +66,7 @@ from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
 from pyrx.observations import Epoch, Observation, Observations
-from pyrx.tracking import PLI_LOCKED, TrackResult
+from pyrx.tracking import PLI_LOCKED, T_PILOT_COH, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
 T_LOCK = 2.0  # s into a channel over which its observations carry the slip flag
@@ -78,6 +80,9 @@ L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3
 # paths through a front end differed by 0.1 microsecond on the two front ends measured, and
 # a pilot locked on something else lands anywhere in the millisecond
 ANCHOR_TOLERANCE = 1e-6
+# epochs from the one completing a pilot's coasted sum to the first whose phase holds the
+# next sum's update
+COAST_RETURN = round(T_PILOT_COH / CA_PERIOD) + 1
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -179,6 +184,17 @@ def _faded(tr: TrackResult) -> np.ndarray | None:
     span = round(FADE_SPAN / CA_PERIOD)
     count[span:] -= count[:-span].copy()
     return count >= round(FADE_SLIP / CA_PERIOD)
+
+
+def _coasting(tr: TrackResult) -> np.ndarray | None:
+    """Per epoch of a pilot, whether a coasted sum completed within the COAST_RETURN epochs up
+    to it, so that its phase may not hold the loop's return yet; None for a track without
+    the record."""
+    if tr.held is None:
+        return None
+    count = np.cumsum(tr.held)
+    count[COAST_RETURN + 1 :] -= count[: -COAST_RETURN - 1].copy()
+    return count > 0
 
 
 def _weeks_on(first: int, interval: float) -> int:
@@ -338,6 +354,7 @@ def make_joint_observables(
         time0 = _pilot_time0(starts, l1)
         if time0 is not None and tr.sec_sync is not None:
             anchored.append((tr, starts, time0))
+    coasting = [_coasting(tr) for tr, _, _ in anchored]
     last_k = [-1] * len(anchored)
     last_phase_k = [-1] * len(anchored)
     out = []
@@ -354,7 +371,7 @@ def make_joint_observables(
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
             locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
-            coasted = tr.held is not None and tr.held[last_phase_k[c] + 1 : k + 1].any()
+            coasted = coasting[c] is not None and coasting[c][last_phase_k[c] + 1 : k + 1].any()
             lli = 0
             if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all() or coasted:
                 lli = LLI_SLIP
