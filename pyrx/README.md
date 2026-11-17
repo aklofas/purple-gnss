@@ -696,7 +696,7 @@ other after 19, and nothing in the recordings says which was right. The window's
 indicator shows none of this: it is weighted by the power of the sums, so 0.2 s of
 signal and 0.8 s of noise still read 0.95. The tracker therefore marks every coasted
 sum, and every `L5Q` from a coasted sum to the first one that holds the loop's return
-(the next sum's update, 21 ms after the coasted sum ended) carries the loss-of-lock
+(the next sum's update, 20 ms after the coasted sum ended) carries the loss-of-lock
 indicator.
 
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
