@@ -59,11 +59,21 @@ _GAL_NAMES = {k: v for k, v in _NAV_NAMES.items() if v in (
 
 
 def _line(content: str, label: str) -> str:
+    if len(content) > 60:  # the label starts in column 61
+        raise ValueError(f"{label} record is longer than 60 characters: {content!r}")
     return f"{content:<60s}{label}\n"
+
+
+def _field(value: str, width: int, what: str) -> str:
+    """`value`, refused when it would run past the `width` characters of its header field."""
+    if len(value) > width:
+        raise ValueError(f"{what} {value!r} is longer than its {width} characters")
+    return value
 
 
 def _pgm_line(program: str) -> str:
     date = datetime.now(UTC).strftime("%Y%m%d %H%M%S UTC")
+    program = _field(program, 20, "program name")
     return _line(f"{program:<20s}{'':<20s}{date:<20s}", "PGM / RUN BY / DATE")
 
 
@@ -109,7 +119,7 @@ def write_rinex_obs(
         ),
         _pgm_line(program),
         _line(marker, "MARKER NAME"),
-        *([_line(marker_type, "MARKER TYPE")] if marker_type else []),
+        *([_line(_field(marker_type, 20, "MARKER TYPE"), "MARKER TYPE")] if marker_type else []),
         _line("", "OBSERVER / AGENCY"),
         _line(f"{'':<20s}{program:<20s}", "REC # / TYPE / VERS"),
         _line("", "ANT # / TYPE"),
@@ -492,7 +502,7 @@ def write_rinex_observations(
         ),
         _pgm_line(program),
         _line(marker, "MARKER NAME"),
-        *([_line(marker_type, "MARKER TYPE")] if marker_type else []),
+        *([_line(_field(marker_type, 20, "MARKER TYPE"), "MARKER TYPE")] if marker_type else []),
         _line("", "OBSERVER / AGENCY"),
         _line(f"{'':<20s}{program:<20s}", "REC # / TYPE / VERS"),
         _line("", "ANT # / TYPE"),

@@ -362,3 +362,32 @@ def test_write_rinex_nav_golden(tmp_path):
     check_golden("write_rinex_nav.nav", without_date((tmp_path / "n.nav").read_text()))
     write_rinex_nav(tmp_path / "e.nav", [], {})
     check_golden("write_rinex_nav_empty.nav", without_date((tmp_path / "e.nav").read_text()))
+
+
+@pytest.mark.parametrize("write", [write_rinex_obs, write_rinex_observations])
+@pytest.mark.parametrize(
+    ("kwargs", "what"),
+    [
+        ({"marker": "M" * 61}, "MARKER NAME"),
+        ({"marker_type": "T" * 21}, "MARKER TYPE"),
+        ({"program": "P" * 21}, "program"),
+    ],
+)
+def test_writers_refuse_a_header_value_wider_than_its_field(tmp_path, write, kwargs, what):
+    # a longer value would push the label out of column 61, or run into the next field
+    with pytest.raises(ValueError, match=what):
+        write(tmp_path / "a.obs", [], **kwargs)
+    assert not (tmp_path / "a.obs").exists()
+
+
+@pytest.mark.parametrize("write", [write_rinex_obs, write_rinex_observations])
+def test_writers_take_header_values_that_fill_their_fields(tmp_path, write):
+    write(tmp_path / "a.obs", [], "M" * 60, "P" * 20, marker_type="T" * 20)
+    lines = (tmp_path / "a.obs").read_text().splitlines()
+    assert "M" * 60 + "MARKER NAME" in lines and "T" * 20 + " " * 40 + "MARKER TYPE" in lines
+    assert all(len(line) <= 80 and line[60:] == line[60:].strip() for line in lines)
+
+
+def test_nav_writer_refuses_a_program_name_wider_than_its_field(tmp_path):
+    with pytest.raises(ValueError, match="program"):
+        write_rinex_nav(tmp_path / "a.nav", [], {}, program="P" * 21)
