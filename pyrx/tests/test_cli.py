@@ -3,6 +3,7 @@ import json
 import re
 import sys
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,6 +21,7 @@ from pyrx.cli import (
     rtk_main,
     trk_main,
 )
+from pyrx.ephemeris import Ionosphere
 from pyrx.pvt import solve
 from pyrx.rinex import (
     read_rinex_nav,
@@ -32,6 +34,7 @@ from pyrx.signalspec import L5
 from pyrx.synth import (
     TOW,
     USUD,
+    as_galileo,
     constellation,
     frame,
     synth_l1ca,
@@ -747,3 +750,41 @@ def test_rinex_main_galileo_needs_the_l5_recording(tmp_path, capsys):
     f.write_bytes(b"\1" * 64)
     code = rinex_main([str(f), "--fs", "2.5e6", "--obs", str(tmp_path / "o.obs"), "--galileo"])
     assert code == 2 and "--galileo" in capsys.readouterr().err
+
+
+def test_rtk_main_takes_each_system_from_the_first_navigation_file_that_has_it(
+    tmp_path, capsys, monkeypatch
+):
+    # the rover's own decoded GPS file first, a public file for the systems it lacks: the
+    # GPS records of the further files are not used, nor is a later ionosphere
+    rng = np.random.default_rng(20)
+    gps = constellation()
+    pairs = [
+        synthetic_pair(gps, USUD, ROVER, TOW + 30.0 * k, SIGNALS, AMB_R, AMB_B, rng)
+        for k in range(4)
+    ]
+    rov, base = tmp_path / "r.obs", tmp_path / "b.obs"
+    write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
+    write_rinex_observations(base, [p[1] for p in pairs], "BASE")
+    other_gps = [replace(e, af0=e.af0 + 1e-6) for e in gps]
+    galileo, later_galileo = as_galileo(gps[:3]), as_galileo(gps[3:5])
+    iono = Ionosphere((1e-8, 0.0, 0.0, 0.0), (1e5, 0.0, 0.0, 0.0))
+    files = {
+        "own.nav": (gps, None),
+        "public.nav": (other_gps + galileo, iono),
+        "third.nav": (later_galileo, Ionosphere((2e-8, 0.0, 0.0, 0.0), (1e5, 0.0, 0.0, 0.0))),
+    }
+    monkeypatch.setattr(cli, "read_rinex_nav", lambda path: files[Path(path).name])
+    real, seen = cli.solve_rtk, {}
+
+    def spy(rover, base, ephs, *rest):
+        seen["ephs"], seen["iono"] = ephs, rest[-1]
+        return real(rover, base, ephs, *rest)
+
+    monkeypatch.setattr(cli, "solve_rtk", spy)
+    args = [str(rov), str(base), "own.nav", "--base-xyz", *map(str, USUD), "--signals", "G1C,G2W"]
+    assert rtk_main(args) == 0
+    assert seen["ephs"] == gps and seen["iono"] is None
+    assert rtk_main([*args, "--nav-add", "public.nav", "--nav-add", "third.nav"]) == 0
+    assert seen["ephs"] == gps + galileo and seen["iono"] is iono
+    capsys.readouterr()
