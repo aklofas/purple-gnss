@@ -360,6 +360,18 @@ def test_acq_main_takes_the_signal(tmp_path, capsys):
     check_golden("cli_acq_l5.out", without_elapsed(out))
 
 
+@pytest.mark.parametrize(
+    ("signal", "duration", "what"),
+    [("L5", "0.0015", "two code periods"), ("L1CA", "0.0005", "one code period")],
+)
+def test_acq_main_with_too_short_a_window_exits_2(tmp_path, capsys, signal, duration, what):
+    f = _l5_file(tmp_path, 0.02)
+    args = [str(f), "--fs", "6e6", "--iq", "--signal", signal, "--prn", "6"]
+    assert acq_main([*args, "--duration", duration]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and what in captured.err
+
+
 def test_acq_main_defaults_to_the_signals_prns(tmp_path, capsys):
     f = _l5_file(tmp_path, 0.02)
     assert acq_main([str(f), "--fs", "6e6", "--iq", "--signal", "E5A"]) == 0

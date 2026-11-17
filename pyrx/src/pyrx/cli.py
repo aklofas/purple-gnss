@@ -180,10 +180,14 @@ def acq_main(argv: list[str] | None = None) -> int:
     duration = args.duration if args.duration > 0 else None
     samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
     t0 = time.perf_counter()
-    if spec.pilot:
-        results = [acquire_signal(samples, args.fs, args.f_if, spec, prn) for prn in args.prn]
-    else:
-        results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
+    try:
+        if spec.pilot:
+            results = [acquire_signal(samples, args.fs, args.f_if, spec, prn) for prn in args.prn]
+        else:
+            results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
+    except ValueError as e:  # fewer samples than one block of the search
+        print(e, file=sys.stderr)
+        return 2
     elapsed = time.perf_counter() - t0
     for r in results:
         print(
