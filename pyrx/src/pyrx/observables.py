@@ -57,6 +57,7 @@ is in the phases after the epoch that completes the sum, so every phase from a c
 sum to the first one that holds the return is flagged as a slip.
 """
 
+from dataclasses import dataclass
 from math import ceil, floor
 
 import numpy as np
@@ -145,9 +146,14 @@ def receiver_time0(tracks: list[TrackResult], lnavs: list[LnavResult]) -> float:
     `make_observables` moves the origin on by a week when every observation epoch
     falls past the boundary.
     """
-    t_tx0 = [tt[0] - tc[0] for _, _, tc, tt in _usable(tracks, lnavs)]
-    if not t_tx0:
+    chans = _usable(tracks, lnavs)
+    if not chans:
         raise ValueError("no channel with a decoded subframe")
+    return _time0(chans)
+
+
+def _time0(chans) -> float:
+    t_tx0 = [tt[0] - tc[0] for _, _, tc, tt in chans]
     return round(max(t_tx0) + TRAVEL_TIME_NOMINAL, 3)
 
 
@@ -255,6 +261,55 @@ def _weeks_on(first: int, interval: float) -> int:
     return floor(first * interval / WEEK_S)
 
 
+@dataclass(frozen=True)
+class Run:
+    """What the observations of one recording share, made once by `prepare`: the L1 C/A
+    channels with a time tag, each as (track, decode, code starts, transmit times) with the
+    transmit times in one week; the receiver clock; and the epoch grid."""
+
+    chans: list[tuple[TrackResult, LnavResult, np.ndarray, np.ndarray]]
+    rx0: float  # GPS seconds of week assigned to sample 0 (`receiver_time0`)
+    interval: float  # s; epoch i of the grid is the receiver time i * interval
+    first: int  # the grid's first and last index with an observation
+    last: int
+    weeks_on: int  # whole weeks from the week of `rx0` to the first epoch
+    origin_week: int | None  # the week of `rx0` from a decoded subframe 1, None without one
+
+    def week(self, week: int | None) -> int | None:
+        """The week of the first epoch: the one given, else the decoded one, else None."""
+        if week is None and self.origin_week is not None:
+            return self.origin_week + self.weeks_on
+        return week
+
+
+def prepare(
+    tracks: list[TrackResult], lnavs: list[LnavResult], interval: float = 1.0
+) -> Run | None:
+    """The receiver clock and the epoch grid of a recording from its L1 C/A channels; None
+    when no channel has a consistent time tag. Raises ValueError for a track of another
+    signal than L1 C/A."""
+    for tr in tracks:
+        if tr.signal != "L1CA":
+            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L1 C/A track")
+    chans = _usable(tracks, lnavs)
+    if not chans:
+        return None
+    # the week of the run's time origin: a subframe 1 decoded past the rollover carries
+    # the next week's number
+    wn = [
+        full_week(sf.fields["wn"]) - int(tt[sf.epoch] // WEEK_S)
+        for _, ln, _, tt in chans
+        for sf in ln.subframes
+        if sf.sf_id == 1
+    ]
+    rx0 = _time0(chans)
+    t_begin = min(tc[int(ln.stream.epoch[0])] for _, ln, tc, _ in chans)
+    t_end = max(tc[-1] for _, _, tc, _ in chans)
+    first = ceil((rx0 + t_begin) / interval)
+    last = floor((rx0 + t_end) / interval)
+    return Run(chans, rx0, interval, first, last, _weeks_on(first, interval), wn[0] if wn else None)
+
+
 def make_observables(
     tracks: list[TrackResult],
     lnavs: list[LnavResult],
@@ -269,30 +324,16 @@ def make_observables(
     implied by any decoded subframe 1 and stays None when there is none. Raises ValueError
     for a track of another signal than L1 C/A.
     """
-    for tr in tracks:
-        if tr.signal != "L1CA":
-            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L1 C/A track")
-    chans = _usable(tracks, lnavs)
-    if not chans:
-        return []
-    # the week of the run's time origin: a subframe 1 decoded past the rollover carries
-    # the next week's number
-    wn = [
-        full_week(sf.fields["wn"]) - int(tt[sf.epoch] // WEEK_S)
-        for _, ln, _, tt in chans
-        for sf in ln.subframes
-        if sf.sf_id == 1
-    ]
-    origin_week = wn[0] if wn else None
-    rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
-    per = [(tr, ln, tc, tt, int(ln.stream.epoch[0])) for tr, ln, tc, tt in chans]
-    t_begin = min(tc[k0] for _, _, tc, _, k0 in per)
-    t_end = max(tc[-1] for _, _, tc, _, _ in per)
-    first = ceil((rx0 + t_begin) / interval)
-    last = floor((rx0 + t_end) / interval)
-    weeks_on = _weeks_on(first, interval)
-    if week is None and origin_week is not None:
-        week = origin_week + weeks_on
+    run = prepare(tracks, lnavs, interval)
+    return [] if run is None else l1_observables(run, week)
+
+
+def l1_observables(run: Run, week: int | None = None) -> list[Epoch]:
+    """`make_observables` on a prepared run."""
+    rx0, interval, weeks_on = run.rx0, run.interval, run.weeks_on
+    first, last = run.first, run.last
+    week = run.week(week)
+    per = [(tr, ln, tc, tt, int(ln.stream.epoch[0])) for tr, ln, tc, tt in run.chans]
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
     faded = [_faded(tr) for tr, _, _, _, _ in per]
     half_open = [_half_cycle_open(tr, pol) for (tr, *_), pol in zip(per, polarity, strict=True)]
@@ -403,15 +444,23 @@ def make_joint_observables(
     for tr in pilots:
         if tr.signal != "L5":
             raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L5 pilot track")
-    epochs = make_observables(tracks, lnavs, interval, week)
+    run = prepare(tracks, lnavs, interval)
+    return [] if run is None else joint_observables(run, l1_observables(run, week), pilots)
+
+
+def joint_observables(
+    run: Run, epochs: list[Epoch], pilots: list[TrackResult]
+) -> list[Observations]:
+    """`make_joint_observables` on a prepared run and the L1 epochs `l1_observables` made of
+    it, so that a caller holding both forms neither again."""
+    for tr in pilots:
+        if tr.signal != "L5":
+            raise ValueError(f"PRN {tr.prn}: {tr.signal} is not an L5 pilot track")
     if not epochs:
         return []
     if epochs[0].week is None:
         raise ValueError("week unknown: no ephemeris decoded and none given")
-    chans = _usable(tracks, lnavs)
-    rx0 = receiver_time0([c[0] for c in chans], [c[1] for c in chans])
-    t_begin = min(tc[int(ln.stream.epoch[0])] for _, ln, tc, _ in chans)
-    weeks_on = _weeks_on(ceil((rx0 + t_begin) / interval), interval)
+    chans, rx0, weeks_on = run.chans, run.rx0, run.weeks_on
     anchored = []
     for tr in pilots:
         starts = code_starts(tr)
