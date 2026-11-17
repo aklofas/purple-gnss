@@ -10,7 +10,7 @@ from support import assert_tracks_equal
 from pyrx.acquisition import acquire_signal
 from pyrx.codes import CA_PERIOD
 from pyrx.samples import ArraySamples, SampleFile
-from pyrx.signalspec import E5A, L5
+from pyrx.signalspec import E1, E5A, L5
 from pyrx.synth import synth_pilot
 from pyrx.tracking import (
     B_PLL,
@@ -32,7 +32,7 @@ N_COH = round(T_PILOT_COH / CA_PERIOD)
 N_DLL = round(T_DLL / CA_PERIOD)
 K0 = round(T_FLL_PULLIN / CA_PERIOD)  # the first Costas epoch
 W = B_PLL / 0.7845  # the third-order loop's natural frequency
-SPECS = {"L5": (L5, 6), "E5A": (E5A, 2)}
+SPECS = {"L5": (L5, 6), "E5A": (E5A, 2), "E1": (E1, 11)}
 
 
 def _signal(spec, prn, seconds, cn0, doppler=0.0, code_offset=700, **kwargs):
@@ -103,8 +103,9 @@ def test_pilot_syncs_and_wipes(name, cn0, seed):
     r = _track(x, spec, prn)
     assert r.signal == spec.name and r.locked
     assert r.sec_sync is not None and r.t[r.sec_sync] - r.t[0] <= 2.0
-    # epoch 0 is the code period at the generated offset, which carries chip sec_index
-    assert (r.sec_origin + sec_index) % n_sec == 0
+    # epoch 0 begins the code period at the generated offset, which carries chip sec_index
+    assert (r.sec_origin + sec_index * spec.epochs) % n_sec == 0
+    assert r.sec_origin % spec.epochs == 0  # the secondary chips change with the code period
     assert r.sec_polarity in (1, -1)
     wiped = r.corr[r.sec_sync + 1 :, 0] * _chips(r, spec, prn)[r.sec_sync + 1 :]
     assert np.mean(wiped.real > 0) >= 0.99
@@ -181,20 +182,20 @@ def test_pilot_tracks_a_doppler_ramp():
 def test_symbols_are_the_generated_ones(name):
     spec, prn = SPECS[name]
     sec_index = 13
-    symbols = np.random.default_rng(5).integers(0, 2, size=400)
+    symbols = np.random.default_rng(5).integers(0, 2, size=1000)  # E1 has 250 a second
     x = _signal(spec, prn, 3.2, 45.0, 800.0, seed=2, sec_index=sec_index, symbols=symbols)
     r = _track(x, spec, prn)
     assert r.sec_sync is not None and r.symbol_epoch > r.sec_sync
     assert (r.symbol_epoch - r.sec_origin) % spec.symbol_epochs == 0
     assert len(r.symbols) == (len(r.t) - r.symbol_epoch) // spec.symbol_epochs >= 50
-    first = (sec_index + r.symbol_epoch) // spec.symbol_epochs
+    first = (sec_index * spec.epochs + r.symbol_epoch) // spec.symbol_epochs
     assert np.array_equal(r.symbols < 0, symbols[first : first + len(r.symbols)] == 1)
     # the data component lies on the axis the specification gives it, not in phase with the pilot
     dsec = spec.data_secondary(prn)
     k = np.arange(r.symbol_epoch, len(r.t))
     data = r.data_prompt[k] * dsec[(k - r.sec_origin) % len(dsec)] * r.sec_polarity
     along = (data * np.conj(spec.data_axis)).real
-    assert np.sum(along**2) >= 0.9 * np.sum(np.abs(data) ** 2)
+    assert np.sum(along**2) >= 0.9 * np.sum(np.abs(data) ** 2) and np.mean(along) != 0
     # as strong as the pilot
     ratio = np.mean(np.abs(r.data_prompt[k]) ** 2) / np.mean(np.abs(r.corr[k, 0]) ** 2)
     assert abs(10 * np.log10(ratio)) < 0.5

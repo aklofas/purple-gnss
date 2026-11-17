@@ -81,6 +81,13 @@ LOST_WINDOWS = 2  # consecutive bad windows that end a track
 EL_SPACING = 0.25  # chips each side of prompt
 NOISE_TAP = -10.0  # chips
 TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, late, noise
+# A signal with a subcarrier has side peaks in its correlation, and the loops lock on one as
+# well as on the main peak. A tap at a side peak, projected on the prompt over a C/N0 window
+# (minus the sum of Re(tap conj(prompt)) over the sum of |prompt|^2), reads the correlation
+# there over the correlation at prompt with the sign turned: 0.5 from the main peak of
+# BOC(1,1), also in noise, whose correlation between the taps is the code's own; 2 toward the
+# main peak from a side peak. Above SIDE_PEAK the track is on a side peak.
+SIDE_PEAK = 1.0
 
 # Relations the loop relies on: the stages make up the pull-in; the loss rule exempts only the
 # first C/N0 window from the phase-lock test because the pull-in lies within it; the first
@@ -201,22 +208,27 @@ class CarrierLoop:
         return increment, err_phase
 
 
-def dll_update(sum_e: float, sum_l: float, code_length: int = CA_LENGTH) -> tuple[float, float]:
+def dll_update(
+    sum_e: float, sum_l: float, code_length: int = CA_LENGTH, slope: float = 1.0
+) -> tuple[float, float]:
     """The DLL's update from the early and late magnitudes summed over T_DLL: returns (code
     error, code-time advance to apply), both in seconds of code time, for a code of
-    `code_length` chips per period. A window without early or late power moves nothing:
-    (nan, 0.0).
+    `code_length` chips per 1 ms epoch whose discriminator is `slope` times as steep as a
+    plain code's. A window without early or late power moves nothing: (nan, 0.0).
     """
     if not sum_e + sum_l > 0.0:
         return np.nan, 0.0
     t = CA_PERIOD
     err_code = (sum_e - sum_l) / (sum_e + sum_l) / 2.0 * t / code_length
+    if slope != 1.0:
+        err_code /= slope
     return err_code, B_DLL / 0.25 * err_code * t * _N_DLL
 
 
 @dataclass
 class TrackResult:
-    """Per-epoch channel state; epoch k integrates one code period.
+    """Per-epoch channel state; epoch k integrates 1 ms: one code period, or a quarter of
+    Galileo E1's (epoch 0 begins a code period).
 
     t[k]: s from the source start, the first sample of epoch k's window (the code
         start rounded to the sample grid).
@@ -262,6 +274,10 @@ class TrackResult:
         power of the last complete T_DLL window was below FADE_HOLD of its running mean
         (a fade, in which the carrier phase can come back half a cycle or more away).
         False through the pull-in. A pilot channel gives the field the meaning below.
+
+    side_peak: True for a track ended because a tap at a side peak of the replica's
+        correlation outweighed the prompt over a C/N0 window (`SIDE_PEAK`): the loops stood
+        on a side peak. The track then ends before the window preceding that one.
 
     A pilot signal's channel (`signal` names the signal) adds:
 
@@ -313,6 +329,7 @@ class TrackResult:
     symbols: np.ndarray | None = None
     symbol_epoch: int | None = None
     held: np.ndarray | None = None
+    side_peak: bool = False
 
 
 def _symbols(spec: SignalSpec, prn: int, data_prompt, sec_sync, sec_origin, sec_polarity):
@@ -350,10 +367,19 @@ def track(
     fs = source.fs
     t = CA_PERIOD
     n = round(fs * t)
-    code = spec.code(prn)
+    code = spec.replica(prn)
     pilot = spec.pilot
     sec = spec.secondary(prn) if pilot else None
-    data_code = (spec.data_code(prn),) if pilot else ()  # the data component's prompt too
+    data_code = (spec.data_replica(prn),) if pilot else ()  # the data component's prompt too
+    # the replica's entries per chip and per epoch, and the taps in its entries: a signal with
+    # a subcarrier has more than one per chip, and taps at its side peaks beside the four
+    per_chip = len(spec.subcarrier)
+    per_epoch = len(code) // spec.epochs
+    taps = TAPS
+    if per_chip > 1 or spec.side_taps:
+        taps = per_chip * np.concatenate([TAPS, spec.side_taps])
+    n_side = len(spec.side_taps)
+    epoch_chips = spec.code_length // spec.epochs
     end_sample = source.n_samples
     if duration is not None:
         end_sample = min(end_sample, round((t_start + duration) * fs))
@@ -402,6 +428,8 @@ def track(
     coh_pow = 0.0
     coh_n = 0
     sum_ps = 0.0  # the power of what the phase-lock indicator is formed from
+    sum_side = np.zeros(n_side)  # each side tap projected on the prompt, sign turned
+    side_peak = False
     n_dll = _N_DLL
     n_cn0 = round(T_CN0 / t)
     bad_windows = 0
@@ -414,11 +442,15 @@ def track(
             break
         fc = f_if + fd
         chip_rate = spec.chip_rate * (1.0 + fd / spec.carrier)
+        if per_chip > 1:
+            chip_rate *= per_chip  # in entries of the replica
         residual_chips = (start / fs - t_code) * chip_rate
+        if spec.epochs > 1:
+            residual_chips += (k % spec.epochs) * per_epoch  # this epoch's part of the code
         # float64 throughout the loop state: a float32 leaking into t_code would
         # limit the code time to ~1e-10 s and random-walk the code phase
         c = correlate(
-            source.read(start, n), fs, fc, phi, code, chip_rate, residual_chips, TAPS, *data_code
+            source.read(start, n), fs, fc, phi, code, chip_rate, residual_chips, taps, *data_code
         ).astype(np.complex128)
         prompt = complex(c[0])
         epoch = k + 1
@@ -427,7 +459,9 @@ def track(
         out_corr[k] = c[:4]
         out_coff[k] = t_code % t
         if pilot:
-            out_data[k] = c[4]
+            out_data[k] = c[len(taps)]
+        if n_side:
+            sum_side -= (c[4 : 4 + n_side] * prompt.conjugate()).real
         lock_term = prompt  # what this epoch adds to the phase-lock indicator, None for nothing
 
         # carrier: FLL during pull-in on coherent sums of prompts, Costas PLL after
@@ -474,6 +508,7 @@ def track(
             and sec_sync is None
             and epoch * t >= T_SEC_SYNC
             and epoch >= max(len(sec), SEC_SYNC_LOCK_EPOCHS)
+            and epoch % spec.epochs == 0  # a secondary chip ends with a code period
         ):
             last = out_corr[epoch - len(sec) : epoch, 0].real.astype(np.float64)
             match = float(np.dot(last, sec)) / len(sec)
@@ -493,7 +528,7 @@ def track(
         sum_e += float(abs(c[1]))
         sum_l += float(abs(c[2]))
         if epoch % n_dll == 0:
-            out_err_code[k], advance = dll_update(sum_e, sum_l, spec.code_length)
+            out_err_code[k], advance = dll_update(sum_e, sum_l, epoch_chips, spec.dll_slope)
             t_code -= advance
             sum_e = sum_l = 0.0
 
@@ -516,6 +551,10 @@ def track(
             bad = cn0 < CN0_LOST or (epoch > n_cn0 and pli < PLI_LOCKED)
             bad_windows = bad_windows + 1 if bad else 0
             lost = bad_windows >= LOST_WINDOWS
+            if n_side:
+                side_peak = bool(sum_side.max() > SIDE_PEAK * sum_p)
+                lost = lost or side_peak
+                sum_side[:] = 0.0
             sum_p = sum_n = sum_d = sum_ps = 0.0
 
         # advance one code period with carrier aiding; the epoch spacing is the
@@ -536,6 +575,14 @@ def track(
             lost_at = start / fs
             break
 
+    if side_peak:
+        # the window that showed the side peak is not part of the track, nor the one before:
+        # a window shows it once two thirds of it are on the side peak, so the move can lie
+        # in the window before
+        k = max(k - 2 * n_cn0, 0)
+        lost_at = float(out_t[k])
+        if sec_sync is not None and sec_sync >= k:
+            sec_sync, sec_origin, sec_polarity = None, 0, 0
     symbols = symbol_epoch = None
     if sec_sync is not None:
         symbols, symbol_epoch = _symbols(
@@ -563,6 +610,7 @@ def track(
         symbols=symbols,
         symbol_epoch=symbol_epoch,
         held=out_held[:k],
+        side_peak=side_peak,
     )
 
 
