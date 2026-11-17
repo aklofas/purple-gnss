@@ -33,12 +33,13 @@ Beyond RTKLIB's defaults, all off unless asked for: `slips="check"` looks at a p
 only the rover flags before its ambiguity restarts, against the satellite's other
 signal and against a trial update of the rest of the epoch (`_update_biases`,
 `_test_asked`), for a receiver that flags every phase that may have slipped;
-`min_lock` is RTKLIB's pos2-arlockcnt; `min_fix_sats` keeps an epoch float unless the
-integer search spans that many satellites, since a search over a few double
-differences passes the ratio test without pinning the position; `backward` runs the
-filter from the last epoch to the first, reading the indicators as RTKLIB does
-backward, over the pairs of the forward pass (RTKLIB pairs a rover epoch with the next
-base epoch when it runs backward; the same epoch at equal rates).
+`min_lock` is RTKLIB's pos2-arlockcnt, counted as RTKLIB counts it (`_add`);
+`min_fix_sats` keeps an epoch float unless the integer search spans that many
+satellites, since a search over a few double differences passes the ratio test
+without pinning the position; `backward` runs the filter from the last epoch to the
+first, reading the indicators as RTKLIB does backward, over the pairs of the forward
+pass (RTKLIB pairs a rover epoch with the next base epoch when it runs backward; the
+same epoch at equal rates).
 """
 
 from dataclasses import dataclass, replace
@@ -79,10 +80,7 @@ class RtkOptions:
     ratio_threshold: float = 3.0
     max_age: float = 30.0  # s, oldest base epoch used
     max_outage: int = 5  # epochs a satellite may be missing before its ambiguity is dropped
-    min_lock: int = 0  # updates an ambiguity begun again waits before the integer search
-    min_fix_sats: int = 0  # satellites the searched ambiguities must span for a fix
     slip_threshold: float = 0.05  # m, geometry-free jump
-    slips: str = "restart"  # or "check": a phase the rover flags is looked at first
     max_innovation: float = 30.0  # m, a double difference beyond this is dropped; 0 for no limit
     phase_error: float = 0.003  # m, a priori phase error (constant and per sine of elevation)
     code_ratio: float = 100.0  # code error relative to phase
@@ -91,6 +89,9 @@ class RtkOptions:
     position_sigma: float = 30.0  # m, kinematic position reset
     clock_stability: float = 5e-12  # s/s, receiver clock, times the differential age
     backward: bool = False  # the epochs last to first, the flags read from the other side
+    min_lock: int = 0  # updates an ambiguity waits before the integer search (see `_add`)
+    min_fix_sats: int = 0  # satellites the searched ambiguities must span for a fix
+    slips: str = "restart"  # or "check": a phase the rover flags is looked at first
 
 
 @dataclass(frozen=True)
@@ -212,7 +213,8 @@ def pair_epochs(
 
 
 class Rtk:
-    """The filter of one baseline; call `step` once per rover epoch in time order."""
+    """The filter of one baseline; call `step` once per rover epoch, in time order or, with
+    `backward`, in reverse."""
 
     def __init__(
         self,
@@ -241,6 +243,8 @@ class Rtk:
         self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
         self.held: set[tuple[str, str]] = set()  # slips of epochs that ended early, to apply
         self.begun: set[tuple[str, str]] = set()  # every ambiguity there has been a state for
+        self.slipped: set[tuple[str, str]] = set()  # phases flagged at this epoch
+        self.epochs = 0  # epochs that reached the relative solution
         self.asked: set[tuple[str, str]] = set()  # phases in question at this epoch
         self.fresh: dict[tuple[str, str], tuple[float, bool]] = {}  # what a restart begins with
         self.gf_now: dict[tuple[str, str], float] = {}  # geometry-free values of this epoch
@@ -266,8 +270,10 @@ class Rtk:
         self.x, self.P = x, P
         self.keys.append(key)
         self.biases[key] = _Bias()
-        # RTKLIB: the lock counter is zero for a first ambiguity and -minlock after a reset
-        if key in self.begun:
+        # RTKLIB's lock counter: -minlock for an ambiguity begun again, for one begun on a
+        # phase that carries a slip, and for one begun after max_outage solved epochs
+        # without it; zero only for a first, unflagged ambiguity of the first epochs
+        if key in self.begun or key in self.slipped or self.epochs > self.opt.max_outage:
             self.biases[key].lock = -self.opt.min_lock
         self.begun.add(key)
 
@@ -304,6 +310,7 @@ class Rtk:
                     self.held.add(key)
 
     def _age(self):
+        self.epochs += 1
         for key in list(self.keys):
             b = self.biases[key]
             b.outc += 1
@@ -440,11 +447,14 @@ class Rtk:
         """
         opt = self.opt
         check = opt.slips == "check"
+        self.asked, self.gf_now = set(), {}
+        self.slipped = set()
         for key in self.held:  # slips of the epochs since the last one that came this far
             if key in self.biases:
                 self._remove(key)
+            if check:  # nor can its phase vouch for the satellite's other signal now
+                self._forget_references(*key, first_sigs[key[0][0]], signals)
         self.held.clear()
-        self.asked, self.gf_now = set(), {}
         sd = {}  # (sat, signal) -> (phase m, code m)
         halves = {}
         for sat in common:
@@ -461,6 +471,7 @@ class Rtk:
                 key = (sat, sig)
                 # backward, RTKLIB takes the half-cycle bit too from the indicators read last
                 before = self.lli_rover.get(key, 0) | self.lli_base.get(key, 0)
+                late = opt.backward and not check
                 # each receiver's indicator counts on its own, whether or not the other
                 # receiver has a phase; a base epoch reused for several rover epochs
                 # reports its slips once
@@ -470,16 +481,20 @@ class Rtk:
                     self.base_seen[key] = t_base
                     if self._flagged(self.lli_base, key, int(lli_b[jb])):
                         slip, asked = True, False
+                if slip:
+                    self.slipped.add(key)
                 phase = None
                 if isfinite(yr_p[j]) and isfinite(yb_p[jb]):
                     phase = yr_p[j] - yb_p[jb]
                     code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
                     now = int(lli_r[j] | lli_b[jb])
-                    halves[key] = bool((before if opt.backward else now) & 2)
+                    # (in check mode the bit of the phase itself, in both directions: an
+                    # ambiguity begun on a phase is searched or not by that phase's bit)
+                    halves[key] = bool((before if late else now) & 2)
                     clear = not slip
-                    asked = (
-                        asked and code is not None and key in self.biases and self.biases[key].outc == 1
-                    )  # fmt: skip
+                    # in question: its ambiguity was updated at the previous epoch
+                    asked = asked and code is not None and key in self.biases
+                    asked = asked and self.biases[key].outc == 1
                     slip = slip and not asked
                     if sig == ref_sig:
                         ref_phase, ref_asked, ref_clear = phase, asked, clear
@@ -524,6 +539,8 @@ class Rtk:
             lam = wavelength(sig)
             news = {k: (v[0] - v[1]) / lam for k, v in sd.items() if k[1] == sig}
             existing = [k for k in news if k in self.biases]
+            # a phase in question may have slipped: it follows the others, it does not lead
+            existing = [k for k in existing if k not in self.asked] or existing
             if existing:
                 offset = np.mean([news[k] - self.x[self._index(k)] for k in existing])
                 for k in self.keys:
