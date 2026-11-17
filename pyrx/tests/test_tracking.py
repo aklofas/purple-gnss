@@ -151,10 +151,11 @@ def test_track_cn0_held_between_updates():
 
 
 def test_track_cn0_is_the_smoothed_estimate_of_completed_windows():
-    # the value at an epoch never uses the window the epoch is in: it is the seed during
-    # the first window, then after each completed 1 s window the previous value moved
-    # halfway to that window's estimate from the prompt and noise sums, held for the
-    # next 1000 epochs. Seeded 5 dB high, it closes half of the gap per window
+    # the value at an epoch uses the window the epoch is in only at that window's last
+    # epoch: it is the seed during the first window, then from the last epoch of each 1 s
+    # window on the previous value moved halfway to that window's estimate from the prompt
+    # and noise sums, held for the next 1000 epochs. Seeded 5 dB high, it closes half of
+    # the gap per window
     r = track_l1ca(_src(cn0=40.0, seconds=4.5), 0.0, 7, 1000 / FS, 1234.0, 45.0)
     held, gaps = 45.0, []
     for w in range(1, 5):
