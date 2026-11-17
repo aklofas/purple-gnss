@@ -26,19 +26,21 @@ first 2 s (a channel's carrier phase starts at its own ambiguity, so a satellite
 re-acquired after a gap begins with a slip), on the first observation with a phase
 after any epoch without phase lock since the previous one with a phase (an unlocked
 window can lie wholly between sparse observations), on an observation when some
-`FADE_SPAN` that ends after the channel's previous observation with a phase, and no
-later than its own epoch, contains `FADE_SLIP` or more of the carrier loop's integrator
-hold (a fade: the signal's phase jumps in one and the Costas loop settles on the nearest
-half cycle, with every window still reading phase-locked, and two such slips between
-subframes leave the data polarity as it was; the flag outlasts the fade by up to the
-span, while the loop settles, and says a slip was possible: most phases that carry it
-are continuous), and on the first observation
+`FADE_SPAN` that ends at or after the epoch of the channel's previous observation with a
+phase, and before its own epoch, contains `FADE_SLIP` or more of the carrier loop's
+integrator hold (a fade: the signal's phase jumps in one and the Costas loop settles on
+the nearest half cycle, with every window still reading phase-locked; the flag outlasts
+the fade by up to the span, while the loop settles, and says a slip was possible: most
+phases that carry it are continuous; a held epoch counts for the phases after its own,
+which is the loop's state before that epoch's update), and on the first observation
 after the data polarity changed,
 that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the polarity is not
-established by a decoded subframe: before the first subframe, and from the end of
+established by a decoded subframe: before the first subframe, from the end of
 the last subframe before a polarity change to the start of the first subframe
-after it. The bits are kept on an observation without a phase too, so the slip is
-reported on the next observation that has one.
+after it, and where fades leave it open (`_half_cycle_open`): between the first and the
+last of two or more fades that lie between two subframes of one polarity, and from a fade
+after the last subframe on. The bits are kept on an observation without a phase too, so
+the slip is reported on the next observation that has one.
 
 A pilot channel of a second band on the same sample clock (GPS L5 next to L1) decodes
 no time of its own. Every one of its epochs is one code period too, so it needs the
@@ -52,8 +54,8 @@ and the quarter cycle that aligns L5Q with the band's reference signal L5I (RINE
 Table A23) is applied here, as a receiver does. The pilot's loop coasts through an outage
 on an extrapolation and can return whole cycles away with its window indicator still
 high. It returns with the first sum it takes after the coasted ones, and that update
-reaches the phase one epoch after the sum is complete, so every phase from a coasted sum
-to the first one that holds the return is flagged as a slip.
+is in the phases after the epoch that completes the sum, so every phase from a coasted
+sum to the first one that holds the return is flagged as a slip.
 """
 
 from math import ceil, floor
@@ -80,9 +82,9 @@ L5Q_ALIGN = -0.25  # cycles added to the L5Q phase to align it with L5I (RINEX 3
 # paths through a front end differed by 0.1 microsecond on the two front ends measured, and
 # a pilot locked on something else lands anywhere in the millisecond
 ANCHOR_TOLERANCE = 1e-6
-# epochs from the one completing a pilot's coasted sum to the first whose phase holds the
-# next sum's update
-COAST_RETURN = round(T_PILOT_COH / CA_PERIOD) + 1
+# epochs from the one completing a pilot's coasted sum to the one completing the next sum,
+# whose update is in the phases after it
+COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -197,6 +199,52 @@ def _coasting(tr: TrackResult) -> np.ndarray | None:
     return count > 0
 
 
+def _fades(tr: TrackResult) -> list[tuple[int, int]]:
+    """The fades of a track as (first, last) epochs: every run of epochs `_faded` marks,
+    begun at the first held epoch of the span that made it. A slip in a fade lies between
+    the two."""
+    faded = _faded(tr)
+    if faded is None or not faded.any():
+        return []
+    edges = np.flatnonzero(np.diff(np.concatenate(([False], faded, [False]))))
+    span = round(FADE_SPAN / CA_PERIOD)
+    out = []
+    for a, b in zip(edges[::2], edges[1::2] - 1, strict=True):
+        lo = max(int(a) - span + 1, 0)
+        out.append((lo + int(np.argmax(tr.held[lo : a + 1])), int(b)))
+    return out
+
+
+def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
+    """Per epoch, whether fades leave the half cycle of its phase open; None for a track
+    without the hold record.
+
+    A slip of half a cycle in a fade shows as a subframe of the other polarity, which
+    `_carrier_state` reads. Two such slips between two decoded subframes do not: the
+    polarity is back where it was, and the phases between the slips are half a cycle off.
+    So where two or more fades lie between the end of one subframe and the start of the
+    next of the same polarity, the half cycle is open from the first fade to the end of the
+    last; and from a fade after the last subframe to the end of the track, for nothing
+    decoded after it says where the loop settled. A subframe that decoded held its polarity
+    throughout, so fades under it are slips of whole cycles at most.
+    """
+    if tr.held is None:
+        return None
+    starts, flipped = polarity
+    is_open = np.zeros(len(tr.t), dtype=bool)
+    fades = _fades(tr)
+    for j in range(len(starts)):
+        lo = starts[j] + SUBFRAME_EPOCHS  # the first epoch after subframe j
+        last = j + 1 == len(starts)
+        hi = len(tr.t) if last else starts[j + 1]
+        between = [(a, b) for a, b in fades if b >= lo and a < hi]
+        if last and between:
+            is_open[between[0][0] + 1 :] = True
+        elif not last and flipped[j + 1] == flipped[j] and len(between) >= 2:
+            is_open[between[0][0] + 1 : between[-1][1] + 1] = True
+    return is_open
+
+
 def _weeks_on(first: int, interval: float) -> int:
     """Whole weeks between the time origin's week and the first epoch (index `first` on the
     grid): 1 when every epoch lies past the week boundary, so that `tow` restarts."""
@@ -243,6 +291,7 @@ def make_observables(
         week = origin_week + weeks_on
     polarity = [_polarities(ln) for _, ln, _, _, _ in per]
     faded = [_faded(tr) for tr, _, _, _, _ in per]
+    half_open = [_half_cycle_open(tr, pol) for (tr, *_), pol in zip(per, polarity, strict=True)]
     last_k = [-1] * len(per)  # epoch of each channel's previous observation
     last_phase_k = [-1] * len(per)  # epoch of each channel's previous observation with a phase
     epochs = []
@@ -267,8 +316,12 @@ def make_observables(
             locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
             if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all():
                 lli |= LLI_SLIP
-            if faded[c] is not None and faded[c][last_phase_k[c] + 1 : k + 1].any():
+            # a held epoch is the business of the phases after it: the phase of epoch k is
+            # the loop's state before that epoch's update
+            if faded[c] is not None and faded[c][max(last_phase_k[c], 0) : k].any():
                 lli |= LLI_SLIP
+            if half_open[c] is not None and half_open[c][k]:
+                lli |= LLI_HALF_CYCLE
             phase = -(adr + (0.5 if inverted else 0.0)) if locked else np.nan
             obs.append(
                 Observation(
@@ -379,7 +432,7 @@ def make_joint_observables(
             adr = tr.carrier_phase[k - 1] + f * (tr.carrier_phase[k] - tr.carrier_phase[k - 1])
             since_phase = tr.phase_lock[last_phase_k[c] + 1 : k + 1] >= PLI_LOCKED
             locked = bool(tr.phase_lock[k] >= PLI_LOCKED)
-            coasted = coasting[c] is not None and coasting[c][last_phase_k[c] + 1 : k + 1].any()
+            coasted = coasting[c] is not None and coasting[c][max(last_phase_k[c], 0) : k].any()
             lli = 0
             if tr.t[k] - tr.t[0] <= T_LOCK or last_k[c] < 0 or not since_phase.all() or coasted:
                 lli = LLI_SLIP

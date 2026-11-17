@@ -554,8 +554,8 @@ with a phase that was not phase-locked (an unlocked window can lie between spars
 observations), after a fade of the carrier loop (below), and on the first observation
 after a polarity change; value 2 (bit 1, half-cycle ambiguity) where no
 decoded subframe establishes the polarity, that is before a channel's first
-subframe and between the last subframe before a polarity change and the first
-after it. An RTK engine restarts the satellite's ambiguity at every change of that
+subframe, between the last subframe before a polarity change and the first
+after it, and where fades leave it open (below). An RTK engine restarts the satellite's ambiguity at every change of that
 flag (RTKLIB's rule), so a polarity change costs the ambiguity twice, when the flag is
 set and when it clears; the phase is written flagged rather than blanked or flagged for
 the whole interval. No signal-strength flags are written. The standalone solution does
@@ -565,11 +565,14 @@ A moving receiver's phase slips in fades. Under trees and past obstructions the 
 drops 3 to 15 dB for tens of milliseconds and its phase jumps; the Costas loop then
 settles on the nearest half cycle while the phase-lock indicator stays high. One such
 slip shows as a polarity change up to a subframe (6 s) later; two between subframes
-leave the polarity as it was and the phase a whole cycle off. The loop marks these
+leave the polarity as it was, the phase a whole cycle off after them and half a cycle
+off between them. The loop marks these
 fades itself: it holds its integrator while the 10 ms prompt power is below half its
 running mean. An observation is therefore flagged (value 1) when some half second
-that ends after the channel's previous observation with a phase, and no later than its
-own epoch, contains 50 ms or more of hold. The flag thus comes at least 50 ms after a
+that ends no earlier than the epoch of the channel's previous observation with a phase,
+and before its own epoch, contains 50 ms or more of hold (the phase of an epoch is the
+loop's state before that epoch's update, so a held epoch counts for the phases after
+it). The flag thus comes at least 50 ms after a
 fade begins (an observation taken in between is written without it, and the next one
 carries it) and stays up to 0.45 s after the fade while the loop settles, so at one
 observation a second a fade just before an observation flags that one and the next.
@@ -589,6 +592,18 @@ never for 50 ms within a half second. A wider carrier loop is no remedy: on the
 cold-start capture the same satellites slip 28, 33 and 36 times at 10, 15 and 20 Hz
 against 15 times at 5 Hz. The rule is checked only where a pilot exists, and a slip
 outside a fade would not be flagged.
+
+The fades also say where the half cycle is open (value 2). A subframe that decoded held
+its polarity throughout, so fades under subframes decoded back to back are slips of
+whole cycles at most. Where two or more fades lie between the end of one subframe and
+the start of the next one of the same polarity, the phases from the first held epoch of
+the first fade to the end of the last fade's flag may be half a cycle off, and carry the
+flag; so do the phases from a fade after a channel's last subframe to its end, since
+nothing decoded later says where the loop settled. That takes the L1 phases with the
+half-cycle flag from 9.9 % to 13.8 % on the driving capture and from 10.2 % to 21.7 % on
+the cold-start drive, and adds three ambiguity restarts to the 270 and 700 an RTK engine
+makes on each. One fade alone between two subframes of one polarity gets the slip flag
+only: the polarity came back, so it held no slip or two.
 
 ### L5 observations
 
