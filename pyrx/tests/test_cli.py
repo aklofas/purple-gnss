@@ -637,3 +637,11 @@ def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch)
     assert err.count("\n") == 1 and "--l5" in err and "no L5 pilot tracked" in err
     assert "2 detections failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
     assert "C5Q L5Q D5Q S5Q" in obs.read_text()
+
+
+@pytest.mark.parametrize("option", ["--min-lock", "--fix-sats"])
+def test_rtk_main_turns_away_a_negative_count(option, capsys):
+    with pytest.raises(SystemExit) as e:
+        rtk_main(["rover.obs", "base.obs", "brdc.nav", option, "-1"])
+    assert e.value.code == 2
+    assert "0 or more" in capsys.readouterr().err
