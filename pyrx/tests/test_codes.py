@@ -154,6 +154,23 @@ def test_l5_xb_runs_its_own_period(gen, prn, column):
     assert 8191 - adv < 8190 < L5_LENGTH  # both wraps lie inside the period
 
 
+@pytest.mark.parametrize(
+    ("gen", "prn", "start", "chips"),
+    [
+        (gps_l5i, 1, 7921, "01001010000001010101"),
+        (gps_l5i, 1, 8186, "01101110110001010000"),
+        (gps_l5i, 1, 10210, "01110101100111101110"),
+        (gps_l5q, 6, 1051, "01110011000001011100"),
+        (gps_l5q, 6, 8186, "10111011010101010000"),
+        (gps_l5q, 6, 10210, "01100011010010101100"),
+    ],
+)
+def test_l5_chips_worked_out_from_the_interface_specification(gen, prn, start, chips):
+    # twenty chips each, derived by hand from IS-GPS-705 3.3.2.2 and not from these tests'
+    # own registers: around the XA restart (8190), the XB restart (8191) and the period's end
+    assert "".join(map(str, _chips(gen(prn))[start : start + 20])) == chips
+
+
 def test_l5_cross_correlation():
     def peak(a, b):
         spectrum = np.fft.fft(a.astype(float)) * np.conj(np.fft.fft(b.astype(float)))
