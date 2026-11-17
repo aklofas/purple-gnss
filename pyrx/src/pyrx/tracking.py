@@ -163,13 +163,15 @@ class CarrierLoop:
         epoch, and a sum completed while that flag is up (the last closed T_DLL window's
         prompt power below FADE_HOLD of its running mean) leaves the integrated term alone.
 
-        A sum whose coherence is below COAST_COHERENCE is noise: its phase is uniform over
-        the cycle and would random-walk the Doppler. The loop coasts on it instead: the
+        A sum whose coherence is below COAST_COHERENCE carries no signal the loop can use
+        (noise, or a carrier so far off that it turns within the sum): its phase would
+        random-walk the Doppler. The loop coasts on it instead: the
         discriminator reads zero, which takes the last error's proportional term back out
         of the Doppler, and the integrated term (the Doppler rate) keeps steering. Returns
         (increment, nan). One noise sum in seventy still reaches the threshold, so the
         first sum taken after a coasted one moves the Doppler by its proportional term
-        only; the integrated terms take a sum's error when the sum before it was taken too.
+        with the carried rate, and not by the terms that integrate its error; those take a
+        sum's error when the sum before it was taken too.
 
         The two rules cover different fades. Behind an obstruction the signal is mostly
         attenuated and flickering, not gone: its weak sums pass the coherence gate with a
