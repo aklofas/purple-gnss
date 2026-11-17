@@ -37,9 +37,8 @@ after the data polarity changed,
 that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the polarity is not
 established by a decoded subframe: before the first subframe, from the end of
 the last subframe before a polarity change to the start of the first subframe
-after it, and where fades leave it open (`_half_cycle_open`): between the first and the
-last of two or more fades that lie between two subframes of one polarity, and from a fade
-after the last subframe on. The bits are kept on an observation without a phase too, so
+after it, and where fades leave it open (`_half_cycle_open`): from the first to the last
+fade between two subframes of one polarity, and from a fade after the last subframe on. The bits are kept on an observation without a phase too, so
 the slip is reported on the next observation that has one.
 
 A pilot channel of a second band on the same sample clock (GPS L5 next to L1) decodes
@@ -199,10 +198,10 @@ def _coasting(tr: TrackResult) -> np.ndarray | None:
     return count > 0
 
 
-def _fades(tr: TrackResult) -> list[tuple[int, int]]:
-    """The fades of a track as (first, last) epochs: every run of epochs `_faded` marks,
-    begun at the first held epoch of the span that made it. A slip in a fade lies between
-    the two."""
+def _fades(tr: TrackResult) -> list[tuple[int, int, int]]:
+    """The fades of a track as (first held, last held, last flagged) epochs: every run of
+    epochs `_faded` marks, begun at the first held epoch of the span that made it. A slip in
+    a fade lies between its first and last held epoch; the flag outlasts the hold."""
     faded = _faded(tr)
     if faded is None or not faded.any():
         return []
@@ -211,7 +210,8 @@ def _fades(tr: TrackResult) -> list[tuple[int, int]]:
     out = []
     for a, b in zip(edges[::2], edges[1::2] - 1, strict=True):
         lo = max(int(a) - span + 1, 0)
-        out.append((lo + int(np.argmax(tr.held[lo : a + 1])), int(b)))
+        held = lo + np.flatnonzero(tr.held[lo : b + 1])
+        out.append((int(held[0]), int(held[-1]), int(b)))
     return out
 
 
@@ -222,11 +222,13 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
     A slip of half a cycle in a fade shows as a subframe of the other polarity, which
     `_carrier_state` reads. Two such slips between two decoded subframes do not: the
     polarity is back where it was, and the phases between the slips are half a cycle off.
-    So where two or more fades lie between the end of one subframe and the start of the
-    next of the same polarity, the half cycle is open from the first fade to the end of the
-    last; and from a fade after the last subframe to the end of the track, for nothing
-    decoded after it says where the loop settled. A subframe that decoded held its polarity
-    throughout, so fades under it are slips of whole cycles at most.
+    So where fades lie between the end of one subframe and the start of the next of the
+    same polarity, the half cycle is open from the first held epoch of the first fade to
+    the end of the last one's flag (one long fade can hold both slips); and from a fade
+    after the last subframe to the end of the track, for nothing decoded after it says
+    where the loop settled. A subframe that decoded held its polarity throughout, so a
+    fade whose held epochs all lie under decoded subframes is a slip of whole cycles at
+    most.
     """
     if tr.held is None:
         return None
@@ -237,11 +239,11 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
         lo = starts[j] + SUBFRAME_EPOCHS  # the first epoch after subframe j
         last = j + 1 == len(starts)
         hi = len(tr.t) if last else starts[j + 1]
-        between = [(a, b) for a, b in fades if b >= lo and a < hi]
+        between = [f for f in fades if f[1] >= lo and f[0] < hi]  # held in the gap
         if last and between:
             is_open[between[0][0] + 1 :] = True
-        elif not last and flipped[j + 1] == flipped[j] and len(between) >= 2:
-            is_open[between[0][0] + 1 : between[-1][1] + 1] = True
+        elif not last and flipped[j + 1] == flipped[j] and between:
+            is_open[between[0][0] + 1 : between[-1][2] + 1] = True
     return is_open
 
 

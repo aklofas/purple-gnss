@@ -493,11 +493,29 @@ def test_two_fades_between_subframes_of_one_polarity_leave_the_half_cycle_open()
     assert [e.obs[0].carrier_phase for e in epochs] == [b.obs[0].carrier_phase for b in base]
 
 
-def test_one_fade_between_subframes_of_one_polarity_is_a_slip_only():
-    # the polarity came back as it was: the fade held no slip or two, and either way the
-    # phases after it are whole cycles from those before
+def test_one_fade_between_subframes_leaves_the_half_cycle_open_inside_it():
+    # the polarity came back: the fade held no slip or two, and the phases after it are whole
+    # cycles from those before. With two, the phases between them, inside the fade, are half
+    # a cycle off (a long flickering obstruction is one fade)
     epochs, base, ks = _held_channel(GAP, (9000, 9059))
-    assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [7, 8]
+    end = 9059 + round(FADE_SPAN / CA_PERIOD) - 50
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if 9000 < k <= end] == [9431]
+    assert _newly_flagged(epochs, base) == [7, 8]
+    # a fade of several seconds
+    epochs, base, ks = _held_channel(GAP, (9000, 12059))
+    assert _half_cycle(epochs, base, ks) == [9431, 10431, 11431, 12431]
+
+
+def test_a_fade_belongs_where_its_held_epochs_are():
+    # the flag outlasts the hold by up to 0.45 s, but the slip is where the loop was held: a
+    # hold wholly under a decoded subframe opens nothing, however close to its end
+    sfs = [(1500, 5044, False), (7500, 5050, False)]  # the last one ends at 13.5 s
+    epochs, base, ks = _held_channel(sfs, (13300, 13359))
+    assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [11, 12]
+    epochs, base, ks = _held_channel(GAP, (7400, 7459))  # under the first, the gap after it
+    assert _half_cycle(epochs, base, ks) == []
+    epochs, base, ks = _held_channel(sfs, (13499, 13558))  # its last epoch is the first after
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if k > 13499]
 
 
 def test_fades_under_decoded_subframes_are_slips_only():
