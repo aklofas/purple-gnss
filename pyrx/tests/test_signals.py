@@ -1,7 +1,9 @@
+from math import nan
+
 import numpy as np
 import pytest
 
-from pyrx.observations import Epoch, Observation, Observations, to_epoch
+from pyrx.observations import Epoch, Observation, Observations, from_epoch, to_epoch
 from pyrx.rinex import (
     read_rinex_header,
     read_rinex_obs,
@@ -90,6 +92,17 @@ def test_to_epoch(tmp_path):
     ep = to_epoch(a)
     assert (ep.week, ep.tow, [o.prn for o in ep.obs]) == (2190, 0.0, [4, 16])
     assert ep.obs[0].pseudorange == 22235454.255 and ep.obs[0].doppler == 421.142
+
+
+def test_from_epoch_keeps_the_rows_and_their_order():
+    rows = [Observation(16, 2.1e7, -3.5, 420.0, 44.0, 1), Observation(4, 2.2e7, nan, -80.0, 39.5)]
+    obs = from_epoch(Epoch(2190, 12.0, rows))
+    assert (obs.week, obs.tow, obs.sats, obs.signals) == (2190, 12.0, ("G16", "G04"), ("G1C",))
+    assert obs.pseudorange.shape == (2, 1) and obs.lli.tolist() == [[1], [0]]
+    assert obs.carrier_phase[0, 0] == -3.5 and np.isnan(obs.carrier_phase[1, 0])
+    assert to_epoch(obs).obs[1] == rows[0]  # to_epoch sorts by PRN
+    empty = from_epoch(Epoch(2190, 12.0, []))
+    assert empty.sats == () and empty.pseudorange.shape == (0, 1)
 
 
 def test_read_rinex_header(tmp_path):

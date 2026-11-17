@@ -81,3 +81,19 @@ def to_epoch(obs: Observations, signal: str = "G1C") -> Epoch:
                 )
             )
     return Epoch(obs.week, obs.tow, sorted(out, key=lambda o: o.prn))
+
+
+def from_epoch(epoch: Epoch, signal: str = "G1C") -> Observations:
+    """An `Epoch` as `Observations` of one GPS signal, its rows in the order they have."""
+    n = len(epoch.obs)
+    values = np.array(
+        [[o.pseudorange, o.carrier_phase, o.doppler, o.cn0] for o in epoch.obs], dtype=float
+    ).reshape(n, 4)
+    return Observations(
+        epoch.week,
+        epoch.tow,
+        tuple(f"G{o.prn:02d}" for o in epoch.obs),
+        (signal,),
+        *(values[:, k].reshape(n, 1) for k in range(4)),
+        np.array([o.lli for o in epoch.obs], dtype=int).reshape(n, 1),
+    )
