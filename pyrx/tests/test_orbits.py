@@ -9,6 +9,7 @@ from pyrx.orbits import (
     satellite_clock,
     satellite_state,
     select_ephemeris,
+    usable,
     wrap_week,
 )
 from pyrx.synth import ephemeris
@@ -98,3 +99,11 @@ def test_satellite_state_uses_galileo_constants():
     de = satellite_state(e, g.toe + 3600.0).position
     # the mean motions differ by (MU_GAL / MU_GPS)**0.5 - 1 = -7.3e-8: meters after an hour
     assert 0.5 < np.linalg.norm(dg - de) < 5.0
+
+
+@pytest.mark.parametrize(
+    ("e", "ok"), [(0.0, True), (0.02, True), (1.0, False), (1.1, False), (-0.01, False)]
+)
+def test_only_an_elliptical_orbit_is_usable(e, ok):
+    # Kepler's equation as solved here, and sqrt(1 - e^2), need 0 <= e < 1
+    assert usable(replace(ephemeris(), e=e)) is ok
