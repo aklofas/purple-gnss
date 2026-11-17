@@ -163,3 +163,53 @@ def test_rtk_l1_l5_e1_e5a_fixes_the_marker(captures):
     assert len(fixed) >= len(rover) - 0.01 * len(rover), len(fixed)  # 721 of 721 measured
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.02
+
+
+# The project's own receiver on a car roof against a public base station 15 km away, 1 s,
+# GPS L1 and L5: the observation and navigation files pyrx-rinex formed from a capture
+# driven through fades, and the base's half hour as RINEX 3 with its position in the header
+DRIVING = "sky/20261103_031515_carroof-driving"
+CAR_BASE = "cors/base_20261103_0300_0330_gps.rnx"
+
+
+def _car(captures, capture, signals):
+    """Rover and base observations of a car-roof capture, ephemerides and ionosphere, the
+    base station, the rover's antenna offset and the three file paths, once per session."""
+    key = (capture, signals)
+    if key not in _CACHE:
+        files = (
+            capture_file(captures, f"{capture}/pyrx_l1l5.obs"),
+            capture_file(captures, CAR_BASE),
+            capture_file(captures, f"{capture}/pyrx_l1l5.nav"),
+        )
+        hb = read_rinex_header(files[1])
+        _CACHE[key] = (
+            read_rinex_observations(files[0], signals),
+            read_rinex_observations(files[1], signals),
+            *read_rinex_nav(files[2]),
+            Station(hb.position, hb.delta_enu),
+            read_rinex_header(files[0]).delta_enu,
+            files,
+        )
+    return _CACHE[key]
+
+
+def _same_as_rtklib(fixes, ref):
+    """Every epoch solved by both, with the same status, at the same position."""
+    ours = {_key(f): f for f in fixes}
+    assert set(ours) == set(ref) and len(ours) > 250, (len(ours), len(ref))
+    assert all((f.status == "fix") == (ref[k]["q"] == 1) for k, f in ours.items())
+    d = max(np.abs(f.position - ref[k]["xyz"]).max() for k, f in ours.items())
+    assert d <= 0.001, d  # measured 0.1 mm, the rounding of the solution files
+    return sum(f.status == "fix" for f in fixes)
+
+
+def test_backward_pass_matches_rtklib_on_a_drive(captures, tmp_path):
+    # L1 alone, where the two engines have the same slip rules: 250 of the file's 2238 L1
+    # phases carry the slip flag and the half-cycle flag changes 56 times
+    rover, base, ephs, iono, station, delta, files = _car(captures, DRIVING, ("G1C",))
+    fixes = solve_rtk(rover, base, ephs, station, delta, RtkOptions(backward=True), iono)
+    ref = rnx2rtkp_rtk(
+        *files, tmp_path / "rtk", station.marker, 0.0, 0.0, "kinematic", "l1", soltype="backward"
+    )
+    assert _same_as_rtklib(fixes, ref) >= 40

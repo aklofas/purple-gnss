@@ -142,7 +142,7 @@ def rnx2rtkp_models(
 RTK_CONF = """\
 pos1-posmode={mode}
 pos1-frequency={freq}
-pos1-soltype=forward
+pos1-soltype={soltype}
 pos1-elmask=15
 pos1-snrmask_r=off
 pos1-dynamics=off
@@ -153,7 +153,7 @@ pos1-sateph=brdc
 pos1-navsys={navsys}
 pos2-armode=continuous
 pos2-arthres=3
-pos2-arlockcnt=0
+pos2-arlockcnt={arlockcnt}
 pos2-arelmask=0
 pos2-arminfix=10
 pos2-elmaskhold=0
@@ -220,12 +220,17 @@ def _rtk_run(rover, base, nav, out_dir, conf, name, ts, te) -> dict[tuple[int, f
 
 def rnx2rtkp_rtk(
     rover, base, nav, out_dir, base_xyz, base_up, rover_up, mode="kinematic", freq="l1+l2",
-    navsys=1, ts=None, te=None,
+    navsys=1, ts=None, te=None, soltype="forward", arlockcnt=0,
 ) -> dict[tuple[int, float], dict]:  # fmt: skip
-    """RTKLIB's relative solutions keyed by (week, tow to 0.1 s): `xyz`, `q`, `ns`, `ratio`."""
+    """RTKLIB's relative solutions keyed by (week, tow to 0.1 s): `xyz`, `q`, `ns`, `ratio`.
+
+    `soltype` forward or backward (the filter's direction), `arlockcnt` the updates a
+    restarted ambiguity waits before the integer search. In this build of RTKLIB the
+    frequencies are `l1`, `l1+2`, `l1+2+3`; any other value is ignored without a word."""
     conf = RTK_CONF.format(
         mode=mode, freq=freq, navsys=navsys, rover_up=rover_up, base_up=base_up,
-        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2],
+        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype=soltype,
+        arlockcnt=arlockcnt,
     )  # fmt: skip
     return _rtk_run(rover, base, nav, out_dir, conf, "fix", ts, te)
 
@@ -239,7 +244,8 @@ def rnx2rtkp_ttff(
     """
     conf = RTK_CONF.format(
         mode=mode, freq=freq, navsys=navsys, rover_up=rover_up, base_up=base_up,
-        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2],
+        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype="forward",
+        arlockcnt=0,
     )  # fmt: skip
     out = []
     for k, ts in enumerate(starts):
