@@ -26,10 +26,10 @@ options:
                         a phase the rover flags as a possible slip: looked at
                         before its ambiguity restarts (default), or restarted
                         outright as RTKLIB does
-  --min-lock N          updates an ambiguity begun again waits before the
-                        integer search (default 5; RTKLIB 0)
+  --min-lock N          updates a new ambiguity waits before the integer
+                        search, RTKLIB's pos2-arlockcnt (default 5; RTKLIB 0)
   --fix-sats N          satellites the integer search must span for a fix
-                        (default 6; RTKLIB 0)
+                        (default 5; RTKLIB 0)
   --backward            run the filter from the last epoch to the first
   --mask MASK           elevation mask (deg)
   --ts TS               first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'

@@ -291,7 +291,7 @@ clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 ## RTK from the command line
 
 ```sh
-pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 6] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
+pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 5] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
 ```
 
 Solves the baseline from a base station of known position to the rover, epoch by
@@ -303,8 +303,9 @@ given. `--signals` lists the signals to use as system letter plus RINEX attribut
 C/A when it is listed and otherwise on the first GPS signal given (it is an L1 solver,
 so a GPS signal must be listed). With `--slips check`, the default, a phase the rover
 flags as a possible slip is looked at before its ambiguity is given up; `--min-lock` is
-the number of updates an ambiguity that was begun again waits before the integer search,
-and `--fix-sats` the number of satellites that search must span for a fix.
+the number of updates a new ambiguity waits before the integer search (RTKLIB's
+`pos2-arlockcnt`), and `--fix-sats` the number of satellites that search must span for a
+fix.
 `--slips restart --min-lock 0 --fix-sats 0` is RTKLIB's behavior, which is also what the
 library's `RtkOptions` default to (see RTK below). `--backward` runs the filter from the
 last epoch to the first; the output stays in time order. The
@@ -385,9 +386,11 @@ ant2-pos3=<base marker Z>
 ant2-antdelu=<base ARP height above its marker>
 ```
 
-is the configuration `pyrx-rtk` mirrors (RTKLIB applies the antenna offsets as
+is the configuration the library's defaults mirror, and `pyrx-rtk` with
+`--slips restart --min-lock 0 --fix-sats 0` (RTKLIB applies the antenna offsets as
 range corrections, which agrees with moving the stations to their antenna
-reference points to well under a millimeter). Epochs where RTKLIB finds no
+reference points to well under a millimeter); `pos1-soltype=backward` corresponds to
+`--backward` and `pos2-arlockcnt` to `--min-lock`. Epochs where RTKLIB finds no
 relative solution produce no output line. USUD is
 29 km from the site of both recordings, which is why its day serves as the
 long-run check.
@@ -499,12 +502,14 @@ cycle, four only within 0.8 to 1. The epoch's one Kalman update then runs on eve
 An ambiguity that continues through a flag keeps an established half cycle whatever the
 file's half-cycle bit says; a restarted one takes the file's bit.
 
-`min_lock` is RTKLIB's `pos2-arlockcnt`: an ambiguity begun again after a slip or an
-outage waits that many updates before it enters the integer search; one seen for the
-first time does not wait. `min_fix_sats` keeps an epoch float unless the ambiguities
-eligible for the search span that many satellites, the reference among them: on the
-drive, searches over two to five double differences passed the ratio test with ratios
-from 3 to 190 and left the position where the float solution had it, up to a meter off.
+`min_lock` is RTKLIB's `pos2-arlockcnt`, counted as RTKLIB counts it: an ambiguity
+waits that many updates before it enters the integer search when it is begun again after
+a slip or an outage, begun on a flagged phase, or begun after the first five solved
+epochs; only one that appears unflagged within those first epochs is searched at once.
+`min_fix_sats` keeps an epoch float unless the ambiguities eligible for the search span
+that many satellites, the reference among them: on the drive, searches spanning five
+satellites or fewer passed the ratio test, some with ratios above 100, at positions the
+filter run the other way contradicts by up to a meter.
 `backward` runs the filter from the last epoch to the first over the same pairs of
 epochs (`solve_rtk` returns the fixes in time order either way). A lost-lock flag sits on
 the first phase after a discontinuity, so the backward filter reads that bit from the
@@ -518,7 +523,10 @@ On the L1 observations of the car-roof drive, where the two engines have the sam
 rules, the backward pass and a lock count of 5 in both directions give RTKLIB's solution
 epoch for epoch: the same epochs solved, the same status, the positions within 1 mm
 (`test_rtk_reference.py`; `pos1-soltype=backward` and `pos2-arlockcnt=5` in the
-configuration above).
+configuration above). So does a lock count of 5 on the Matera pair, six hours with
+satellites rising and setting. Two details differ from RTKLIB and are not covered by
+that: backward, RTKLIB reads the indicators of its very first epoch as it does forward;
+and it counts the half-cycle bit of a satellite's first indicator as a change.
 
 There is no truth for the car-roof captures, so the check is judged by agreement: the
 filter runs forward and backward, and an epoch is agreed when both fix it within 5 cm
@@ -529,33 +537,43 @@ five of nine satellites, a base 15 km away, kinematic:
 | Options | Fixed forward | Fixed backward | Agreed | Apart |
 |---|---|---|---|---|
 | default (RTKLIB's rules) | 157 | 122 | 84 | 1 |
-| `min_fix_sats=6` | 153 | 118 | 84 | 0 |
-| `min_lock=5`, `min_fix_sats=6` | 177 | 142 | 105 | 0 |
-| `slips="check"`, `min_fix_sats=6` | 193 | 162 | 131 | 0 |
-| `slips="check"`, `min_lock=5`, `min_fix_sats=6` (the command) | 198 | 176 | 143 | 0 |
-| `slips="check"`, `min_lock=5`, `min_fix_sats=5` | 202 | 177 | 143 | 1 |
-| `slips="check"`, `min_lock=5` | 214 | 187 | 143 | 5 |
+| `min_fix_sats=5` | 153 | 119 | 84 | 0 |
+| `min_lock=5`, `min_fix_sats=5` | 184 | 143 | 105 | 1 |
+| `slips="check"`, `min_fix_sats=5` | 193 | 169 | 134 | 0 |
+| `slips="check"`, `min_lock=5`, `min_fix_sats=5` (the command) | 202 | 178 | 144 | 1 |
+| `slips="check"`, `min_lock=5`, `min_fix_sats=6` | 198 | 177 | 144 | 0 |
+| `slips="check"`, `min_lock=5` | 214 | 188 | 144 | 5 |
 
 RTKLIB 2.4.3 itself, which has no geometry-free test for this pair of signals, fixes 141
 epochs forward and 108 backward on the same files. Where the command's forward solution
-and the default's both fix (141 epochs) the positions are within 2.2 cm of each other.
-The first seconds of the drive, before the car pulls out, fix within 7 mm horizontally
-and 17 mm vertically of the static solution of a capture recorded at the same spot ten
-minutes earlier; that parked capture fixes 132 of 299 epochs in static mode with either
-set of options, at the same position, and the command's options do not produce the
-default's false fix at the very first epoch (ratio 3.1, 2 m off). The test pins the
-drive at 130 agreed epochs or more, none apart, and 40 more agreed than the default.
+and the default's both fix (141 epochs) the positions are within 2.2 cm horizontally and
+1.8 cm vertically of each other. The first seconds of the drive, before the car pulls
+out, fix within 7 mm horizontally and 17 mm vertically of the static solution of a
+capture recorded at the same spot ten minutes earlier; that parked capture fixes 132 of
+299 epochs in static mode with either set of options, at the same position, and the
+command's options do not produce the default's false fix at the very first epoch (ratio
+3.1, 2 m off). The test pins the drive at 130 agreed epochs or more, at most one apart,
+and 40 more agreed than the default.
+
+The floor is five satellites and not six, which would leave no epoch apart on the drive,
+because of what six costs where a truth exists. On the two station pairs above, GPS
+only, a quarter and a tenth of the epochs have exactly five satellites; every fix there
+is within 2.4 cm of the marker with any of these options; the command's options fix 714
+and 721 of the 721 epochs on L1+L2 (default 721 and 721) and 709 and 696 on L1 (716 and
+696), a floor of six 521 and 627.
 
 Limits. Agreement of two directions of one engine on one file is not a truth; both can
-share a wrong fix. The options were chosen on this one drive: lock counts of 3 to 7 give
-135 to 146 agreed epochs, and the two constants of the test change nothing between 0.20
-and 0.30 cycle and between 0.10 and 0.15 cycle. A floor of six satellites refuses every
-fix under a sky of five. The check trusts the phases that carry no flag; an unflagged
-slip is caught only by the geometry-free test, as before. And a second capture, started
-while driving, has no agreed epoch with any of these options (the command fixes none
-forward and one backward; the default's 4 and 14 scattered fixes agree nowhere and two
-are apart): seven satellites, four with an L5 pilot, the other three flagged on 33 to
-56 % of their L1 phases. It needs more satellites with a pilot.
+share a wrong fix, and the one epoch the command fixes apart shows a false fix getting
+through with five satellites. The options were chosen on this one drive: lock counts of
+3 to 7 give 136 to 147 agreed epochs and 0 to 3 apart, and the two constants of the test
+change little between 0.20 and 0.30 cycle and between 0.10 and 0.15 cycle (144 agreed
+throughout, one or two apart). The check trusts the phases that carry no flag; an
+unflagged slip is caught only by the geometry-free test, as before. And a second
+capture, started while driving, has no agreed epoch with any of these options (the
+command fixes one epoch forward and 39 backward, none of them the same; the default's 4
+and 14 scattered fixes agree nowhere and two are apart): seven satellites, four with an
+L5 pilot, the other three flagged on 33 to 56 % of their L1 phases. It needs more
+satellites with a pilot.
 
 ## Standalone positioning
 

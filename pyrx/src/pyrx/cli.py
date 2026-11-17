@@ -526,15 +526,15 @@ def rtk_main(argv: list[str] | None = None) -> int:
     )  # fmt: skip
     p.add_argument(
         "--min-lock", type=int, default=5, metavar="N",
-        help="updates an ambiguity begun again waits before the integer search (default 5; "
-        "RTKLIB 0)",
+        help="updates a new ambiguity waits before the integer search, RTKLIB's "
+        "pos2-arlockcnt (default 5; RTKLIB 0)",
     )  # fmt: skip
     p.add_argument(
         "--fix-sats",
         type=int,
-        default=6,
+        default=5,
         metavar="N",
-        help="satellites the integer search must span for a fix (default 6; RTKLIB 0)",
+        help="satellites the integer search must span for a fix (default 5; RTKLIB 0)",
     )
     p.add_argument(
         "--backward", action="store_true", help="run the filter from the last epoch to the first"
