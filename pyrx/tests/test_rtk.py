@@ -723,3 +723,52 @@ def test_backward_the_half_cycle_bit_is_read_from_the_phase_processed_before():
         if k == 3:
             assert forward.biases[key].half
     assert not forward.biases[key].half and forward.biases[key].lock == 4
+
+
+def _searched(fix, sat):
+    return any(sat in (a.ref, a.sat) for a in fix.ambiguities)
+
+
+def test_a_restarted_ambiguity_waits_min_lock_updates_before_the_search():
+    # RTKLIB's pos2-arlockcnt: an ambiguity begun again counts up from -min_lock and is
+    # searched once it is above zero; one seen for the first time starts at zero
+    rng = np.random.default_rng(43)
+    ephs = constellation()
+    key = ("G03", "G1C")
+    after = dict(AMB_R)
+    after[key] += 7
+    pairs = _l1_run(
+        rng, ephs, 12,
+        amb_at=lambda k: after if k >= 6 else AMB_R,
+        lli_at=lambda k: {key: 1} if k == 6 else None,
+    )  # fmt: skip
+    rtk = _rtk(ephs, min_lock=3)
+    fixes = [rtk.step(*p) for p in pairs]
+    assert [f.nb for f in fixes] == [5] * 6 + [4] * 3 + [5] * 3
+    assert [_searched(f, "G03") for f in fixes] == [True] * 6 + [False] * 3 + [True] * 3
+    assert rtk.biases[key].lock == 3 and rtk.biases[("G02", "G1C")].lock == 12
+    for f in fixes:
+        if f.status == "fix":
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+    stock = _rtk(ephs)
+    assert [stock.step(*p).nb for p in pairs] == [5] * 12
+
+
+def test_an_ambiguity_begun_again_after_an_outage_waits_too():
+    rng = np.random.default_rng(44)
+    ephs = constellation()
+    gone = {("G03", "G1C")}
+    rtk = _rtk(ephs, min_lock=2)
+    fixes = [
+        rtk.step(*_pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",), drop=gone if 3 <= k < 8 else ()))
+        for k in range(13)
+    ]
+    # back at the sixth epoch after its last update, past max_outage: the state was dropped
+    assert [_searched(f, "G03") for f in fixes] == [True] * 3 + [False] * 5 + [False] * 2 + [True] * 3
+    kept = _rtk(ephs, min_lock=2)
+    fixes = [
+        kept.step(*_pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",), drop=gone if 3 <= k < 7 else ()))
+        for k in range(9)
+    ]
+    # back at the fifth: the ambiguity is the old one and is searched at once
+    assert [_searched(f, "G03") for f in fixes] == [True] * 3 + [False] * 4 + [True] * 2

@@ -213,3 +213,20 @@ def test_backward_pass_matches_rtklib_on_a_drive(captures, tmp_path):
         *files, tmp_path / "rtk", station.marker, 0.0, 0.0, "kinematic", "l1", soltype="backward"
     )
     assert _same_as_rtklib(fixes, ref) >= 40
+
+
+@pytest.mark.parametrize("soltype", ["forward", "backward"])
+def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
+    # the file restarts an L1 ambiguity 270 times; with RTKLIB's pos2-arlockcnt the same
+    # epochs fix, at the same positions, in both directions
+    rover, base, ephs, iono, station, delta, files = _car(captures, DRIVING, ("G1C",))
+    options = RtkOptions(min_lock=5, backward=soltype == "backward")
+    fixes = solve_rtk(rover, base, ephs, station, delta, options, iono)
+    ref = rnx2rtkp_rtk(
+        *files, tmp_path / "rtk", station.marker, 0.0, 0.0, "kinematic", "l1",
+        soltype=soltype, arlockcnt=5,
+    )  # fmt: skip
+    assert _same_as_rtklib(fixes, ref) >= 20
+    # and the count is at work: without it other epochs fix
+    plain = solve_rtk(rover, base, ephs, station, delta, RtkOptions(backward=options.backward), iono)
+    assert {_key(f) for f in fixes if f.status == "fix"} != {_key(f) for f in plain if f.status == "fix"}
