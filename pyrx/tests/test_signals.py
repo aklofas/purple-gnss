@@ -265,3 +265,16 @@ def test_writer_declares_a_phase_shift_per_phase_code(tmp_path):
     shifts = [line[:60].rstrip() for line in lines if line[60:].strip() == "SYS / PHASE SHIFT"]
     assert shifts == ["G L1C", "G L2W", "E L1C  0.00000", "E L5Q  0.00000"]
     assert lines.index("G L1C".ljust(60) + "SYS / PHASE SHIFT") < lines.index(END_OF_HEADER[:-1])
+
+
+def test_an_epoch_of_a_hundred_satellites_keeps_its_count_in_three_columns(tmp_path):
+    # the count is I3 in columns 33 to 35, right after the epoch flag
+    sats = tuple(f"G{n:02d}" for n in range(1, 100)) + ("E01",)
+    values = np.full((100, 1), 2.0e7)
+    lli = np.zeros((100, 1), dtype=int)
+    epoch = Observations(2190, 0.0, sats, ("G1C",), values, values, values, values, lli)
+    write_rinex_observations(tmp_path / "w.obs", [epoch], "TEST")
+    [line] = [x for x in (tmp_path / "w.obs").read_text().splitlines() if x.startswith(">")]
+    assert line[29:] == "  0100" and len(line) == 35
+    [back] = read_rinex_observations(tmp_path / "w.obs", ("G1C",))
+    assert len(back.sats) == 99  # the Galileo satellite has no G1C
