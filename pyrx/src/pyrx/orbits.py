@@ -46,9 +46,15 @@ def sat_id(eph: Ephemeris) -> str:
 
 
 def usable(eph: Ephemeris) -> bool:
-    """A healthy record whose orbit can be evaluated (finite fields, a positive semi-major axis)."""
+    """A healthy record whose orbit can be evaluated (finite fields, a positive semi-major axis,
+    an eccentricity of an ellipse)."""
     fields = [v for v in vars(eph).values() if isinstance(v, (int, float))]
-    return eph.health == 0 and eph.sqrt_a > 0.0 and all(isfinite(v) for v in fields)
+    return (
+        eph.health == 0
+        and eph.sqrt_a > 0.0
+        and 0.0 <= eph.e < 1.0
+        and all(isfinite(v) for v in fields)
+    )
 
 
 def select_ephemeris(
