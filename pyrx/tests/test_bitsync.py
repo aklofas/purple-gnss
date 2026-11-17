@@ -1,10 +1,18 @@
 import numpy as np
+import pytest
 
 from pyrx.bitsync import BitStream, bit_sync, frame_sync
 from pyrx.lnav import PREAMBLE, encode_subframe
 from pyrx.synth import SF1, SF2, SF3
 
 rng = np.random.default_rng(1)
+
+
+@pytest.fixture(autouse=True)
+def _own_generator():
+    """Every test draws from a generator of its own, whatever ran before it."""
+    global rng  # noqa: PLW0603
+    rng = np.random.default_rng(1)
 
 
 def _frame_bits(tow0=5044, n_sf=3, d29=0, d30=0):
