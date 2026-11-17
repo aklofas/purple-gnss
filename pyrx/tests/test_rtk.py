@@ -641,13 +641,15 @@ def test_one_eligible_pair_is_reported_as_a_float_ambiguity():
     assert a.std > 0 and abs(a.value - _truth(a)) < 3 * a.std
 
 
-def _l1_run(rng, ephs, seconds, amb_at=None, lli_at=None):
-    """A 1 Hz L1-only run as (rover, base) pairs; `amb_at(k)` gives the rover ambiguities
-    of second k and `lli_at(k)` its indicators."""
+def _l1_run(rng, ephs, seconds, amb_at=None, lli_at=None, signals=("G1C",), drop_at=None):
+    """A 1 Hz run (L1 alone unless `signals` says otherwise) as (rover, base) pairs;
+    `amb_at(k)` gives the rover ambiguities of second k, `lli_at(k)` its indicators and
+    `drop_at(k)` the base observations missing."""
     return [
         _pair(
-            rng, ephs, TOW + 1.0 * k, signals=("G1C",),
+            rng, ephs, TOW + 1.0 * k, signals=signals,
             amb_r=amb_at(k) if amb_at else None, lli=lli_at(k) if lli_at else None,
+            drop=drop_at(k) if drop_at else (),
         )
         for k in range(seconds)
     ]  # fmt: skip
@@ -799,3 +801,312 @@ def test_no_integer_search_below_the_satellite_floor():
     np.testing.assert_allclose(at[-1].position, ROVER, atol=0.01, rtol=0)
     assert [f.status for f in at] == [f.status for f in run(0, five)]
     assert run(6, ())[-1].status == "fix"
+
+
+# --- slips="check": a phase the rover flags is looked at before its ambiguity restarts ----
+
+G03 = ("G03", "G1C")
+
+
+def _offset(key, cycles, start, stop=None):
+    """Rover ambiguities by second with `key` moved by `cycles` from `start` (to `stop`)."""
+    moved = dict(AMB_R)
+    moved[key] += cycles
+    return lambda k: moved if k >= start and (stop is None or k < stop) else AMB_R
+
+
+def _six(ephs, **options):
+    """An engine that fixes only with all six satellites in the search: a fix is then right
+    or an ambiguity is wrong, where five satellites at 1 Hz leave either to the noise."""
+    return _rtk(ephs, min_fix_sats=6, **options)
+
+
+def _stepped(rtk, pairs):
+    """Step the pairs; every fix must be the true position."""
+    fixes = {}
+    for k in range(len(pairs)):
+        fixes[k] = rtk.step(*pairs[k])
+        if fixes[k].status == "fix":
+            np.testing.assert_allclose(fixes[k].position, ROVER, atol=0.01, rtol=0)
+    return fixes
+
+
+def test_check_mode_without_a_flag_is_the_restart_mode():
+    ephs = constellation()
+    pairs = _l1_run(np.random.default_rng(50), ephs, 10, signals=SIGNALS)
+    restart, check = _rtk(ephs), _rtk(ephs, slips="check")
+    for pair in pairs:
+        a, b = restart.step(*pair), check.step(*pair)
+        assert (a.status, a.ratio, a.nb, a.ns) == (b.status, b.ratio, b.nb, b.ns)
+        np.testing.assert_array_equal(a.position, b.position)
+        np.testing.assert_array_equal(a.float_position, b.float_position)
+    with pytest.raises(ValueError, match="slips"):
+        _rtk(ephs, slips="maybe")
+
+
+def test_a_flagged_phase_that_fits_the_others_keeps_its_ambiguity():
+    # a fade flag says a slip was possible; the phase is continuous, and the solution of
+    # the unflagged satellites says so to a fraction of a cycle
+    ephs = constellation()
+    flags = lambda k: {G03: 1} if k in (6, 7, 9) else None
+    pairs = _l1_run(np.random.default_rng(51), ephs, 12, lli_at=flags)
+    check, restart = _six(ephs, slips="check", min_lock=3), _six(ephs, min_lock=3)
+    fixes = _stepped(check, pairs)
+    _stepped(restart, pairs)
+    assert check.biases[G03].lock == 12 and restart.biases[G03].lock == 3 - 3
+    assert all(_searched(f, "G03") for f in fixes.values())
+    assert fixes[11].status == "fix"
+
+
+@pytest.mark.parametrize("cycles", [0.5, -0.5, 1.0, 7.0])
+def test_a_flagged_phase_that_slipped_restarts(cycles):
+    ephs = constellation()
+    pairs = _l1_run(
+        np.random.default_rng(52), ephs, 12, amb_at=_offset(G03, cycles, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, pairs)
+    assert rtk.biases[G03].lock == 6 and rtk.biases[("G02", "G1C")].lock == 12
+    # half a cycle off is no integer: the receiver marks such a phase and it is not searched
+    assert fixes[11].status == ("fix" if cycles % 1 == 0 else "float")
+
+
+@pytest.mark.parametrize("cycles,kept", [(0.2, True), (-0.2, True), (0.3, False), (-0.3, False)])
+def test_the_phase_must_fit_within_a_quarter_cycle(cycles, kept):
+    # half the distance to the nearest slip of a Costas loop
+    ephs = constellation()
+    pairs = _l1_run(
+        np.random.default_rng(53), ephs, 8, amb_at=_offset(G03, cycles, 6, 7),
+        lli_at=lambda k: {G03: 1} if k == 6 else None,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    for pair in pairs[:7]:
+        rtk.step(*pair)
+    assert rtk.biases[G03].lock == (7 if kept else 1)
+
+
+def test_a_flag_from_the_base_restarts_without_a_look():
+    ephs = constellation()
+    for both in (False, True):
+        pairs = _l1_run(
+            np.random.default_rng(54), ephs, 12,
+            lli_at=lambda k, both=both: {G03: 1} if both and k == 6 else None,
+        )
+        pairs[6] = (pairs[6][0], _flag(pairs[6][1], *G03, 1))
+        rtk = _six(ephs, slips="check")
+        _stepped(rtk, pairs)
+        assert rtk.biases[G03].lock == 6
+
+
+def test_a_flag_after_a_missed_epoch_restarts_without_a_look():
+    # only an ambiguity updated at the previous epoch is looked at: across a gap the phase
+    # may have gone anywhere, and a new track's fractional phase could pass by chance
+    ephs = constellation()
+    flags = lambda k: {G03: 1} if k == 6 else None
+    gap = lambda k: {G03} if k == 5 else ()
+    pairs = _l1_run(np.random.default_rng(55), ephs, 12, lli_at=flags, drop_at=gap)
+    rtk = _six(ephs, slips="check")
+    _stepped(rtk, pairs)
+    assert rtk.biases[G03].lock == 6
+
+
+@pytest.mark.parametrize("flagged,kept", [(1, True), (2, False), (3, False), (6, False)])
+def test_too_few_unflagged_satellites_cannot_vouch_for_a_phase(flagged, kept):
+    # five satellites not in question place the flagged one within 0.11 cycle; four have no
+    # redundancy left (0.8 to 1 cycle here), three leave the position to the code, none
+    # leave nothing to difference against
+    ephs = constellation()
+    sats = [f"G{n:02d}" for n in (3, 4, 5, 2, 6, 1)][:flagged]
+    flags = lambda k: {(sat, "G1C"): 1 for sat in sats} if k == 6 else None
+    pairs = _l1_run(np.random.default_rng(56), ephs, 12, lli_at=flags)
+    rtk = _six(ephs, slips="check")
+    _stepped(rtk, pairs)
+    locks = {sat: rtk.biases[(sat, "G1C")].lock for sat in sats}
+    assert locks == dict.fromkeys(sats, 12 if kept else 6)
+
+
+def test_a_phase_in_question_is_not_the_reference_of_another():
+    # two flagged satellites, the highest of all among them and a cycle off; six Galileo
+    # satellites keep the position sharp. The other flagged phase must be differenced
+    # against the highest satellite that is not in question, or it inherits that cycle
+    ephs = constellation() + as_galileo(constellation())
+    top = ("G01", "G1C")
+    flags = lambda k: {top: 1, G03: 1} if k == 6 else None
+    pairs = _l1_run(
+        np.random.default_rng(66), ephs, 10, amb_at=_offset(top, 1.0, 6), lli_at=flags,
+        signals=("G1C", "E1C"),
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check")
+    for pair in pairs:
+        rtk.step(*pair)
+    assert (rtk.biases[top].lock, rtk.biases[G03].lock) == (4, 10)
+
+
+@pytest.mark.parametrize("limit,kept", [(0.10, False), (0.125, True)])
+def test_the_fit_must_be_predicted_sharply(monkeypatch, limit, kept):
+    # the phase of the one flagged satellite of the run above is predicted within 0.107 cycle
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", limit)
+    ephs = constellation()
+    pairs = _l1_run(np.random.default_rng(56), ephs, 8, lli_at=lambda k: {G03: 1} if k == 6 else None)
+    rtk = _rtk(ephs, slips="check")
+    for pair in pairs:
+        rtk.step(*pair)
+    assert rtk.biases[G03].lock == (8 if kept else 2)
+
+
+def test_the_other_signal_vouches_for_a_flagged_phase(monkeypatch):
+    # the geometry-free difference of a satellite's two signals did not step: the flagged
+    # one is continuous, whatever the other satellites say
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)  # the test against the filter keeps nothing
+    ephs = constellation()
+    flags = lambda k: {G03: 1} if k in (6, 7) else None
+    dual = _l1_run(np.random.default_rng(57), ephs, 12, lli_at=flags, signals=SIGNALS)
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, dual)
+    assert rtk.biases[G03].lock == 12 and fixes[11].status == "fix"
+    second = ("G03", "G2W")
+    other = _l1_run(
+        np.random.default_rng(57), ephs, 12, lli_at=lambda k: {second: 1} if k == 6 else None,
+        signals=SIGNALS,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    _stepped(rtk, other)
+    assert rtk.biases[second].lock == 12
+    single = _l1_run(np.random.default_rng(57), ephs, 12, lli_at=flags)
+    rtk = _six(ephs, slips="check")
+    _stepped(rtk, single)
+    assert rtk.biases[G03].lock == 12 - 7
+    # two flagged signals do not vouch for each other
+    both = _l1_run(
+        np.random.default_rng(57), ephs, 12, lli_at=lambda k: {G03: 1, second: 1} if k == 6 else None,
+        signals=SIGNALS,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    _stepped(rtk, both)
+    assert (rtk.biases[G03].lock, rtk.biases[second].lock) == (6, 6)
+
+
+def test_the_reference_moves_on_when_a_signal_of_the_pair_restarts():
+    # the base flags the first signal while the rover flags the second: the first restarts,
+    # and the geometry-free reference is the new value, not the one from before the flags.
+    # 4 cm at 6 s and 4 cm more at 7 s are then two small steps, not one of 8 cm
+    ephs = constellation()
+    second = ("G03", "G2W")
+    moved = {k: dict(AMB_R) for k in range(12)}
+    for k in range(6, 12):
+        moved[k][G03] += 0.21 * min(k - 5, 2)
+    pairs = _l1_run(
+        np.random.default_rng(65), ephs, 12, amb_at=lambda k: moved[k],
+        lli_at=lambda k: {second: 1} if k == 6 else None, signals=SIGNALS,
+    )  # fmt: skip
+    pairs[6] = (pairs[6][0], _flag(pairs[6][1], *G03, 1))
+    rtk = _rtk(ephs, slips="check")
+    for pair in pairs[:8]:
+        rtk.step(*pair)
+    assert (rtk.biases[G03].lock, rtk.biases[second].lock) == (2, 8)
+
+
+def test_a_geometry_free_step_restarts_both_signals_whichever_is_flagged():
+    # a fade hits both signals; the flag on one does not say the other held
+    ephs = constellation()
+    second = ("G03", "G2W")
+    for slipped, flagged in ((G03, G03), (G03, second), (second, G03)):
+        pairs = _l1_run(
+            np.random.default_rng(58), ephs, 12, amb_at=_offset(slipped, 1.0, 6),
+            lli_at=lambda k, flagged=flagged: {flagged: 1} if k == 6 else None, signals=SIGNALS,
+        )  # fmt: skip
+        rtk = _six(ephs, slips="check")
+        _stepped(rtk, pairs)
+        assert (rtk.biases[G03].lock, rtk.biases[second].lock) == (6, 6)
+
+
+def test_a_slip_spread_over_flagged_epochs_is_measured_whole():
+    # 2.3 cm a second for three flagged seconds: each step is below the 5 cm threshold, the
+    # sum is not; the reference stays where the phase was last unflagged
+    ephs = constellation()
+    second = ("G03", "G2W")
+    creep = {k: dict(AMB_R) for k in range(12)}
+    for k in range(12):
+        creep[k][G03] += 0.12 * min(max(k - 5, 0), 3)
+    pairs = _l1_run(
+        np.random.default_rng(59), ephs, 12, amb_at=lambda k: creep[k],
+        lli_at=lambda k: {G03: 1} if k in (6, 7, 8) else None, signals=SIGNALS,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    locks = {}
+    for k, pair in enumerate(pairs):
+        rtk.step(*pair)
+        locks[k] = (rtk.biases[G03].lock, rtk.biases[second].lock)
+    assert locks[7] == (8, 8) and locks[8] == (1, 1) and locks[11] == (4, 4)
+
+
+def test_a_restart_by_the_filter_test_does_not_leave_a_stale_reference():
+    # the second signal is missing when the first slips, so the slip is found against the
+    # filter; the old geometry-free reference must not restart both when the second returns
+    ephs = constellation()
+    second = ("G03", "G2W")
+    pairs = _l1_run(
+        np.random.default_rng(60), ephs, 12, amb_at=_offset(G03, 1.0, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=SIGNALS,
+        drop_at=lambda k: {second} if k == 6 else (),
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, pairs)
+    assert (rtk.biases[G03].lock, rtk.biases[second].lock) == (6, 11)
+    assert fixes[11].status == "fix"
+
+
+def test_a_continuing_phase_keeps_an_established_half_cycle():
+    # fades leave the half cycle open in the file (bit 1) from 6 to 8 s; the phase did not
+    # move, so an ambiguity that was established stays in the search
+    ephs = constellation()
+    flags = lambda k: {G03: 2} if 6 <= k < 9 else None
+    pairs = _l1_run(np.random.default_rng(61), ephs, 12, lli_at=flags)
+    check, restart = _six(ephs, slips="check"), _six(ephs)
+    fixes, stock = _stepped(check, pairs), _stepped(restart, pairs)
+    assert [_searched(fixes[k], "G03") for k in range(12)] == [True] * 12
+    assert [_searched(stock[k], "G03") for k in range(12)] == [True] * 6 + [False] * 3 + [True] * 3
+    assert (check.biases[G03].lock, restart.biases[G03].lock) == (12, 3)
+
+
+def test_a_restarted_phase_takes_the_half_cycle_bit_of_the_file():
+    # the loop slips half a cycle at 6 s (flagged, bit 1 open); at 9 s a subframe shows the
+    # new polarity and the receiver puts the half cycle back (flagged, bit closed)
+    ephs = constellation()
+    flags = lambda k: {G03: 3} if k == 6 else {G03: 2} if k in (7, 8) else {G03: 1} if k == 9 else None
+    pairs = _l1_run(np.random.default_rng(62), ephs, 12, amb_at=_offset(G03, 0.5, 6, 9), lli_at=flags)
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, pairs)
+    assert [_searched(fixes[k], "G03") for k in range(12)] == [True] * 6 + [False] * 3 + [True] * 3
+    assert rtk.biases[G03].lock == 3 and not rtk.biases[G03].half
+
+
+def test_a_closing_half_cycle_bit_on_a_continuing_phase_establishes_it():
+    # before the first subframe the bit is open; the subframe confirms the polarity the
+    # receiver assumed and the phase goes on as it was
+    ephs = constellation()
+    pairs = _l1_run(np.random.default_rng(63), ephs, 12, lli_at=lambda k: {G03: 2} if k < 6 else None)
+    check, restart = _six(ephs, slips="check"), _six(ephs)
+    fixes = _stepped(check, pairs)
+    _stepped(restart, pairs)
+    assert [_searched(fixes[k], "G03") for k in range(12)] == [False] * 6 + [True] * 6
+    assert (check.biases[G03].lock, restart.biases[G03].lock) == (12, 6)
+
+
+def test_backward_a_flagged_phase_is_looked_at_from_the_other_side():
+    # a slip of one cycle between 5 and 6 s, flagged at 6: backward the filter meets it at
+    # 5, restarts there, and keeps the phases flagged for nothing at 8 and 3
+    ephs = constellation()
+    flags = lambda k: {G03: 1} if k in (3, 6, 8) else None
+    pairs = _l1_run(np.random.default_rng(64), ephs, 12, amb_at=_offset(G03, 1.0, 6), lli_at=flags)
+    rtk = _six(ephs, slips="check", backward=True)
+    locks = {}
+    for k in range(11, -1, -1):
+        rtk.step(*pairs[k])
+        locks[k] = rtk.biases[G03].lock
+    assert locks[6] == 6 and locks[5] == 1 and locks[0] == 6
