@@ -476,7 +476,10 @@ observation's C/N0 to that variance:
 ```
 
 so 1.5 m at 45 dB-Hz, 4.7 m at 35, 0.8 m at 50; an observation without an `S1C` value
-gets none. The slope is the one the residuals show on sky recordings (about ten times
+gets none. `S1C` is taken as dB-Hz, which is what a file says with `DBHZ` in its
+`SIGNAL STRENGTH UNIT` record and what one without the record is assumed to hold; a file
+that declares another unit is solved with RTKLIB's weights, and `pyrx-pvt` says so in
+one line on standard error. The slope is the one the residuals show on sky recordings (about ten times
 the variance for every 10 dB), and has the form of the signal-strength term of the
 demo5 fork of RTKLIB (`stats-errsnr`); RTKLIB 2.4.3 itself has only a signal-strength
 mask in this mode. The 1.5 m was taken from a sweep over three five-minute car-roof

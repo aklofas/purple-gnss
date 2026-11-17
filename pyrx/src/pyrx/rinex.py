@@ -220,6 +220,15 @@ def _header_lines(path) -> list[str]:
     return lines
 
 
+def signal_strength_unit(path) -> str:
+    """The SIGNAL STRENGTH UNIT of an observation file's header (DBHZ for dB-Hz), empty when
+    the file has no such record or a blank one."""
+    for line in _header_lines(path):
+        if line[60:].strip() == "SIGNAL STRENGTH UNIT":
+            return line[:20].strip()
+    return ""
+
+
 def _check_observation_header(lines: list[str], signals: tuple[str, ...]) -> None:
     """Reject what the observation readers do not implement.
 
