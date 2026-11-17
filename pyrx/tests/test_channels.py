@@ -203,3 +203,14 @@ def test_pilot_trial_needs_the_sync_and_a_locked_last_window():
     assert not channels._pilot_holds(trial(None, [-0.3, 0.9, 0.95]))  # never synced
     assert not channels._pilot_holds(trial(1500, [-0.3, 0.9, 0.1]))  # synced, then gone
     assert not channels._pilot_holds(trial(1500, []))  # too short to judge
+
+
+@pytest.mark.parametrize("interval", [0.0, -1.0])
+def test_a_probe_interval_that_does_not_advance_is_refused(tmp_path, interval):
+    # the walk steps along the probe grid: with a step of zero or less it would never end
+    path = tmp_path / "short.bin"
+    path.write_bytes(bytes(1000))  # too short for one probe, so nothing is searched
+    with pytest.raises(ValueError, match="interval"):
+        track_prn(path, 2.5e6, False, 0.0, 1, interval=interval)
+    with pytest.raises(ValueError, match="interval"):
+        track_prns(path, 2.5e6, False, 0.0, [1, 2], interval=interval)
