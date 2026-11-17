@@ -53,7 +53,9 @@ flag and the car-roof pilots and joint observations on the project's recordings
 the broadcast orbits with the IGS final orbit (`test_orbits_reference.py`), the
 standalone fix with RTKLIB on the recordings and on a day of an IGS station
 (`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
-coordinates on two station pairs (`test_rtk_reference.py`). They need the
+coordinates on two station pairs, the backward pass and the lock count with RTKLIB on
+the car-roof drive, and that drive's fix by the agreement of both filter directions
+(`test_rtk_reference.py`). They need the
 environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
 and skip when it is unset; the observables, joint-observables, positioning and RTK
 tests also skip when `rnx2rtkp` is not on the path, and the RTK tests take a few
@@ -93,6 +95,11 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `sky/20261103_030551_carroof-static/ch1.bin` | project recording, not distributed: the same front end parked under open sky, GPS L1, 24 MHz real, 6 MHz IF, 300 s; a `slow` test forms L1 and L5 observations from its first 120 s | `f991e49f5f0fd9d3dcaa58a48f528fb59fdf23cfc03d8edb96e9d6469bf44d2b` |
 | `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; `slow` tests walk the pilots of its first 60 s and form joint observations from its first 120 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
+| `sky/20261103_031515_carroof-driving/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the drive (291 epochs at 1 s, GPS L1 and L5), the rover of the RTK tests on the car-roof captures | `9f95711a31e419a8b79bc7b21276b0d88d5e34eeafa90c8868f0919fd874df31` |
+| `sky/20261103_031515_carroof-driving/pyrx_l1l5.nav` | generated: the navigation file of the same run | `68867ed5a8552c7bc6683f6a84f79040147ee44122662153cdd1862af49a10ab` |
+| `sky/20261103_030551_carroof-static/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the parked capture (299 epochs), the rover of the RTK tests on the car-roof captures | `8825240761e6107e04647510e13053b84a5125c94b3e0012e1ea44e2913d34aa` |
+| `sky/20261103_030551_carroof-static/pyrx_l1l5.nav` | generated: the navigation file of the same run | `cb485486a91a6ceec246d3b981bb097d813f14e78bb3fd034d4f0111a96c357c` |
+| `cors/base_20261103_0300_0330_gps.rnx` | project file, not distributed: half an hour of 1 s GPS L1 and L5 observations of a public reference station 15 km from the car-roof captures, converted from its RINEX 2.11 file to RINEX 3 (`C1 L1 S1` as `1C`, `C5 L5 S5` as `5Q`), with the station's antenna reference point in `APPROX POSITION XYZ`; the base of those RTK tests | `ebc81edce9e29c37588ab7761b59c4cee74209f9ceb741f0ab0dee50e5fa06d7` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
@@ -284,7 +291,7 @@ clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 ## RTK from the command line
 
 ```sh
-pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
+pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 6] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
 ```
 
 Solves the baseline from a base station of known position to the rover, epoch by
@@ -294,7 +301,13 @@ marker-to-antenna offsets are taken from each file's `ANTENNA: DELTA H/E/N` unle
 given. `--signals` lists the signals to use as system letter plus RINEX attribute
 (GPS `G1C G2W G5Q`, Galileo `E1C E5Q E7Q`); the single-point seed solves on GPS L1
 C/A when it is listed and otherwise on the first GPS signal given (it is an L1 solver,
-so a GPS signal must be listed). The
+so a GPS signal must be listed). With `--slips check`, the default, a phase the rover
+flags as a possible slip is looked at before its ambiguity is given up; `--min-lock` is
+the number of updates an ambiguity that was begun again waits before the integer search,
+and `--fix-sats` the number of satellites that search must span for a fix.
+`--slips restart --min-lock 0 --fix-sats 0` is RTKLIB's behavior, which is also what the
+library's `RtkOptions` default to (see RTK below). `--backward` runs the filter from the
+last epoch to the first; the output stays in time order. The
 command prints the numbers of fixed and float epochs, the mean fixed baseline in
 the base's east-north-up frame and the median ratio, then the run time; `-v`
 prints one line per solved epoch; `-o` writes those lines with the header
@@ -447,6 +460,102 @@ positions. The hardware's own set, GPS L1/L5 with Galileo E1/E5a, which RTKLIB
 cannot run, must fix at least 99 % of the epochs within the same marker bounds.
 Measured, the fixed positions agree with RTKLIB's within 2.6 mm in the GPS cases
 and 7.8 mm in the multi-GNSS case, and the hardware set fixes 721 of 721.
+
+### Flagged phases, the lock count and the backward pass
+
+A receiver that flags every phase that may have slipped flags many that did not: on the
+car-roof captures pyrx's own L1 fade rule (Observables, below) puts the flag on 11 % and
+35 % of the L1 phases, and nearly all of those are continuous. RTKLIB restarts the
+ambiguity at every flag, and so does this engine with its default options. Four more
+options, all off by default so that the comparisons with RTKLIB stand, change that; the
+`pyrx-rtk` command turns the first three on.
+
+`slips="check"` looks at a flagged phase first. A phase is in question when only the
+rover flags it (the lost-lock bit, or a change of the half-cycle bit), both receivers
+have its phase and code, and its ambiguity was updated at the previous epoch that reached
+the filter. Every other flagged phase restarts as before: one the base flags, one after a
+gap. Two things can settle a phase in question.
+
+The satellite's other signal. The engine compares the geometry-free difference of a
+satellite's first signal and each other one with its earlier value and restarts both on a
+step of more than 5 cm. In check mode the earlier value is the one of the last epoch at
+which neither phase was in question (or of the last restart of either), so a slip spread
+over several flagged epochs is measured whole; and where there is no step, a phase in
+question beside an unflagged one is continuous. A step still restarts both, whichever
+carries the flag: a fade hits both signals, and on the drive below restarting only the
+flagged one was worse than no check at all.
+
+The rest of the epoch. The phases still in question are left out of a trial update on a
+copy of the filter, which takes every code and every other phase and so places the rover
+relative to the ambiguities that are not in doubt. Each phase in question is then
+double-differenced against the highest satellite of its signal that is not in question.
+It continues its ambiguity when that innovation is within a quarter cycle
+(`CHECK_INNOVATION`: a Costas loop that slips settles half a cycle away, and a quarter is
+half the way there) and the innovation's predicted standard deviation, filter state and
+measurement noise together, is within an eighth (`CHECK_SIGMA`); otherwise the ambiguity
+restarts on this phase. The prediction is that sharp only while enough satellites are
+not in question: five of the six in the synthetic tests place the sixth within 0.11
+cycle, four only within 0.8 to 1. The epoch's one Kalman update then runs on every phase as usual.
+An ambiguity that continues through a flag keeps an established half cycle whatever the
+file's half-cycle bit says; a restarted one takes the file's bit.
+
+`min_lock` is RTKLIB's `pos2-arlockcnt`: an ambiguity begun again after a slip or an
+outage waits that many updates before it enters the integer search; one seen for the
+first time does not wait. `min_fix_sats` keeps an epoch float unless the ambiguities
+eligible for the search span that many satellites, the reference among them: on the
+drive, searches over two to five double differences passed the ratio test with ratios
+from 3 to 190 and left the position where the float solution had it, up to a meter off.
+`backward` runs the filter from the last epoch to the first over the same pairs of
+epochs (`solve_rtk` returns the fixes in time order either way). A lost-lock flag sits on
+the first phase after a discontinuity, so the backward filter reads that bit from the
+indicator it read before and restarts at the earlier phase, as RTKLIB does; like RTKLIB
+it takes the half-cycle bit from those indicators too, which follows a change of the bit
+one epoch late. RTKLIB pairs a rover epoch with the next base epoch when it runs
+backward, this engine with the previous one as it does forward; at equal rates that is
+the same epoch.
+
+On the L1 observations of the car-roof drive, where the two engines have the same slip
+rules, the backward pass and a lock count of 5 in both directions give RTKLIB's solution
+epoch for epoch: the same epochs solved, the same status, the positions within 1 mm
+(`test_rtk_reference.py`; `pos1-soltype=backward` and `pos2-arlockcnt=5` in the
+configuration above).
+
+There is no truth for the car-roof captures, so the check is judged by agreement: the
+filter runs forward and backward, and an epoch is agreed when both fix it within 5 cm
+horizontally and 10 cm vertically of each other, apart when both fix it further apart.
+The drive, 279 solved epochs at 1 s with fades and one obstruction, GPS L1 and L5 on
+five of nine satellites, a base 15 km away, kinematic:
+
+| Options | Fixed forward | Fixed backward | Agreed | Apart |
+|---|---|---|---|---|
+| default (RTKLIB's rules) | 157 | 122 | 84 | 1 |
+| `min_fix_sats=6` | 153 | 118 | 84 | 0 |
+| `min_lock=5`, `min_fix_sats=6` | 177 | 142 | 105 | 0 |
+| `slips="check"`, `min_fix_sats=6` | 193 | 162 | 131 | 0 |
+| `slips="check"`, `min_lock=5`, `min_fix_sats=6` (the command) | 198 | 176 | 143 | 0 |
+| `slips="check"`, `min_lock=5`, `min_fix_sats=5` | 202 | 177 | 143 | 1 |
+| `slips="check"`, `min_lock=5` | 214 | 187 | 143 | 5 |
+
+RTKLIB 2.4.3 itself, which has no geometry-free test for this pair of signals, fixes 141
+epochs forward and 108 backward on the same files. Where the command's forward solution
+and the default's both fix (141 epochs) the positions are within 2.2 cm of each other.
+The first seconds of the drive, before the car pulls out, fix within 7 mm horizontally
+and 17 mm vertically of the static solution of a capture recorded at the same spot ten
+minutes earlier; that parked capture fixes 132 of 299 epochs in static mode with either
+set of options, at the same position, and the command's options do not produce the
+default's false fix at the very first epoch (ratio 3.1, 2 m off). The test pins the
+drive at 130 agreed epochs or more, none apart, and 40 more agreed than the default.
+
+Limits. Agreement of two directions of one engine on one file is not a truth; both can
+share a wrong fix. The options were chosen on this one drive: lock counts of 3 to 7 give
+135 to 146 agreed epochs, and the two constants of the test change nothing between 0.20
+and 0.30 cycle and between 0.10 and 0.15 cycle. A floor of six satellites refuses every
+fix under a sky of five. The check trusts the phases that carry no flag; an unflagged
+slip is caught only by the geometry-free test, as before. And a second capture, started
+while driving, has no agreed epoch with any of these options (the command fixes none
+forward and one backward; the default's 4 and 14 scattered fixes agree nowhere and two
+are apart): seven satellites, four with an L5 pilot, the other three flagged on 33 to
+56 % of their L1 phases. It needs more satellites with a pilot.
 
 ## Standalone positioning
 
@@ -601,8 +710,9 @@ the pilot); without the fade rule 21 of each carried no flag, with it none and 2
 of 5.9 and 4.5 cm at 38 dB-Hz with little or no hold before them, not half cycles). The
 price is flags: 34.7 % of the cold-start capture's L1 phases and 11.2 % of the driving
 capture's carry one (1.6 % and 1.9 % without the rule), on those five satellites
-fifteen and six flagged phases per discontinuity, and an RTK engine restarts the
-satellite's ambiguity at each. The parked capture gains none: there the hold fires
+fifteen and six flagged phases per discontinuity, and an RTK engine that follows RTKLIB
+restarts the satellite's ambiguity at each (`pyrx-rtk` looks at the phase first, see
+RTK). The parked capture gains none: there the hold fires
 only in runs of 30 ms at most on the three weakest satellites (36.6 to 40.5 dB-Hz),
 never for 50 ms within a half second. A wider carrier loop is no remedy: on the
 cold-start capture the same satellites slip 28, 33 and 36 times at 10, 15 and 20 Hz

@@ -28,6 +28,17 @@ both receivers contribute at an epoch (observed, with an ephemeris, above the
 mask). A slip one receiver flags while the other lacks the satellite is therefore
 not seen, and the ambiguity survives it when the satellite is common again within
 `max_outage` epochs; only the geometry-free test can still catch the jump.
+
+Beyond RTKLIB's defaults, all off unless asked for: `slips="check"` looks at a phase
+only the rover flags before its ambiguity restarts, against the satellite's other
+signal and against a trial update of the rest of the epoch (`_update_biases`,
+`_test_asked`), for a receiver that flags every phase that may have slipped;
+`min_lock` is RTKLIB's pos2-arlockcnt; `min_fix_sats` keeps an epoch float unless the
+integer search spans that many satellites, since a search over a few double
+differences passes the ratio test without pinning the position; `backward` runs the
+filter from the last epoch to the first, reading the indicators as RTKLIB does
+backward, over the pairs of the forward pass (RTKLIB pairs a rover epoch with the next
+base epoch when it runs backward; the same epoch at equal rates).
 """
 
 from dataclasses import dataclass, replace
