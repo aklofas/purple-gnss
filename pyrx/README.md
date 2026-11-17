@@ -47,16 +47,18 @@ the L5 and E5a pilots in `test_tracking_pilot_reference.py`),
 the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),
 the transmit times with Pocket SDR's C tracker and the fix RTKLIB computes from our
 RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`), the L5 observations with the L1 ones of the same
-satellites (`test_joint_observables_reference.py`),
+satellites (`test_joint_observables_reference.py`), the re-acquisition walk, the fade
+flag and the car-roof pilots and joint observations on the project's recordings
+(`test_channels_reference.py`, all `slow`),
 the broadcast orbits with the IGS final orbit (`test_orbits_reference.py`), the
 standalone fix with RTKLIB on the recordings and on a day of an IGS station
 (`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
 coordinates on two station pairs (`test_rtk_reference.py`). They need the
 environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
-and skip when it is unset; the observables, positioning and RTK tests also skip
-when `rnx2rtkp` is not on the path, and the RTK tests take a few minutes. With
-`PYRX_REQUIRE_CAPTURES=1` those skips become failures, so a gate run cannot pass by
-skipping them (the `fpga` benches refuse to start without the recording then):
+and skip when it is unset; the observables, joint-observables, positioning and RTK
+tests also skip when `rnx2rtkp` is not on the path, and the RTK tests take a few
+minutes. With `PYRX_REQUIRE_CAPTURES=1` those skips become failures, so a gate run
+cannot pass by skipping them (the `fpga` tests on the recording fail the same way):
 
 | File | Source | SHA-256 |
 |---|---|---|
@@ -86,10 +88,10 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.psdr.rnx2rtkp.pos` | generated: RTKLIB 2.4.3 b34 `rnx2rtkp` single-point fix from that file with the broadcast ephemeris, the reference for our fix; command below | `304f6d4ad6662085e09668d789e51aa4aa52073e1d0a723da1cfea4494cd841e` |
 | `brdc/BRDC00IGS_R_20220140000_01D_MN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2022-01-14; only its GPSA/GPSB header lines are used | `5e366723dcda6bcfb049b5bc0459284d27581855567c1ff977de7cf76e1f701d` |
 | `sky/20261103_031515_carroof-driving/ch1.bin` | project recording, not distributed (50 GB per capture; the test reads 20 s of it): Pocket SDR FE 4CH on a car roof, driven through two obstructions, GPS L1, 24 MHz real, 6 MHz IF, 300 s; `test_tracking_reference.py` tracks G12 through the 222 s onset | `3662ffb99bcc61068af4322b766d2be1d2a678feb2fa1b01cef9b2d306ee0113` |
-| `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; the `slow` test in `test_channels_reference.py` walks its first 90 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
+| `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; two `slow` tests in `test_channels_reference.py` walk its first 90 s and G13 from 100 to 160 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
 | `sky/20261103_032110_carroof-coldstart/trk_l1ca.log` | generated: Pocket SDR `pocket_trk` L1 C/A log of that recording, the reference of the `slow` test | `4dc83bc579867286d6e938cdc91628f5d9c413723d832c86c9475f1ae85de9d5` |
 | `sky/20261103_030551_carroof-static/ch1.bin` | project recording, not distributed: the same front end parked under open sky, GPS L1, 24 MHz real, 6 MHz IF, 300 s; a `slow` test forms L1 and L5 observations from its first 120 s | `f991e49f5f0fd9d3dcaa58a48f528fb59fdf23cfc03d8edb96e9d6469bf44d2b` |
-| `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; a `slow` test walks the pilots of its first 60 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
+| `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; `slow` tests walk the pilots of its first 60 s and form joint observations from its first 120 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
@@ -165,8 +167,7 @@ two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
 image per detected PRN.
 
 The search sums whole code periods of a fixed number of samples, so the sample
-rate must hold a whole number of samples per millisecond (every rate used so far
-does) or be high enough that the fraction does not matter; at 16.3676 MHz, a
+rate must hold a whole number of samples per millisecond or be high enough that the fraction does not matter; at 16.3676 MHz, a
 common front-end rate, a 10 ms search spreads the peak by a quarter
 chip and a non-integer rate near 2.5 MHz measured 0.8 chip and 3.7 dB of loss.
 Non-integer rates are not supported.
@@ -585,10 +586,12 @@ running mean. An observation is therefore flagged (value 1) when some half secon
 that ends no earlier than the epoch of the channel's previous observation with a phase,
 and before its own epoch, contains 50 ms or more of hold (the phase of an epoch is the
 loop's state before that epoch's update, so a held epoch counts for the phases after
-it). The flag thus comes at least 50 ms after a
-fade begins (an observation taken in between is written without it, and the next one
-carries it) and stays up to 0.45 s after the fade while the loop settles, so at one
-observation a second a fade just before an observation flags that one and the next.
+it). The condition thus holds from 50 ms after a
+fade begins to up to 0.45 s after it ends, while the loop settles, and every observation
+whose stretch since the channel's previous phase contains an epoch where it held carries
+the flag (an observation taken in the first 50 ms is written without it, and the next
+one carries it); so at one observation a second a fade just before an observation flags
+that one and the next.
 The flag says a slip was possible, not that one happened. Measured on the car-roof
 captures against the L5 pilot of the five satellites that have one (a pilot loop has no
 second lock point half a cycle away, so an L1 step shows against it wherever the L5
@@ -656,10 +659,11 @@ Doppler: such a loop came back one to three whole cycles away from most syntheti
 outages of 0.4 to 1.5 s. The tracker therefore judges each sum by its coherence, the
 squared magnitude of the sum over twenty times the summed power of its prompts (1 on a
 clean signal, 0.05 on noise, 0.28 at 25 dB-Hz), and takes it into the loop only at 0.20
-or above. On any other sum the loop runs on at the Doppler and the Doppler rate it had.
-One noise sum in seventy still reaches the threshold, so the first sum taken after a
-coasted one corrects the phase only; the Doppler and its rate take a sum's error when
-the sum before it was taken too. The integrator hold (see "Tracking loops") stays in
+or above. On any other sum the loop coasts: the discriminator reads zero, which takes
+the last error's proportional term back out of the Doppler, and the Doppler rate keeps
+steering. One noise sum in seventy still reaches the threshold, so the first sum taken
+after a coasted one moves the Doppler by its proportional term only; the integrated
+terms take a sum's error when the sum before it was taken too. The integrator hold (see "Tracking loops") stays in
 force beside the gate: behind an obstruction the signal is more often attenuated and
 flickering than gone, its weak sums pass the gate with a noisy phase, and the hold keeps
 them out of the rate estimate the loop then coasts on. In synthetic outages of 0.4 to
@@ -680,8 +684,8 @@ Two five-minute recordings from the roof of a moving car (fifteen and fourteen p
 channels, an obstruction every few seconds) put the synthetic numbers in proportion. A
 building or a tree mostly attenuates: the gate found sums without signal in about 200 of
 700 fades and coasted 42 and 34 s of the 70 and 58 channel-minutes tracked. Against the
-same loop without the gate the phase-locked time was the same within 1.5 % and the `L5Q`
-phases numbered 1392 for 1406 and 1225 for 1222. What the recordings do not show is that
+same loop without the gate the phase-locked time was 1.5 % longer on the driving capture
+and the same on the cold start, and the `L5Q` phases numbered 1392 for 1406 and 1225 for 1222. What the recordings do not show is that
 a coasted return is on the right cycle. The satellite's L1 phase is a check where it
 stayed locked through a fade, and in all 132 such fades the two loops passed it alike
 (the geometry-free combination did not move in 124 and stepped by the same amount in
@@ -749,7 +753,7 @@ of the decoder's field table.
 
 ## Tracking loops
 
-Each channel integrates 1 ms (one C/A code period) with early and late taps at
+Each channel integrates 1 ms (one code period of each signal) with early and late taps at
 ±0.25 chip and a noise tap 10 chips away. A frequency-locked loop pulls in for
 the first second, its discriminator on coherent sums of the prompt: 2 ms sums at
 5 Hz bandwidth for 0.3 s (pull-in range ±125 Hz, since a weak satellite's acquisition
@@ -792,7 +796,7 @@ of the signal (`signalspec.py`); for a pilot it runs in stages:
 1. Pull-in, 1 s: the FLL on single epochs (5 Hz for 0.5 s, then 2 Hz), because a
    coherent sum over a sign change of the secondary code cancels. This is Pocket SDR's
    pull-in and the one that handed a 30 dB-Hz L1 channel over 10 Hz off; the weakest
-   pilot held so far reads 35 dB-Hz.
+   pilot held on the parked car-roof capture, G14, reads 35 dB-Hz.
 2. The 1 ms Costas loop, which does not care about the sign changes.
 3. From 1.5 s the last prompts are compared with the secondary code at the current
    alignment (Pocket SDR's rule: the correlation of the code with the in-phase prompts
