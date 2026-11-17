@@ -50,7 +50,9 @@ an unrelated package.
 
 Tests on the recordings need `PYRX_CAPTURES` set to the directory holding them, exactly as the
 `pyrx` suite does; without it they skip (the SPI board sequence still runs on synthetic
-samples). The closed-loop RTL run is skipped unless `FPGA_SLOW=1` is set as well; run it with
+samples). With `PYRX_REQUIRE_CAPTURES=1` as well, the tests on the recording fail without
+it, so a gate run, `PYRX_CAPTURES=… PYRX_REQUIRE_CAPTURES=1 .venv/bin/pytest fpga`, cannot
+pass by skipping them. The closed-loop RTL run is skipped unless `FPGA_SLOW=1` is set as well; run it with
 `PYRX_CAPTURES=… FPGA_SLOW=1 SIM=verilator .venv/bin/pytest fpga/tb/test_loop.py` (about 2
 minutes). Lint: `verilator --lint-only -Wall fpga/rtl/*.v --top-module rx_spi` is clean; the
 board top adds the Lattice primitives, see the target README.
@@ -235,7 +237,7 @@ power is down), a non-coherent early-minus-late DLL every
 are pyrx's own functions, called by both. Fed pyrx's own correlator sums, it
 reproduces pyrx's Doppler increments exactly from the FLL-to-PLL handover on
 (`fpga/model/tests/test_loop.py`); the pull-ins differ, the tracker keeping the 1 ms two-stage
-FLL (5 Hz, then 2 Hz) where pyrx now pulls in on 2 ms then 5 ms coherent sums. Closed around a channel it
+FLL (5 Hz, then 2 Hz) where pyrx pulls in on 2 ms then 5 ms coherent sums. Closed around a channel it
 differs from pyrx in three further deliberate ways: pyrx moves its correlation window in time at each DLL
 update, while a channel can only change its code NCO rate, so the DLL output becomes a
 chip-rate offset spread over the next 10 ms, with carrier aiding folded into the code step;
@@ -246,7 +248,10 @@ carrier of pull-in leave the moments alone). The loss rule is pyrx's on that C/N
 consecutive 1 s windows bad by C/N0 or, after the pull-in window, by the phase-lock indicator
 (the same sums of the prompt I/Q); it is the firmware's rule. A channel started mid-period, as `fpgamodel.compare.start_phase` places it
 from an acquisition, dumps a partial period first; the tracker's `skip_first` drops that dump,
-and the firmware should do the same.
+and the firmware should do the same. pyrx's fade slip flag on an L1 phase reads the loop's
+integrator hold epoch by epoch (`TrackResult.held`); `Tracker.fading` is that state at the
+current dump, and `track_model` does not keep it in its history, so a receiver that wants
+the flag records it per dump.
 
 On the first 3 s of `L1_20211226_082401_24MHz_I.bin` (PRN 26, 48.7 dB-Hz), against
 `pyrx.tracking.track_l1ca` from the same acquisition seed, pairing each dump with the pyrx
