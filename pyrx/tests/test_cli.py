@@ -785,6 +785,13 @@ def test_rtk_main_takes_each_system_from_the_first_navigation_file_that_has_it(
     args = [str(rov), str(base), "own.nav", "--base-xyz", *map(str, USUD), "--signals", "G1C,G2W"]
     assert rtk_main(args) == 0
     assert seen["ephs"] == gps and seen["iono"] is None
+    capsys.readouterr()
     assert rtk_main([*args, "--nav-add", "public.nav", "--nav-add", "third.nav"]) == 0
     assert seen["ephs"] == gps + galileo and seen["iono"] is iono
-    capsys.readouterr()
+    assert capsys.readouterr().err == ""
+    # a system asked for that no file has ephemerides of takes no part: said, not silent
+    asked = [*args[:-1], "G1C,G2W,E1C"]
+    assert rtk_main(asked) == 0
+    assert "no Galileo ephemeris" in capsys.readouterr().err
+    assert rtk_main([*asked, "--nav-add", "public.nav"]) == 0
+    assert capsys.readouterr().err == ""
