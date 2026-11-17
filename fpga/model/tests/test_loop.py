@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from conftest import capture_file
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.samples import ArraySamples, SampleFile, read_samples
@@ -272,9 +273,7 @@ def test_track_model_rejects_a_disabled_channel():
 
 
 def test_model_loop_tracks_like_pyrx(captures):
-    path = captures / RECORDING
-    if not path.is_file():
-        pytest.skip(f"{RECORDING} not found")
+    path = capture_file(captures, RECORDING)
     head = read_samples(path, FS, iq=False, duration=0.01)
     results = [acquire_l1ca(head, FS, F_IF, prn) for prn in range(1, 33)]
     best = max(results, key=lambda a: a.cn0 if a.detected else -1.0)
