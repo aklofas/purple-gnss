@@ -407,7 +407,7 @@ The state is the rover antenna position and one single-differenced (rover minus
 base) carrier-phase ambiguity in cycles per satellite and signal. In kinematic mode
 the position is reset to the seed with a 30 m sigma every epoch; in static mode it
 is carried. Ambiguities are created from phase minus code with a 30-cycle sigma,
-removed when a satellite misses more than five epochs that reach the relative
+removed when a satellite misses five epochs that reach the relative
 solution, on a loss-of-lock flag at either receiver, or when the single-differenced
 geometry-free combination of a satellite's first and another signal jumps by more
 than 5 cm.
