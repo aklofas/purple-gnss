@@ -263,10 +263,15 @@ def test_read_rinex_nav_galileo_records_with_and_without_the_spare_field(tmp_pat
     later[0] = later[0].replace("00 10 00", "00 20 00")
     later[3] = later[3].replace(" 6.000000000000e+02", " 1.200000000000e+03")
     later[5] = later[5][: -len(" 0.000000000000e+00")]
-    text = head + "END OF HEADER\n" + "\n".join(record + later) + "\n"
+    # and a third with the three spare fields after the transmission time written too
+    third = list(record)
+    third[0] = third[0].replace("00 10 00", "00 30 00")
+    third[3] = third[3].replace(" 6.000000000000e+02", " 1.800000000000e+03")
+    third[7] = third[7] + " 0.000000000000e+00" * 3
+    text = head + "END OF HEADER\n" + "\n".join(record + later + third) + "\n"
     (tmp_path / "m.nav").write_text(text)
     ephs, _ = read_rinex_nav(tmp_path / "m.nav")
-    assert [(e.prn, e.toe) for e in ephs] == [(1, 600.0), (1, 1200.0)]
+    assert [(e.prn, e.toe) for e in ephs] == [(1, 600.0), (1, 1200.0), (1, 1800.0)]
     for e in ephs:
         assert e.health == 0 and e.ura == ura_index(3.12)
         assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10

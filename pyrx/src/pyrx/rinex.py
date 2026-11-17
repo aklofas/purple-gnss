@@ -492,23 +492,26 @@ def _galileo_record(r, prn, toc) -> Ephemeris | None:
 
 
 _GALILEO_RECORD = re.compile(r"E[ \d]\d \d{4} ")
-_ORBIT_FIELDS = 4 + 3 * 19  # columns of a broadcast-orbit line up to its third field
+_FIELD = 19  # columns of a field of a broadcast-orbit line, after four blanks
 
 
 def _uniform_galileo(path) -> io.StringIO:
-    """The navigation file with the spare field of every Galileo record blanked.
+    """The navigation file with the spare fields of every Galileo record blanked.
 
-    The record's sixth line holds IDOT, the data sources, the week and a spare field, which
-    some records of a combined file write as a number and others leave blank. The parser
-    behind `_load` takes one layout per satellite, and with both kinds in a file it reads
-    the lines after it one field off in one of them: the accuracy as the health word, or a
-    group delay as the accuracy. Blank everywhere, every record reads the same.
+    A Galileo record ends two of its lines in spare fields: the sixth, after IDOT, the data
+    sources and the week, and the eighth, after the transmission time. A combined file
+    writes them as numbers in some records and leaves them blank in others, and the parser
+    behind `_load` takes one layout per satellite: with both kinds in a file it reads the
+    fields after a spare one off in one of them (the accuracy as the health word, or a
+    group delay as the accuracy), or refuses the file. Blank everywhere, every record reads
+    the same.
     """
     with _open_text(path) as f:
         lines = f.read().split("\n")
     for i, line in enumerate(lines):
-        if _GALILEO_RECORD.match(line) and i + 5 < len(lines):
-            lines[i + 5] = lines[i + 5][:_ORBIT_FIELDS].rstrip()
+        if _GALILEO_RECORD.match(line) and i + 7 < len(lines):
+            lines[i + 5] = lines[i + 5][: 4 + 3 * _FIELD].rstrip()
+            lines[i + 7] = lines[i + 7][: 4 + _FIELD].rstrip()
     return io.StringIO("\n".join(lines))
 
 
