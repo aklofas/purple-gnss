@@ -11,6 +11,8 @@ drops the loss-of-lock indicators of some columns.
 """
 
 import gzip
+import io
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -489,12 +491,33 @@ def _galileo_record(r, prn, toc) -> Ephemeris | None:
     )
 
 
+_GALILEO_RECORD = re.compile(r"E[ \d]\d \d{4} ")
+_ORBIT_FIELDS = 4 + 3 * 19  # columns of a broadcast-orbit line up to its third field
+
+
+def _uniform_galileo(path) -> io.StringIO:
+    """The navigation file with the spare field of every Galileo record blanked.
+
+    The record's sixth line holds IDOT, the data sources, the week and a spare field, which
+    some records of a combined file write as a number and others leave blank. The parser
+    behind `_load` takes one layout per satellite, and with both kinds in a file it reads
+    the lines after it one field off in one of them: the accuracy as the health word, or a
+    group delay as the accuracy. Blank everywhere, every record reads the same.
+    """
+    with _open_text(path) as f:
+        lines = f.read().split("\n")
+    for i, line in enumerate(lines):
+        if _GALILEO_RECORD.match(line) and i + 5 < len(lines):
+            lines[i + 5] = lines[i + 5][:_ORBIT_FIELDS].rstrip()
+    return io.StringIO("\n".join(lines))
+
+
 def read_rinex_nav(path) -> tuple[list[Ephemeris], Ionosphere | None]:
     """GPS and Galileo ephemerides and Klobuchar coefficients (None without GPSA/GPSB).
 
     Galileo keeps the I/NAV records only, as RTKLIB's `rnx2rtkp` does.
     """
-    ds = _load(path, use={"G", "E"})
+    ds = _load(_uniform_galileo(path), use={"G", "E"})
     ephs = []
     for sv in ds.sv.values:
         recs = ds.sel(sv=sv).dropna(dim="time", how="all")
