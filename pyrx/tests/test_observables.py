@@ -379,9 +379,10 @@ def test_a_fade_of_fifty_ms_flags_the_next_phase():
 
 
 def test_the_flag_outlasts_a_fade_by_the_rest_of_the_span():
-    # the fiftieth held epoch is observation 6's own: a span ending up to 450 epochs later
-    # still holds all fifty, so observation 7 is flagged too (the loop is still settling)
-    epochs, base, _ = _faded_channel(range(951, 1001))
+    # the fiftieth held epoch is the one before observation 6's: a span ending up to 450
+    # epochs later still holds all fifty, so observation 7 is flagged too (the loop is still
+    # settling)
+    epochs, base, _ = _faded_channel(range(950, 1000))
     assert _newly_flagged(epochs, base) == [6, 7]
     # a fade over well before the observation flags that one alone
     epochs, base, _ = _faded_channel(range(500, 550))
@@ -448,6 +449,84 @@ def test_faded_signal_flags_its_observations():
     assert any(8.0 < t <= 10.5 for t in slips) and not any(8.0 < t <= 10.5 for t in before)
     assert not any(3.5 < t <= 8.0 for t in slips)
     assert [e.obs[0].carrier_phase for e in epochs] == [e.obs[0].carrier_phase for e in plain]
+
+
+def _held_channel(subframes, *holds):
+    """`_still_channel` with the integrator hold marked over each (first, last) epoch range of
+    `holds`: its observations, those of the same channel without a hold, and the tracking
+    epoch of each observation."""
+    track, ln = _still_channel(subframes)
+    base = make_observables([track], [ln])
+    rx0 = receiver_time0([track], [ln])
+    ks = [int(np.searchsorted(track.t, e.tow - rx0, side="right")) - 1 for e in base]
+    held = np.zeros(30000, dtype=bool)
+    for first, last in holds:
+        held[first : last + 1] = True
+    epochs = make_observables([dataclasses.replace(track, held=held)], [ln])
+    assert [e.tow for e in epochs] == [e.tow for e in base]
+    return epochs, base, ks
+
+
+def _half_cycle(epochs, base, ks):
+    """The tracking epochs of the observations that gained the half-cycle bit."""
+    gained = [e.obs[0].lli & LLI_HALF_CYCLE and not b.obs[0].lli & LLI_HALF_CYCLE
+              for e, b in zip(epochs, base, strict=True)]  # fmt: skip
+    return [k for k, g in zip(ks, gained, strict=True) if g]
+
+
+GAP = [(1500, 5044, False), (19500, 5062, False)]  # nothing decoded from 7.5 to 19.5 s
+
+
+def test_two_fades_between_subframes_of_one_polarity_leave_the_half_cycle_open():
+    # a slip of half a cycle in each of two fades leaves the data polarity as it was, so the
+    # subframes on either side agree and say nothing about the phases between the fades:
+    # those may be half a cycle off, from the first held epoch of the first fade to the end
+    # of the last one's span
+    epochs, base, ks = _held_channel(GAP, (9000, 9059), (15000, 15059))
+    end = 15059 + round(FADE_SPAN / CA_PERIOD) - 50  # the last epoch whose span holds 50 ms
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if 9000 < k <= end]
+    assert len(_half_cycle(epochs, base, ks)) == 7
+    # the first phase after it is a slip with the half cycle settled again
+    after = next(i for i, k in enumerate(ks) if k > end)
+    assert epochs[after].obs[0].lli == LLI_SLIP and epochs[after + 1].obs[0].lli == 0
+    # the phases themselves are untouched
+    assert [e.obs[0].carrier_phase for e in epochs] == [b.obs[0].carrier_phase for b in base]
+
+
+def test_one_fade_between_subframes_of_one_polarity_is_a_slip_only():
+    # the polarity came back as it was: the fade held no slip or two, and either way the
+    # phases after it are whole cycles from those before
+    epochs, base, ks = _held_channel(GAP, (9000, 9059))
+    assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [7, 8]
+
+
+def test_fades_under_decoded_subframes_are_slips_only():
+    # subframes decoded back to back show the polarity held through them
+    epochs, base, ks = _held_channel(SFS, (9000, 9059), (15000, 15059))
+    assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [7, 8, 13, 14]
+
+
+def test_a_fade_after_the_last_subframe_leaves_the_half_cycle_open_to_the_end():
+    # nothing decoded after it says which half cycle the loop settled on
+    sfs = [(1500, 5044, False), (7500, 5050, False)]  # the last one ends at 13.5 s
+    epochs, base, ks = _held_channel(sfs, (20000, 20059))
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if k > 20000]
+    assert len(_half_cycle(epochs, base, ks)) >= 8
+    # and one that ended under the last subframe does not
+    epochs, base, ks = _held_channel(sfs, (12000, 12059))
+    assert _half_cycle(epochs, base, ks) == []
+
+
+def test_a_held_epoch_counts_for_the_phases_after_it():
+    # the carrier phase of an epoch is the loop's state before that epoch's update: the hold
+    # that completes a fade at an observation's own epoch is the next phase's business
+    track, ln = _still_channel(SFS)
+    rx0 = receiver_time0([track], [ln])
+    k = int(np.searchsorted(track.t, make_observables([track], [ln])[6].tow - rx0, side="right")) - 1
+    epochs, base, _ = _held_channel(SFS, (k - 49, k))  # the fiftieth held epoch is k itself
+    assert _newly_flagged(epochs, base) == [7]
+    epochs, base, _ = _held_channel(SFS, (k - 50, k - 1))
+    assert _newly_flagged(epochs, base) == [6, 7]  # and 7 by the rest of the span
 
 
 SFS = [(1500, 5044, False), (7500, 5050, False), (13500, 5056, False), (19500, 5062, False)]
