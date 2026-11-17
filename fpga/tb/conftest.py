@@ -26,11 +26,7 @@ if CAPTURES:
     # the simulator runs in its own directory, so a relative path has to be made absolute here
     CAPTURES = os.environ["PYRX_CAPTURES"] = str(Path(CAPTURES).resolve())
 _have_recording = bool(CAPTURES and (Path(CAPTURES) / RECORDING).is_file())
-needs_captures = pytest.mark.needs_captures  # a case on the recording
-
-
-def pytest_configure(config):
-    config.addinivalue_line("markers", "needs_captures: the case reads the recording")
+needs_captures = pytest.mark.needs_captures  # a case on the recording (see pytest.ini)
 
 
 @pytest.hookimpl(tryfirst=True)
