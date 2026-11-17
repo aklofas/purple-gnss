@@ -100,7 +100,8 @@ def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
     Returns the segments (PRNs in the requested order, each PRN's segments in time
     order) and the instant the work started, or None after a message on stderr when
     no PRN was tracked anywhere in the run: no acquisition window fits the requested
-    span, nothing was detected, or every detection failed the bit-sync trial.
+    span, nothing was detected, or every detection failed its trial (the data-bit edges
+    for L1 C/A, the secondary code for a pilot).
     """
     duration = args.duration if args.duration > 0 else None
     t0 = time.perf_counter()
