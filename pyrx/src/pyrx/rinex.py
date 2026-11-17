@@ -139,7 +139,7 @@ def write_rinex_obs(
         sec = t.second + t.microsecond * 1e-6
         out.append(
             f"> {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "
-            f"{sec:10.7f}  0 {len(e.obs):2d}\n"
+            f"{sec:10.7f}  0{len(e.obs):3d}\n"
         )
         for o in e.obs:
             values = ((o.pseudorange, 0), (o.carrier_phase, o.lli), (o.doppler, 0), (o.cn0, 0))
@@ -535,7 +535,7 @@ def write_rinex_observations(
         sec = t.second + t.microsecond * 1e-6
         out.append(
             f"> {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "
-            f"{sec:10.7f}  0 {len(e.sats):2d}\n"
+            f"{sec:10.7f}  0{len(e.sats):3d}\n"
         )
         for i, sat in enumerate(e.sats):
             fields = []
