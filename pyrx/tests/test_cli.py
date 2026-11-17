@@ -494,7 +494,7 @@ def test_rinex_main_adds_l5_observations(tmp_path, capsys, monkeypatch):
     records = [ln for ln in text.splitlines() if ln.startswith("G04")]
     both = [ln for ln in records if len(ln.rstrip()) > 3 + 16 * 4]
     assert 4 <= len(both) == int(lines[i].split()[4]) < len(records)
-    # the same L1 fields as without --l5
+    # the same L1 fields as without --l5, but for the blanks a record ends in
     plain = tmp_path / "plain.obs"
     assert rinex_main([*args[:-1], str(plain)]) == 0
     l1_only = [ln for ln in plain.read_text().splitlines() if ln.startswith("G04")]
