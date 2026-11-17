@@ -64,6 +64,7 @@ class RtkOptions:
     max_age: float = 30.0  # s, oldest base epoch used
     max_outage: int = 5  # epochs a satellite may be missing before its ambiguity is dropped
     min_lock: int = 0  # updates an ambiguity begun again waits before the integer search
+    min_fix_sats: int = 0  # satellites the searched ambiguities must span for a fix
     slip_threshold: float = 0.05  # m, geometry-free jump
     max_innovation: float = 30.0  # m, a double difference beyond this is dropped; 0 for no limit
     phase_error: float = 0.003  # m, a priori phase error (constant and per sine of elevation)
@@ -542,7 +543,8 @@ class Rtk:
     def _resolve_ambiguities(self, signals, common):
         """LAMBDA on the double-differenced ambiguities with the ratio test (RTKLIB
         resamb_LAMBDA, continuous mode): status, ratio, position and the eligible
-        ambiguities, searched from two on. The float states are kept whatever the outcome."""
+        ambiguities, searched from two on and only when they span `min_fix_sats`
+        satellites. The float states are kept whatever the outcome."""
         opt = self.opt
         n = len(self.x)
         pairs = []
@@ -575,7 +577,7 @@ class Rtk:
             y = D @ self.x
             Qb = D @ self.P @ D.T
             fixed = None
-            if nb >= 2:
+            if nb >= 2 and len({key[0] for pair in pairs for key in pair}) >= opt.min_fix_sats:
                 Qab = self.P[:3] @ D.T
                 try:
                     cands, s = lambda_fix(y, Qb, 2)
