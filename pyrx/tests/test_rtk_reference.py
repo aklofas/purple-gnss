@@ -31,12 +31,12 @@ WINDOW = (datetime(2021, 12, 26, 0, 0), datetime(2021, 12, 26, 6, 0))
 BASE_WINDOW = (datetime(2021, 12, 25, 23, 59), WINDOW[1])  # a base epoch for the first rover epoch
 TS, TE = "2021/12/26 00:00:00", "2021/12/26 06:00:00"
 CASES = [
-    ("MATE", "kinematic", ("G1C", "G2W"), "l1+l2"),
+    ("MATE", "kinematic", ("G1C", "G2W"), "l1+2"),
     ("MATE", "kinematic", ("G1C",), "l1"),
-    ("MATE", "static", ("G1C", "G2W"), "l1+l2"),
-    ("TLSE", "kinematic", ("G1C", "G2W"), "l1+l2"),
+    ("MATE", "static", ("G1C", "G2W"), "l1+2"),
+    ("TLSE", "kinematic", ("G1C", "G2W"), "l1+2"),
     ("TLSE", "kinematic", ("G1C",), "l1"),
-    ("TLSE", "static", ("G1C", "G2W"), "l1+l2"),
+    ("TLSE", "static", ("G1C", "G2W"), "l1+2"),
 ]
 _CACHE: dict = {}
 
@@ -99,8 +99,8 @@ def test_rtk_matches_rtklib_and_the_marker(captures, tmp_path, pair, mode, signa
 
 @pytest.mark.parametrize(
     "pair,signals,freq",
-    [("MATE", ("G1C", "G2W"), "l1+l2"), ("MATE", ("G1C",), "l1"), ("TLSE", ("G1C", "G2W"), "l1+l2"), ("TLSE", ("G1C",), "l1")],
-    ids=["MATE-l1+l2", "MATE-l1", "TLSE-l1+l2", "TLSE-l1"],
+    [("MATE", ("G1C", "G2W"), "l1+2"), ("MATE", ("G1C",), "l1"), ("TLSE", ("G1C", "G2W"), "l1+2"), ("TLSE", ("G1C",), "l1")],
+    ids=["MATE-l1+2", "MATE-l1", "TLSE-l1+2", "TLSE-l1"],
 )  # fmt: skip
 def test_time_to_first_fix(captures, tmp_path, pair, signals, freq):
     base_name, rover_name, base_xyz, _ = PAIRS[pair]
@@ -130,7 +130,7 @@ def test_time_to_first_fix(captures, tmp_path, pair, signals, freq):
 
 
 def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
-    # RTKLIB with pos1-frequency=l1+l2+l5 and gps+gal uses GPS L1/L2/L5 and Galileo E1/E5b/E5a
+    # RTKLIB with pos1-frequency=l1+2+3 and gps+gal uses GPS L1/L2/L5 and Galileo E1/E5b/E5a
     signals = ("G1C", "G2W", "G5Q", "E1C", "E7Q", "E5Q")
     base_name, rover_name, base_xyz, rover_xyz = PAIRS["MATE"]
     rover, base, ephs, hb, hr = _load(captures, "MATE", signals)
@@ -138,7 +138,7 @@ def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
     fixes = solve_rtk(rover, base, ephs, Station(np.array(base_xyz), hb.delta_enu), hr.delta_enu)
     ref = rnx2rtkp_rtk(
         capture_file(captures, rover_name), capture_file(captures, base_name), capture_file(captures, NAV),
-        tmp_path / "rtk", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", "l1+l2+l5", 9, ts=TS, te=TE,
+        tmp_path / "rtk", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", "l1+2+3", 9, ts=TS, te=TE,
     )  # fmt: skip
     fixed = [f for f in fixes if f.status == "fix"]
     ref_fixed = {k: v for k, v in ref.items() if v["q"] == 1}
@@ -148,7 +148,7 @@ def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
     assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.02
     common = [(f, ref_fixed[_key(f)]) for f in fixed if _key(f) in ref_fixed]
     assert len(common) >= len(ref_fixed) - 0.01 * len(rover)
-    # against RTKLIB's fixed positions: 4.6 mm at the 95th percentile and 7.8 mm worst
+    # against RTKLIB's fixed positions: 1.1 mm at the 95th percentile and 7.0 mm worst
     # measured (its Galileo models and reference choice differ from ours in detail)
     d = np.array([np.linalg.norm(f.position - r["xyz"]) for f, r in common])
     assert np.percentile(d, 95) <= 0.01 and d.max() <= 0.02, (np.percentile(d, 95), d.max())
@@ -236,7 +236,7 @@ def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
     }
 
 
-@pytest.mark.parametrize("signals,freq", [(("G1C", "G2W"), "l1+l2"), (("G1C",), "l1")])
+@pytest.mark.parametrize("signals,freq", [(("G1C", "G2W"), "l1+2"), (("G1C",), "l1")])
 def test_lock_count_matches_rtklib_on_a_station_pair(captures, tmp_path, signals, freq):
     # six hours with satellites rising and setting: an ambiguity that begins after the first
     # epochs waits in RTKLIB like one begun again, and a few do each hour
@@ -325,3 +325,11 @@ def test_the_parked_start_of_the_drive_fixes_where_the_parked_capture_did(captur
         d = f.position - home
         up = d @ home / np.linalg.norm(home)
         assert np.sqrt(max(d @ d - up * up, 0.0)) < 0.01 and abs(up) < 0.025, (f.tow, d)
+
+
+@pytest.mark.parametrize("runner", [rnx2rtkp_rtk, rnx2rtkp_ttff])
+def test_reference_runners_turn_away_a_frequency_rtklib_would_ignore(runner, tmp_path):
+    # this build of RTKLIB reads l1, l1+2, l1+2+3 and runs its default on anything else
+    args = ("r.obs", "b.obs", "n.nav", tmp_path, (0.0, 0.0, 0.0), 0.0, 0.0, "kinematic", "l1+l2")
+    with pytest.raises(ValueError, match=r"l1\+l2"):
+        runner(*args, 1, [], 0) if runner is rnx2rtkp_ttff else runner(*args)

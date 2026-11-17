@@ -352,7 +352,7 @@ For RTK, `rnx2rtkp -k rtk.conf -y 2 -o fix.pos rover.obs base.obs brdc.rnx` with
 
 ```
 pos1-posmode=kinematic        # or static
-pos1-frequency=l1+l2          # l1, or l1+l2+l5 for GPS L5 and Galileo E5a
+pos1-frequency=l1+2           # l1, or l1+2+3 for GPS L5 and Galileo E5a
 pos1-soltype=forward
 pos1-elmask=15
 pos1-snrmask_r=off
@@ -462,7 +462,8 @@ marker and within 1 cm at the 95th percentile and 2 cm worst of RTKLIB's fixed
 positions. The hardware's own set, GPS L1/L5 with Galileo E1/E5a, which RTKLIB
 cannot run, must fix at least 99 % of the epochs within the same marker bounds.
 Measured, the fixed positions agree with RTKLIB's within 2.6 mm in the GPS cases
-and 7.8 mm in the multi-GNSS case, and the hardware set fixes 721 of 721.
+and 7.0 mm in the multi-GNSS case (1.1 mm at the 95th percentile), and the hardware set
+fixes 721 of 721.
 
 ### Flagged phases, the lock count and the backward pass
 
