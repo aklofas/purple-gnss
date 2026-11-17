@@ -224,6 +224,22 @@ def test_noise_does_not_sync():
     assert r.sec_sync is None
 
 
+def test_a_window_without_signal_is_not_a_sync():
+    # exact zeros over the prompts the first search reads: no correlation against no size
+    # passes a ratio test, and so does one prompt among zeros an epoch later; either would
+    # fix an origin and a polarity on nothing, so the search waits for a whole window
+    x = _signal(L5, 6, 2.5, 45.0, seed=1, sec_index=7)
+    seed = (700 / FS, 0.0, 45.0)
+    clean = _track(x, L5, 6, seed=seed)
+    n = round(FS * CA_PERIOD)
+    first = round(T_SEC_SYNC / CA_PERIOD)  # the epoch count at the first search
+    x[700 + (first - 20) * n : 700 + first * n] = 0
+    r = _track(x, L5, 6, seed=seed)
+    assert r.sec_sync is not None and r.sec_sync >= first + 19
+    assert (r.sec_origin - clean.sec_origin) % 20 == 0 and r.sec_polarity == clean.sec_polarity
+    assert r.locked
+
+
 def test_incoherent_sum_coasts():
     # a sum whose prompts do not add up carries no signal: the loop takes nothing from it,
     # gives back the proportional term of the last error and runs on at its Doppler rate
