@@ -277,6 +277,17 @@ def nav_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _text(width: int):
+    """An argument type: text of at most `width` characters, the size of its RINEX field."""
+
+    def parse(value: str) -> str:
+        if len(value) > width:
+            raise argparse.ArgumentTypeError(f"longer than {width} characters: {value!r}")
+        return value
+
+    return parse
+
+
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
     files. With --l5, also track the GPS L5 pilots in a second recording of the same
@@ -286,9 +297,10 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
     p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
     p.add_argument("--week", type=int, default=None, help="GPS week (needed without subframe 1)")
-    p.add_argument("--marker", default="PYRX", help="RINEX marker name")
+    p.add_argument("--marker", type=_text(60), default="PYRX", help="RINEX marker name")
     p.add_argument(
         "--marker-type",
+        type=_text(20),
         default=None,
         help="RINEX marker type, e.g. GROUND_CRAFT for a receiver on a vehicle; omitted by default",
     )

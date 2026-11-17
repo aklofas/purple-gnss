@@ -324,6 +324,15 @@ def test_trk_main_prints_a_line_per_segment(gap_file, tmp_path, capsys):
     assert (tmp_path / "trk_prn04.png").exists() and (tmp_path / "trk_prn04_2.png").exists()
 
 
+@pytest.mark.parametrize(
+    ("option", "value"), [("--marker", "M" * 61), ("--marker-type", "GROUND_CRAFT_ON_A_ROOF")]
+)
+def test_rinex_main_refuses_a_marker_wider_than_its_field(tmp_path, capsys, option, value):
+    with pytest.raises(SystemExit) as stop:  # before anything is read or tracked
+        rinex_main([str(tmp_path / "none.bin"), "--obs", str(tmp_path / "a.obs"), option, value])
+    assert stop.value.code == 2 and "characters" in capsys.readouterr().err
+
+
 def test_rinex_main_writes_one_nav_record_from_two_segments(gap_file, tmp_path, capsys):
     obs, nav = tmp_path / "g.obs", tmp_path / "g.nav"
     rc = rinex_main(
