@@ -25,6 +25,9 @@ pyrx-rtk = "pyrx.cli:rtk_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pyrx = ["data/*.txt"]
+
 [tool.ruff]
 line-length = 100
 

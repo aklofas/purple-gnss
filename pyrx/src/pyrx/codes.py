@@ -8,9 +8,15 @@ with the 10230-chip (1 ms) code. Galileo E5a codes follow the Open Service ICD: 
 14-stage registers, the second started from a value per PRN and component, truncated
 to 10230 chips. The secondary codes multiply one chip onto each period of a primary
 code: the Neuman-Hofman codes on L5 (10 chips on I5, 20 on Q5), CS20 on E5a-I and one
-100-chip code per satellite on E5a-Q. Chips are returned as +1 for chip value 0 and -1
-for chip value 1, so a code multiplies directly onto a signal.
+100-chip code per satellite on E5a-Q. The Galileo E1 codes come from no register: they
+are memory codes of 4092 chips (4 ms), fifty for the data component E1-B and fifty for
+the pilot E1-C, published as hexadecimal tables with the Open Service ICD and read from
+the two files beside this package that hold them (`data/NOTICE.txt` says whose they
+are); the pilot's secondary code is the 25-chip CS25. Chips are returned as +1 for chip
+value 0 and -1 for chip value 1, so a code multiplies directly onto a signal.
 """
+
+import importlib.resources
 
 import numpy as np
 
@@ -187,6 +193,36 @@ def gal_cs100(prn: int) -> np.ndarray:
     if not 1 <= prn <= len(_CS100):
         raise ValueError(f"PRN {prn} outside 1..{len(_CS100)}")
     return _hex_signs(_CS100[prn - 1], 100)
+
+
+E1_CHIP_RATE = 1.023e6
+E1_LENGTH = 4092
+GAL_CS25 = _hex_signs("380AD90", 25)  # the secondary code of every E1-C, ICD Table 20
+
+_e1_cache: dict[str, tuple[np.ndarray, ...]] = {}
+
+
+def _gal_e1(name: str, prn: int) -> np.ndarray:
+    """Code number `prn` of a table of the ICD's E1 memory codes: one line per code, its
+    number, a semicolon and 1023 hexadecimal digits, the first chip in the most significant
+    bit of the first digit."""
+    if name not in _e1_cache:
+        text = importlib.resources.files("pyrx").joinpath("data", name).read_text("ascii")
+        lines = [line.split(";")[1].strip() for line in text.splitlines() if ";" in line]
+        _e1_cache[name] = tuple(_hex_signs(digits, E1_LENGTH) for digits in lines)
+    if not 1 <= prn <= len(_e1_cache[name]):
+        raise ValueError(f"PRN {prn} outside 1..{len(_e1_cache[name])}")
+    return _e1_cache[name][prn - 1]
+
+
+def gal_e1b(prn: int) -> np.ndarray:
+    """One period (4092 chips, 4 ms) of the Galileo E1-B code number `prn` in 1..50."""
+    return _gal_e1("C7_E1B.txt", prn)
+
+
+def gal_e1c(prn: int) -> np.ndarray:
+    """One period (4092 chips, 4 ms) of the Galileo E1-C code number `prn` in 1..50."""
+    return _gal_e1("C8_E1C.txt", prn)
 
 
 def sample_code(

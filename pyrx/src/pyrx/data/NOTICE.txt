@@ -1,0 +1,12 @@
+C7_E1B.txt and C8_E1C.txt are the Galileo E1-B and E1-C primary codes (fifty codes each,
+4092 chips as 1023 hexadecimal digits per line), as attached to
+
+    European GNSS (Galileo) Open Service Signal-In-Space Interface Control Document,
+    Issue 2.2, November 2025. (c) European Union 2025.
+    https://www.gsc-europa.eu
+
+They are reproduced here unmodified. The codes are Technical Data of that document, owned
+by the European Union. Their use and storage are authorised, royalty-free, under the terms
+of the document's Annex H (Authorisation Concerning the OS SIS ICD IPRs), which each user
+accepts for themselves; that authorisation cannot be transferred or licensed. These two
+files are therefore not covered by this repository's license.

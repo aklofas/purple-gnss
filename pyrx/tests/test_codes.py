@@ -1,13 +1,19 @@
+import hashlib
+import importlib.resources
+
 import numpy as np
 import pytest
 
 from pyrx.codes import (
     CA_CHIP_RATE,
     GAL_CS20,
+    GAL_CS25,
     L5_LENGTH,
     NH10,
     NH20,
     gal_cs100,
+    gal_e1b,
+    gal_e1c,
     gal_e5ai,
     gal_e5aq,
     gps_ca,
@@ -228,4 +234,61 @@ def test_e5a_secondary_codes():
 @pytest.mark.parametrize("gen,bad", [(gps_l5i, 0), (gps_l5q, 33), (gal_e5ai, 37), (gal_e5aq, 0), (gal_cs100, 37)])
 def test_pilot_codes_bad_prn(gen, bad):
     with pytest.raises(ValueError):
+        gen(bad)
+
+
+E1_FILES = {  # the files attached to the Galileo OS SIS ICD, issue 2.2, and their SHA-256
+    "C7_E1B.txt": "26ce97a6a76b579f003f2ad6cbd7715c32768c1cb25afcfa9af38c30fe0a0df2",
+    "C8_E1C.txt": "4151184f12d536ba0fedccb041406ff5480ce4e919547c94196bad3f1a5b0875",
+}
+
+
+@pytest.mark.parametrize("name", E1_FILES)
+def test_e1_code_files_are_the_interface_documents_attachments(name):
+    data = importlib.resources.files("pyrx").joinpath("data", name).read_bytes()
+    assert hashlib.sha256(data).hexdigest() == E1_FILES[name]
+
+
+@pytest.mark.parametrize(
+    "gen,prn,head,tail",
+    [
+        (gal_e1b, 1, "F5D710130573", "34B6699421A"),
+        (gal_e1b, 11, "AFA7FBAC9332", "B902653ED80"),
+        (gal_e1b, 50, "97051FC67ACA", "23ADE493020"),
+        (gal_e1c, 1, "B39340CA1C81", "DAF431FD340"),
+        (gal_e1c, 36, "FB2C4002173D", "D2A41B2ECB6"),
+        (gal_e1c, 50, "ADDCEDB50E90", "7818601BD0C"),
+    ],
+)
+def test_e1_memory_codes(gen, prn, head, tail):
+    # 4092 chips as 1023 hexadecimal digits, the first chip the most significant bit of the
+    # first digit (ICD 3.4.1.1), a chip value 1 as -1
+    code = gen(prn)
+    assert code.shape == (4092,) and code.dtype == np.int8 and set(code.tolist()) == {1, -1}
+    bits = "".join("1" if c < 0 else "0" for c in code)
+    assert f"{int(bits[:48], 2):012X}" == head and f"{int(bits[-44:], 2):011X}" == tail
+    assert not code.flags.writeable and gen(prn) is code
+
+
+def test_e1_memory_codes_are_fifty_different_balanced_codes():
+    for gen in (gal_e1b, gal_e1c):
+        codes = np.array([gen(prn) for prn in range(1, 51)], dtype=np.int64)
+        assert np.abs(codes.sum(axis=1)).max() <= 64
+        cross = codes @ codes.T
+        assert (np.diag(cross) == 4092).all()
+        assert np.abs(cross - np.diag(np.diag(cross))).max() < 300
+    # the two components of a satellite are different codes too
+    assert abs(int(gal_e1b(7).astype(int) @ gal_e1c(7))) < 300
+
+
+def test_e1_secondary_code():
+    # CS25, ICD Table 20: 380AD90 as 25 chips
+    assert GAL_CS25.tolist() == [1 - 2 * int(b) for b in "0011100000001010110110010"]
+    assert not GAL_CS25.flags.writeable
+
+
+@pytest.mark.parametrize("gen", [gal_e1b, gal_e1c])
+@pytest.mark.parametrize("bad", [0, 51])
+def test_e1_codes_bad_prn(gen, bad):
+    with pytest.raises(ValueError, match="outside 1..50"):
         gen(bad)
