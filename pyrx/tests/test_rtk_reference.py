@@ -234,3 +234,75 @@ def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
     assert {_key(f) for f in fixes if f.status == "fix"} != {
         _key(f) for f in plain if f.status == "fix"
     }
+
+
+STATIC = "sky/20261103_030551_carroof-static"  # the same car parked there ten minutes earlier
+COMMAND = {"slips": "check", "min_lock": 5, "min_fix_sats": 6}  # what pyrx-rtk turns on
+L1_L5 = ("G1C", "G5Q")
+
+
+def _both_ways(data, **options):
+    """The fixes forward and backward by epoch, and the epochs both fix: those within 5 cm
+    horizontally and 10 cm vertically of each other, and those further apart."""
+    rover, base, ephs, iono, station, delta, _ = data
+    fwd, bwd = (
+        {_key(f): f for f in solve_rtk(rover, base, ephs, station, delta, RtkOptions(backward=b, **options), iono)}
+        for b in (False, True)
+    )  # fmt: skip
+    together, apart = [], []
+    for k in sorted(set(fwd) & set(bwd)):
+        if fwd[k].status == "fix" and bwd[k].status == "fix":
+            d = fwd[k].position - bwd[k].position
+            up = d @ fwd[k].position / np.linalg.norm(fwd[k].position)
+            near = np.sqrt(max(d @ d - up * up, 0.0)) < 0.05 and abs(up) < 0.10
+            (together if near else apart).append(k)
+    return fwd, bwd, together, apart
+
+
+def test_a_drive_fixes_more_where_both_directions_agree(captures):
+    # There is no truth for this drive. What can be checked is that the filter run backward
+    # arrives at the same position: a wrong set of integers rarely survives both ways.
+    # Measured: RTKLIB's rules fix 157 epochs forward and 122 backward, 84 of them together
+    # and one 5 m apart (four satellites in an obstruction); the command's settings 198 and
+    # 176, 143 together, none apart.
+    data = _car(captures, DRIVING, L1_L5)
+    assert len(data[0]) == 291
+    fwd, bwd, together, apart = _both_ways(data, **COMMAND)
+    _, _, stock_together, stock_apart = _both_ways(data)
+    assert 75 <= len(stock_together) <= 95 and len(stock_apart) <= 2
+    assert len(together) >= 130 and len(together) >= len(stock_together) + 40
+    assert not apart
+    fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
+    assert fixed[0] >= 185 and fixed[1] >= 165, fixed
+
+
+def test_the_parked_start_of_the_drive_fixes_where_the_parked_capture_did(captures):
+    # two recordings of a car that did not move between them, solved apart: the static
+    # filter on the first, the kinematic one on the first seconds of the second
+    rover, base, ephs, iono, station, delta, _ = _car(captures, STATIC, L1_L5)
+    options = RtkOptions(mode="static", **COMMAND)
+    parked = [
+        f for f in solve_rtk(rover, base, ephs, station, delta, options, iono) if f.status == "fix"
+    ]
+    plain = solve_rtk(rover, base, ephs, station, delta, RtkOptions(mode="static"), iono)
+    plain = [f for f in plain if f.status == "fix"]
+    # the check costs the parked capture nothing: as many fixed epochs, at the same place
+    # (the medians: RTKLIB's rules fix the very first epoch 2 m off, on a ratio of 3.1)
+    assert len(parked) >= len(plain) >= 130
+    home = np.median([f.position for f in parked], axis=0)
+    assert np.linalg.norm(home - np.median([f.position for f in plain], axis=0)) < 0.005
+    assert max(np.linalg.norm(f.position - home) for f in parked) < 0.02
+    assert max(np.linalg.norm(f.position - home) for f in plain) > 1.0
+    rover, base, ephs, iono, station, delta, _ = _car(captures, DRIVING, L1_L5)
+    start = [
+        f
+        for f in solve_rtk(rover, base, ephs, station, delta, RtkOptions(**COMMAND), iono)
+        if f.status == "fix" and f.tow < rover[0].tow + 22.0  # the car pulls out at 22 s
+    ]
+    # measured: twelve fixed epochs, 3 to 7 mm from the parked capture's fix horizontally
+    # and 1 to 17 mm below it
+    assert len(start) >= 10
+    for f in start:
+        d = f.position - home
+        up = d @ home / np.linalg.norm(home)
+        assert np.sqrt(max(d @ d - up * up, 0.0)) < 0.01 and abs(up) < 0.025, (f.tow, d)
