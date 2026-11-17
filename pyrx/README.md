@@ -64,7 +64,7 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `L1_20211201_054600_24MHz_I.bin` | the same directory, GPS L1, 24 MHz real, 6 MHz IF, 100 ms | `05c771f0c152e2bd11ccba0715198afc0aa56e5d420bec0993fa720ac8d508d0` |
 | `L1_20211226_082401_24MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L5_20211226_082401_24MHz.zip (Pocket SDR sample data, linked from its `sample/` directory), GPS L1, 24 MHz real, 6 MHz IF, 30 s | `16c83d58716ae9ba577aac29344766373accb98b34b729afdac8cc2e1352252c` |
 | `L1_20220114_004440_8MHz_I.bin` | the L1 file of http://gpspp.sakura.ne.jp/pocketsdr/L1L2_20220114_004440_8MHz.zip, GPS L1, 8 MHz real, 2 MHz IF, 30 s | `388c550e2694067566c24fddae61abd1b316eb4bbd0820e0e8fff1818f164de7` |
-| `L5_20211226_082401_24MHz_IQ.bin` | the L5 file of the same archive: the L5/E5a band of the same 30 s, 24 MHz I/Q, LO 1176.45 MHz | `a22e9fb97946e8c4f8347c1f16ece94cab0f127b84b18e28a026482f79fd5e70` |
+| `L5_20211226_082401_24MHz_IQ.bin` | the L5 file of L1L5_20211226_082401_24MHz.zip, the archive of the 2021-12-26 L1 file above: the L5/E5a band of the same 30 s, 24 MHz I/Q, LO 1176.45 MHz | `a22e9fb97946e8c4f8347c1f16ece94cab0f127b84b18e28a026482f79fd5e70` |
 | `brdc/BRDC00WRD_R_20213600000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2021/360/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2021-12-26 | `92fe0754c16b3408691facabad44390ebfa2031ad641334ebe6f8660f8e554c2` |
 | `brdc/BRDC00WRD_R_20220140000_01D_GN.rnx` | https://igs.bkg.bund.de/root_ftp/IGS/BRDC/2022/014/ (gzip member), worldwide GPS broadcast ephemeris, RINEX 3.05, 2022-01-14 | `ac1488e8b577ddd9b942de2ca8033fa82f8ce56abfe9d6e1781288cfa590d7e2` |
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.trk.log` | generated: Pocket SDR `pocket_trk.py` (commit eda8301) log of the 2021-12-26 recording, `$CH` channel state every 0.1 s; command below | `b9891175ed8fe7703f7b766e7e91a2bb9595e782d1d0a5d8dbbcf76920eef2f4` |
@@ -89,14 +89,15 @@ skipping them (the `fpga` benches refuse to start without the recording then):
 | `sky/20261103_032110_carroof-coldstart/ch1.bin` | project recording, not distributed: the same setup started while moving, with a total loss of lock at 40 to 50 s, 300 s; the `slow` test in `test_channels_reference.py` walks its first 90 s | `143a850c69fe5f7dbbba80caf9fc30aca1073dfeee99785575db853dd2678d0e` |
 | `sky/20261103_032110_carroof-coldstart/trk_l1ca.log` | generated: Pocket SDR `pocket_trk` L1 C/A log of that recording, the reference of the `slow` test | `4dc83bc579867286d6e938cdc91628f5d9c413723d832c86c9475f1ae85de9d5` |
 | `sky/20261103_030551_carroof-static/ch1.bin` | project recording, not distributed: the same front end parked under open sky, GPS L1, 24 MHz real, 6 MHz IF, 300 s; a `slow` test forms L1 and L5 observations from its first 120 s | `f991e49f5f0fd9d3dcaa58a48f528fb59fdf23cfc03d8edb96e9d6469bf44d2b` |
-| `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; a `slow` test walks the pilots of its first 60 s | `be4c19485ae6466fb372b91b8ee569ec36b6baeecc626ecc2632dacbd35a3b3a` |
+| `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; a `slow` test walks the pilots of its first 60 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
 The rows marked generated were produced here with the commands below and are kept
 in the same directory as the recordings, with every file's checksum in its
-`SHA256SUMS`; the downloaded rows carry the checksum of the file as stored.
+`SHA256SUMS`; the downloaded rows and the project recordings carry the checksum of the
+file as stored.
 
 The Pocket SDR tracking logs in the table were produced with Pocket SDR's
 `pocket_trk.py` (its library built with `USE_SOAPY=0 USE_FFTW=1`), run from the
@@ -221,7 +222,7 @@ ephemerides only.
 ## RINEX output from the command line
 
 ```sh
-pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0]]
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--duration 0] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0]]
 ```
 
 Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
@@ -243,10 +244,22 @@ made by the same front end on the same sample clock and at the same rate, sample
 of both files being the same instant (the two channels of one capture). Only the
 satellites L1 gave a time to are searched on L5, and each L5 segment prints its own
 line, `G5Q PRN nn  epochs ...`, or `G5Q PRN nn  no time tag` when it could not be
-placed on the L1 time (see "L5 observations" below). If no pilot is tracked at all,
-which is what a wrong `--l5-f-if`, sample rate or file gives, a line on stderr says
-so and the file is written with empty L5 columns. Without `--l5` the output is what
-it was.
+placed on the L1 time (see "L5 observations" below). Nothing checks that the two files
+belong together. If no pilot is tracked at all, which is what a wrong `--l5-f-if` or
+sample rate gives, a line on stderr says so and the file is written with empty L5
+columns; pilots tracked in a file that does not line up with `FILE` sample for sample
+find no place on the L1 time and print `no time tag`.
+
+For the 2021-12-26 pair, both files of `L1L5_20211226_082401_24MHz.zip`:
+
+```sh
+pyrx-rinex L1_20211226_082401_24MHz_I.bin --fs 24e6 --f-if 6e6 --l5 L5_20211226_082401_24MHz_IQ.bin --obs joint.obs --nav joint.nav
+```
+
+`--iq` describes `FILE` only; `L5FILE` is always read as I/Q, at `--l5-f-if` (0 for this
+pair, recorded at its center frequency). `--t-start` and `--duration` select the same
+span of both files. `pyrx-pvt` reads only the L1 columns of the result. Without `--l5`
+the file holds `C1C L1C D1C S1C` only.
 
 ## Positioning from the command line
 
@@ -627,7 +640,9 @@ found; `L5Q` where the pilot's window is phase-locked, blank otherwise, as on L1
 pilot loop tracks the whole cycle, so there is no half-cycle indicator on `L5Q`; where
 the tracker had settled on the inverted pilot before the secondary code was found, the
 half cycle is put back. The loss-of-lock indicator is value 1 on a segment's first
-observation and within its first 2 s, and on the first phase after an unlocked window.
+observation and within 2 s of the segment's start, on the first phase after an unlocked
+window, and on every phase from a coasted sum to the first that holds the loop's return
+(below).
 RINEX 3.05 (Table A23) makes L5I the reference signal of the band and has the L5Q
 phase aligned to it by a quarter cycle; the phase written is aligned (the quarter cycle
 is applied), and the header's `SYS / PHASE SHIFT` line for `L5Q` carries the 0.00000
@@ -688,10 +703,14 @@ few meters, are in it too);
 the geometry-free combination of the two phases follows a line within 0.8 to 2.3 mm
 RMS over the half minute, which is the two carrier loops agreeing to a hundredth of a
 cycle; and RTKLIB's single-point fix is the same from the joint file as from the L1
-file. On the car-roof capture (a `slow` test on its first 120 s) the four strong
+file. The test requires the common `C5Q` minus `C1C` to lie between -40 and -20 m, each
+satellite within 5 m of it, and the geometry-free residual below 5 mm RMS and 10 mm at
+worst. On the car-roof capture (a `slow` test on its first 120 s) the four strong
 satellites agree in the same way over five minutes, and their `C5Q` agree with
 Pocket SDR's 5Q pseudoranges between satellites within 0.2 m in the mean and 0.6 to
-0.9 m of scatter, once the 13 ms between the two receivers' clocks is accounted for.
+0.9 m of scatter, once the 13 ms between the two receivers' clocks is accounted for
+(the test requires the geometry-free residual below 5 mm RMS and each satellite's `C5Q`
+minus `C1C` within 3 m of the common value).
 
 ## Navigation message decode
 
@@ -811,8 +830,8 @@ sync settled on the inverted pilot: the L5 symbol sign is as the specification h
 
 Checked on the L5 recording of 2021-12-26 against Pocket SDR's C tracker
 (`test_tracking_pilot_reference.py`): five GPS and six Galileo satellites from 38 to
-50 dB-Hz find the secondary code at 1.5 s and stay locked for the whole file. As
-measured: the indicator 0.98 or more in every window, the Doppler within 0.3 Hz and
-the C/N0 within 1 dB of its pilot channels, the code start within 12 ns of its data
+50 dB-Hz find the secondary code at 1.5 to 1.6 s and stay locked for the whole file. As
+measured: the indicator 0.98 or more in every window after the sync, the Doppler within
+0.3 Hz and the mean C/N0 within 1 dB of its pilot channels, the code start within 12 ns of its data
 channels (its own code loop is still settling at the end of the file); the test's
 bounds are 0.9, 1 Hz, 2 dB and 15 ns.
