@@ -44,15 +44,15 @@ J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
 ### PLL settings
 
 With the open toolchain's defaults for the `PLL` primitive the GPLL did not lock on the board:
-LED0 stayed off and LED4 dark, so CLKOP was not running at all. The settings below were found
-one bitstream at a time (locked: LED0 on and LED4 blinking at 1.6 to 1.8 Hz, 34.9 to 40.1 MHz
-× 3 / 2^26; LED1 blinks either way, since the fabric runs from the oscillator):
+LED0 stayed off and LED4 dark, so CLKOP was not running at all. With the settings below it
+locks: LED0 on and LED4 blinking at 1.6 to 1.8 Hz (34.9 to 40.1 MHz × 3 / 2^26); LED1 blinks
+either way, since the fabric runs from the oscillator.
 
 | Setting | Default | `top.v` | Why |
 |---|---|---|---|
 | `PLLPD_N` | `UNUSED` | `USED` | the PLL power bit (TN-02095 `lmmi_pllpd_n`, "0: PLL is not used"); with the default the PLL stays powered down and CLKOP never runs, whatever the other settings. Adding this alone to the as-built configuration made the PLL lock |
 | `FBK_MASK` | 0b00001000 | 0b00000000 | the feedback divider's minimum-ratio mask (TN-02095 Table C.3); it binds only for ratios below 8, and with the default the feedback divides by 8 instead of `FBK_MMD_DIG` = 3. With `PLLPD_N` alone the PLL locked with LED4 visibly faster than with the mask cleared; the rate was not measured, and a ratio of 8 would put CLKOP at 300 MHz and the VCO at 3 GHz, above its 800 to 1600 MHz range, so what the PLL settled on is not known. `FBK_MMD_PULS_CTL` 0b0001 is the pulse width the table gives for ratios above 2 |
-| `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values LiteX's `NXPLL` (`litex/soc/cores/clock/lattice_nx.py`) uses for a 1.0 V core, which it says are the defaults in Lattice's reference designs though not the primitive's; the EVN's core runs at 1.0 V. TN-02095's own register table gives other `lmmi_v2i_kvco_sel` defaults, 4'b1001 for 0.9 V and 4'b0100 for 1 V, 55 and 30 by its "10 + Dec × 5" formula; `KP_VCO` and `V2I_1V_EN` agree with it. Not needed for lock: the variant with `PLLPD_N` alone kept the primitive's 0.9 V defaults and locked too; the set is kept because the EVN's core runs at 1.0 V, and whether it changes anything measurable (jitter, lock range) is untested |
+| `V2I_KVCO_SEL`, `KP_VCO`, `V2I_1V_EN` | 85, 0b11001, off | 60, 0b00011, on | the values LiteX's `NXPLL` (`litex/soc/cores/clock/lattice_nx.py`) uses for a 1.0 V core, which it says are the defaults in Lattice's reference designs though not the primitive's; the EVN's core runs at 1.0 V. TN-02095's own register table gives other `lmmi_v2i_kvco_sel` defaults, 4'b1001 for 0.9 V and 4'b0100 for 1 V, 55 and 30 by its "10 + Dec × 5" formula; `KP_VCO` and `V2I_1V_EN` agree with it. Not needed for lock: the variant with `PLLPD_N` alone kept the primitive's 0.9 V defaults and locked too; the set is kept because the EVN's core runs at 1.0 V, and whether it changes anything measurable (jitter, lock range) is untested. `V2I_KVCO_SEL` is written out whatever its value: without an explicit value nextpnr drops the PLL's FASM, which the build's FASM check catches |
 
 `PLLRESET_ENA` is on as well, so the power-on reset `top.v` drives reaches the PLL. What was
 shown is that the toolchain's default leaves the PLL powered down, so any LIFCL design built with
@@ -67,9 +67,11 @@ and LiteX's `NXPLL` do; the PLL locks with them.
 JP5 is the Raspberry Pi header (bank 6; 3.3 V with J33 on 1-2, the default; EB-02028's Table 3.1
 calls that jumper J42, a typo: J42 is the core-current header across R162). The board ships with
 JP5 unpopulated (its 2 × 20 receptacle is "DNL" in the bill of materials), so solder a header on
-first. The pins are numbered as on the Pi: pin 1 is the 3.3 V supply and pin 2 the 5 V supply
-(Table 8.3), odd pins in one row and even in the other, so a meter on those two pins of the powered board tells the
-orientation before anything is wired. The SPI lines sit
+first. The pins are numbered as on the Pi, odd pins in one row and even in the other (Table 8.3).
+Pins 1 and 2 carry 3.3 V and 5 V only with JP3 and JP4 closed, and both are open by default
+(leave them open), so tell the orientation from the grounds instead: with the board
+unpowered, pins 6, 9, 14, 20 and 25 ring through to the board's ground on a continuity
+meter and their neighbors do not. The SPI lines sit
 on the Pi's SPI0 positions. The board test drives them from the NUCLEO-H723ZG's OCTOSPI1 in
 single-line indirect mode, the peripheral the later quad-SPI link uses, so the register driver
 written for the board test carries over. Every solder bridge on the Nucleo stays at its default
