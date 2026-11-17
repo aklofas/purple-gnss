@@ -301,6 +301,14 @@ def _text(width: int):
     return parse
 
 
+def _count(value: str) -> int:
+    """An argument type: a whole number, 0 or more."""
+    n = int(value)
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more: {value}")
+    return n
+
+
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
     files. With --l5, also track the GPS L5 pilots in a second recording of the same
@@ -525,13 +533,13 @@ def rtk_main(argv: list[str] | None = None) -> int:
         "restarts (default), or restarted outright as RTKLIB does",
     )  # fmt: skip
     p.add_argument(
-        "--min-lock", type=int, default=5, metavar="N",
+        "--min-lock", type=_count, default=5, metavar="N",
         help="updates a new ambiguity waits before the integer search, RTKLIB's "
         "pos2-arlockcnt (default 5; RTKLIB 0)",
     )  # fmt: skip
     p.add_argument(
         "--fix-sats",
-        type=int,
+        type=_count,
         default=5,
         metavar="N",
         help="satellites the integer search must span for a fix (default 5; RTKLIB 0)",
