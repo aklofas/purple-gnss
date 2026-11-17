@@ -508,7 +508,10 @@ waits that many updates before it enters the integer search when it is begun aga
 a slip or an outage, begun on a flagged phase, or begun after the first five solved
 epochs; only one that appears unflagged within those first epochs is searched at once.
 `min_fix_sats` keeps an epoch float unless the ambiguities eligible for the search span
-that many satellites, the reference among them: on the drive, searches spanning five
+that many satellites, the reference among them. The number is meant for one system: every
+system has its own reference satellite, so with GPS and Galileo five satellites are three
+double differences, and the floor counts the satellites beside the references (five of
+one system are four; so are three and three of two). On the drive, searches spanning five
 satellites or fewer passed the ratio test, some with ratios above 100, at positions the
 filter run the other way contradicts by up to a meter.
 `backward` runs the filter from the last epoch to the first over the same pairs of
