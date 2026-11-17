@@ -63,6 +63,7 @@ class RtkOptions:
     ratio_threshold: float = 3.0
     max_age: float = 30.0  # s, oldest base epoch used
     max_outage: int = 5  # epochs a satellite may be missing before its ambiguity is dropped
+    min_lock: int = 0  # updates an ambiguity begun again waits before the integer search
     slip_threshold: float = 0.05  # m, geometry-free jump
     max_innovation: float = 30.0  # m, a double difference beyond this is dropped; 0 for no limit
     phase_error: float = 0.003  # m, a priori phase error (constant and per sine of elevation)
@@ -219,6 +220,7 @@ class Rtk:
         self.lli_base: dict[tuple[str, str], int] = {}
         self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
         self.held: set[tuple[str, str]] = set()  # slips of epochs that ended early, to apply
+        self.begun: set[tuple[str, str]] = set()  # every ambiguity there has been a state for
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
@@ -241,6 +243,10 @@ class Rtk:
         self.x, self.P = x, P
         self.keys.append(key)
         self.biases[key] = _Bias()
+        # RTKLIB: the lock counter is zero for a first ambiguity and -minlock after a reset
+        if key in self.begun:
+            self.biases[key].lock = -self.opt.min_lock
+        self.begun.add(key)
 
     def _index(self, key):
         return 3 + self.keys.index(key)
