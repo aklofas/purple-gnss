@@ -385,7 +385,7 @@ def test_galileo_pseudoranges_fit_the_broadcast_orbits_at_the_gps_fix(captures, 
     # clock; a wrong multiple of the code's 100 ms would be 30 000 km and a wrong millisecond
     # 300 km. At the single-point fix of the GPS L1 rows every E5a pseudorange is the range
     # to the satellite's broadcast position, within the atmosphere, the satellite's group
-    # delay and the front end's delay between its two bands (measured: -29 to +21 m).
+    # delay and the front end's delay between its two bands (measured: -36 to +12 m).
     rover = _car_with_galileo(captures, capture)[0]
     ephs, iono = read_rinex_nav(capture_file(captures, f"{capture}/pyrx_l1l5.nav"))
     galileo = _galileo_ephemerides(captures)

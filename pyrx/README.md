@@ -54,8 +54,9 @@ the broadcast orbits with the IGS final orbit (`test_orbits_reference.py`), the
 standalone fix with RTKLIB on the recordings and on a day of an IGS station
 (`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
 coordinates on two station pairs, the backward pass and the lock count with RTKLIB on
-the car-roof drive, and that drive's fix by the agreement of both filter directions
-(`test_rtk_reference.py`). They need the
+the car-roof drive, that drive's fix by the agreement of both filter directions, and the
+car-roof captures with Galileo E5a (the pseudoranges against the broadcast orbits, the
+agreed fixes) (`test_rtk_reference.py`). They need the
 environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
 and skip when it is unset; the observables, joint-observables, positioning and RTK
 tests also skip when `rnx2rtkp` is not on the path, and the RTK tests take a few
@@ -97,9 +98,16 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 | `sky/20261103_031515_carroof-driving/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the drive (291 epochs at 1 s, GPS L1 and L5), the rover of the RTK tests on the car-roof captures | `9f95711a31e419a8b79bc7b21276b0d88d5e34eeafa90c8868f0919fd874df31` |
 | `sky/20261103_031515_carroof-driving/pyrx_l1l5.nav` | generated: the navigation file of the same run | `68867ed5a8552c7bc6683f6a84f79040147ee44122662153cdd1862af49a10ab` |
-| `sky/20261103_030551_carroof-static/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the parked capture (299 epochs), the rover of the RTK tests on the car-roof captures | `8825240761e6107e04647510e13053b84a5125c94b3e0012e1ea44e2913d34aa` |
+| `sky/20261103_030551_carroof-static/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the parked capture (299 epochs), the rover of the RTK tests on the car-roof captures | `4a34b9a27606570dbe335055071c4c76dda14bfb7ece98affd141f5cf527e778` |
 | `sky/20261103_030551_carroof-static/pyrx_l1l5.nav` | generated: the navigation file of the same run | `cb485486a91a6ceec246d3b981bb097d813f14e78bb3fd034d4f0111a96c357c` |
 | `cors/base_20261103_0300_0330_gps.rnx` | project file, not distributed: half an hour of 1 s GPS L1 and L5 observations of a public reference station 15 km from the car-roof captures, converted from its RINEX 2.11 file to RINEX 3 (`C1 L1 S1` as `1C`, `C5 L5 S5` as `5Q`), with the station's antenna reference point in `APPROX POSITION XYZ`; the base of those RTK tests | `ebc81edce9e29c37588ab7761b59c4cee74209f9ceb741f0ab0dee50e5fa06d7` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_l1l5.obs` | generated: the same command on the capture started while moving (289 epochs) | `292ece824076c902fb7167c19e2a7308f75a35d3cecbf9e671a818399d174674` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_l1l5.nav` | generated: the navigation file of the same run | `613c6fb7e289c517ed4811e2163e578a92ba657455830a001c71004f069542e6` |
+| `sky/20261103_030551_carroof-static/pyrx_gal.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: its GPS rows with the Galileo E5a pilots' beside them | `45c87bc9fe1840cb4ed23b977fcba9c3b0d9d51bfbc959c8c9d5beea5fb3aa41` |
+| `sky/20261103_031515_carroof-driving/pyrx_gal.obs` | generated: the same on the drive | `1a183ccd397fa3adf66b8ca561f383b166500af44228c1614850d2bd17e004ec` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_gal.obs` | generated: the same on the capture started while moving | `dcbb91a3989023f96918482147270e1c6d3edfe5c12ee3658f1de3b5f6ebbead` |
+| `cors/base_20261103_0300_0330.rnx` | project file, not distributed: the same half hour of the same station with its Galileo satellites beside the GPS ones (`C1 L1 S1` as `E1C`, `C5 L5 S5` as `E5Q`: RINEX 2.11 names no tracked component), the base of the RTK tests with Galileo | `c1690f6daf6acc7803e3c0644a9b232c8207bffffc273aac4aef692ca212f0d9` |
+| `brdc/BRDC00IGS_R_20263070000_01D_MN.rnx` | ftp://gssc.esa.int/gnss/data/daily/2026/brdc/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2026-11-03: the Galileo ephemerides of the car-roof captures | `9b8475997b50d2adb98058298ee892e701c0d2965b5fd744e4089e21e9257879` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
@@ -230,7 +238,7 @@ ephemerides only.
 ## RINEX output from the command line
 
 ```sh
-pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--duration 0] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0]]
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--duration 0] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0] [--galileo]]
 ```
 
 Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
@@ -258,6 +266,13 @@ sample rate gives, a line on stderr says so and the file is written with empty L
 columns; pilots tracked in a file that does not line up with `FILE` sample for sample
 find no place on the L1 time and print `no time tag`.
 
+With `--galileo` as well, the Galileo E5a pilots in `L5FILE` are tracked too, every
+satellite number from 1 to 36, and written as `C5Q L5Q D5Q S5Q` rows of the Galileo
+satellites in a mixed file; each segment prints `E5Q PRN nn  epochs ...`. A Galileo pilot
+takes its time from its own secondary code and the receiver's GPS clock (see "Galileo
+observations" below), so it needs no GPS channel of its own but the run needs GPS L1 for
+that clock. The navigation file stays GPS only: nothing Galileo is decoded.
+
 For the 2021-12-26 pair, both files of `L1L5_20211226_082401_24MHz.zip`:
 
 ```sh
@@ -267,7 +282,7 @@ pyrx-rinex L1_20211226_082401_24MHz_I.bin --fs 24e6 --f-if 6e6 --l5 L5_20211226_
 `--iq` describes `FILE` only; `L5FILE` is always read as I/Q, at `--l5-f-if` (0 for this
 pair, recorded at its center frequency). `--t-start` and `--duration` select the same
 span of both files. `pyrx-pvt` reads only the L1 columns of the result. Without `--l5`
-the file holds `C1C L1C D1C S1C` only.
+the file holds `C1C L1C D1C S1C` only, and without `--galileo` no Galileo row.
 
 ## Positioning from the command line
 
@@ -291,12 +306,16 @@ clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 ## RTK from the command line
 
 ```sh
-pyrx-rtk ROVER BASE NAV --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 5] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
+pyrx-rtk ROVER BASE NAV [--nav-add FILE] --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 5] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
 ```
 
 Solves the baseline from a base station of known position to the rover, epoch by
 epoch, from two RINEX observation files (plain, gzip or Hatanaka compressed, ours
-or public) and a navigation file. `--base-xyz` is the base marker; the
+or public) and a navigation file. `--nav-add FILE`, which may be repeated, names a
+further navigation file for the systems the files before it lack: every system's
+ephemerides come from the first file that has it, and the ionosphere from the first that
+has one, so a rover that decodes GPS only can add a public file for Galileo and keep its
+own GPS records. `--base-xyz` is the base marker; the
 marker-to-antenna offsets are taken from each file's `ANTENNA: DELTA H/E/N` unless
 given. `--signals` lists the signals to use as system letter plus RINEX attribute
 (GPS `G1C G2W G5Q`, Galileo `E1C E5Q E7Q`); the single-point seed solves on GPS L1
@@ -579,6 +598,32 @@ and 14 scattered fixes agree nowhere and two are apart): seven satellites, four 
 L5 pilot, the other three flagged on 33 to 56 % of their L1 phases. It needs more
 satellites with a pilot.
 
+Galileo supplies them. The same recordings hold nine or ten Galileo satellites, each with
+a pilot on E5a, and the base has six to eight of them. With their E5a observations beside
+GPS (`pyrx-rinex --l5 --galileo`, "Galileo observations" below; signals `G1C,G5Q,E5Q`; the
+Galileo orbits from the day's public broadcast file added to the decoded GPS ones), the
+command's options, fixed forward and backward, agreed, apart:
+
+| Capture | GPS L1 + L5 | with Galileo E5a |
+|---|---|---|
+| started while driving | 1, 39, 0, 0 | 101, 167, 61, 2 |
+| the drive | 202, 178, 144, 1 | 237, 247, 222, 4 |
+| parked, kinematic mode | 14, 0, 0, 0 | 294, 285, 280, 0 |
+
+The capture started while driving has its first agreed epochs, in stretches of up to 18 s
+between the fades, with eleven or twelve satellites in the solution. Its two epochs apart
+come just after the obstruction, from a search over five double differences; the drive's
+four are 5.5 cm apart horizontally at one epoch and 10 to 14 cm vertically at three, where
+one direction has just come back from float with half its ambiguities. On the parked car
+the fixes with Galileo lie within 3 mm horizontally and 8 mm vertically of the GPS-only
+static solution, every kinematic one within 5 mm and 20 mm of their median. RTKLIB's rules
+on the same files agree at 2, 92 and 284 epochs: the lock count and the check are needed
+with Galileo too. None of this has a truth. A solution from the Galileo satellites alone
+would be a check that shares no satellite with the GPS one, but on one frequency and six
+satellites it is not usable: its few fixes on the parked car lie 18 to 36 cm from the
+others, the two directions at different places. That check waits for Galileo's second
+signal, E1.
+
 ## Standalone positioning
 
 Satellite position, velocity and clock come from the broadcast ephemeris
@@ -847,6 +892,43 @@ Pocket SDR's 5Q pseudoranges between satellites within 0.2 m in the mean and 0.6
 0.9 m of scatter, once the 13 ms between the two receivers' clocks is accounted for
 (the test requires the geometry-free residual below 5 mm RMS and each satellite's `C5Q`
 minus `C1C` within 3 m of the common value).
+
+### Galileo observations
+
+A Galileo satellite has no signal here that carries a decoded time: nothing Galileo is
+decoded, and there is no channel of the same satellite to borrow the time from, as the L5
+pilot borrows L1's. But the E5a pilot's secondary code is 100 chips long, one chip per
+1 ms code period, and the code start that carries its chip 0 leaves the satellite at a
+multiple of 100 ms of system time (the tiered code starts with the data component's
+page, which starts on the second). So once the secondary code is found, the transmit
+time of every code start is known up to a multiple of 100 ms, and the travel time from
+a satellite at that height is 60 to 100 ms: the receiver's clock, which the GPS channels
+set within 20 ms of true time, says which multiple. pyrx takes the travel time between
+35 and 135 ms by that clock (`TRAVEL_TIME_MIN`: the two Galileo satellites in eccentric
+orbits come as close as 57 ms, and the clock can be 18 ms behind). The run therefore
+needs GPS L1 for its clock, and the difference between Galileo's and GPS's system time,
+tens of nanoseconds, is in the pseudoranges; a relative solution with a reference
+satellite per system does not see it.
+
+The rest is the L5 pilot's: `C5Q`, `D5Q` and `S5Q` from the epoch after the secondary
+code was found, `L5Q` where the window is phase-locked, the loss-of-lock indicator within
+2 s of a segment's start, after an unlocked window and from a coasted sum to the return,
+no half-cycle indicator, and the half cycle of a pilot found inverted put back. The phase
+is written aligned to the band's reference signal as RINEX 3.05 Table A23 has it, L5Q a
+quarter cycle from L5I, with 0.00000 in the header. That value is the table's. Derived
+from the signal's definition, in which the E5a pilot leads the data component where the
+L5 pilot lags, it would be the opposite quarter cycle: half a cycle between the two
+conventions, the same on every Galileo satellite, so it cancels between satellites and no
+relative solution depends on it.
+
+Checked on the car-roof captures (`test_rtk_reference.py`): at the single-point fix of
+the GPS L1 rows, the E5a pseudorange of every Galileo satellite is the range to the
+satellite's broadcast position within the atmosphere, the group delays and the front
+end's delay between its bands (-36 to +12 m measured on the three captures; the test
+allows 100 m, and a wrong
+millisecond would be 300 km). The GPS rows of a file with Galileo are those of the file
+without. What the Galileo observations do for the fix is in "Flagged phases, the lock
+count and the backward pass" above.
 
 ## Navigation message decode
 
