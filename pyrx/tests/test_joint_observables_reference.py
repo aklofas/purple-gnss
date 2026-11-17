@@ -48,7 +48,8 @@ def test_joint_file_from_the_2021_pair(captures, tmp_path):
     write_rinex_observations(joint_file, make_joint_observables(tracks, lnavs, pilots))
     write_rinex_obs(l1_file, make_observables(tracks, lnavs))
 
-    # the L1 fields are those of the L1-only file, character for character
+    # the L1 fields are those of the L1-only file but for the blanks a record ends in: the
+    # joint writer trims a record, the L1 writer pads its last field
     joint_records, l1_records = _records(joint_file), _records(l1_file)
     assert [r[: 3 + 4 * 16].rstrip() for r in joint_records] == [r.rstrip() for r in l1_records]
     text = joint_file.read_text()
