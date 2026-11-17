@@ -227,7 +227,8 @@ def test_mains_say_why_nothing_was_tracked(tmp_path, capsys, monkeypatch):
     )
     assert trk_main(common) == 2
     err = capsys.readouterr().err
-    assert "every detection failed the 6 s bit-sync trial (PRN 9 at 0 s)" in err
+    # the trial ran to the end of the 20 ms file, not its full 6 s
+    assert "every detection failed the 0.02 s bit-sync trial (PRN 9 at 0 s)" in err
     assert "no PRN detected" not in err
 
 
@@ -442,7 +443,7 @@ def test_pilot_trial_failure_is_named(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(channels, "acquire_signal", lambda *a, **k: _always_detected(11))
     assert trk_main([str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "11"]) == 2
     err = capsys.readouterr().err
-    assert "every detection failed the 6 s secondary-code trial (PRN 11 at 0 s)" in err
+    assert "every detection failed the 3.2 s secondary-code trial (PRN 11 at 0 s)" in err
 
 
 def _pilot_beside(l1, start, n, delay, prn=4):
@@ -562,13 +563,13 @@ def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch)
     f = tmp_path / "s.bin"
     write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, int(fs * (len(seq) * 0.020 + 0.1)), 45.0, True, bits=seq), f)
     l5 = tmp_path / "l5.bin"
-    l5.write_bytes(b"\0" * 64)
+    l5.write_bytes(bytes(int(2 * fs * 7.5)))  # 7.5 s: a full trial at 0 s, a short one at 5 s
     real = cli.track_prns
 
     def walk(path, fs_, iq, f_if, prns, **kwargs):
         if kwargs.get("signal") != "L5":
             return real(path, fs_, iq, f_if, prns, **kwargs)
-        kwargs["rejected"].append((4, 0.0))
+        kwargs["rejected"].extend([(4, 0.0), (4, 5.0)])
         return []
 
     monkeypatch.setattr(cli, "track_prns", walk)
@@ -578,5 +579,5 @@ def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch)
     out, err = capsys.readouterr()
     assert "G5Q" not in out and "PRN  4  epochs" in out
     assert err.count("\n") == 1 and "--l5" in err and "no L5 pilot tracked" in err
-    assert "1 detection failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
+    assert "2 detections failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
     assert "C5Q L5Q D5Q S5Q" in obs.read_text()

@@ -118,10 +118,20 @@ def _acquire_and_track(args) -> tuple[list[TrackResult], float] | None:
     return tracks, t0
 
 
+def _data_end(path, fs: float, iq: bool, t_start: float, duration: float | None) -> float:
+    """Seconds into the recording at which the requested span ends."""
+    end = SampleFile(path, fs, iq).n_samples / fs
+    return end if duration is None else min(end, t_start + duration)
+
+
+def _trial_seconds(rejected: list[tuple[int, float]], end: float) -> float:
+    """The longest trial the rejected detections were given: TRIAL, less where the data ended
+    before it."""
+    return max(min(TRIAL, end - t) for _, t in rejected)
+
+
 def _nothing_tracked(args, duration: float | None, rejected: list[tuple[int, float]]) -> str:
-    end = SampleFile(args.file, args.fs, args.iq).n_samples / args.fs
-    if duration is not None:
-        end = min(end, args.t_start + duration)
+    end = _data_end(args.file, args.fs, args.iq, args.t_start, duration)
     if args.t_start + DEFAULT_WINDOW > end:
         return (
             f"no {DEFAULT_WINDOW * 1e3:.0f} ms acquisition window fits between --t-start "
@@ -132,7 +142,8 @@ def _nothing_tracked(args, duration: float | None, rejected: list[tuple[int, flo
         more = f" and {len(rejected) - 5} more" if len(rejected) > 5 else ""
         trial = "secondary-code" if SIGNALS[getattr(args, "signal", "L1CA")].pilot else "bit-sync"
         return (
-            f"no PRN tracked: every detection failed the {TRIAL:g} s {trial} trial "
+            f"no PRN tracked: every detection failed the {_trial_seconds(rejected, end):.3g} s "
+            f"{trial} trial "
             f"({where}{more}): check --fs, --f-if and --iq"
         )
     return NO_DETECTION
@@ -364,11 +375,13 @@ def rinex_main(argv: list[str] | None = None) -> int:
         )  # fmt: skip
         if not pilots:
             n = len(turned_down)
-            why = (
-                f"{n} detection{'' if n == 1 else 's'} failed the {TRIAL:g} s secondary-code trial"
-                if n
-                else "nothing detected"
-            )
+            why = "nothing detected"
+            if n:
+                end = _data_end(args.l5, args.fs, True, args.t_start, duration)
+                why = (
+                    f"{n} detection{'' if n == 1 else 's'} failed the "
+                    f"{_trial_seconds(turned_down, end):.3g} s secondary-code trial"
+                )
             print(
                 f"--l5 {args.l5}: no L5 pilot tracked ({why}): check --l5-f-if, --fs and "
                 "that the file is the L5 band of the same capture",
