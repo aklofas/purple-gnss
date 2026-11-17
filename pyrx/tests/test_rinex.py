@@ -318,6 +318,13 @@ def test_writers_put_the_marker_type_after_the_marker_name_when_given(tmp_path, 
     assert read_rinex_header(tmp_path / "b.obs").marker == "MARK"
 
 
+def test_write_rinex_obs_keeps_the_order_of_its_rows(tmp_path):
+    rows = [Observation(16, 20653742.563, 1.0, 2.0, 46.9), Observation(4, 22235454.255, 3.0, 4.0, 43.3)]
+    write_rinex_obs(tmp_path / "o.obs", [Epoch(2190, 30260.0, rows)])
+    records = (tmp_path / "o.obs").read_text().split("END OF HEADER")[1].splitlines()[2:]
+    assert [r[:3] for r in records] == ["G16", "G04"]
+
+
 def test_write_rinex_obs_golden(tmp_path):
     ephs = constellation()
     epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(3)]

@@ -68,7 +68,7 @@ from pyrx.gpstime import C_LIGHT, WEEK_S, full_week
 from pyrx.lnav import PREAMBLE, SUBFRAME_BITS
 from pyrx.navdecode import LnavResult
 from pyrx.observations import Epoch, Observation, Observations
-from pyrx.signalspec import L5, SIGNALS
+from pyrx.signalspec import SIGNALS
 from pyrx.tracking import PLI_LOCKED, T_PILOT_COH, TrackResult
 
 TRAVEL_TIME_NOMINAL = 0.068  # s, light time to the nearest satellite, sets the receiver clock
@@ -78,7 +78,6 @@ FADE_SLIP = 0.050  # s of integrator hold within FADE_SPAN after which a phase i
 FADE_SPAN = 0.5  # s
 LLI_SLIP = 1  # RINEX loss-of-lock indicator bits
 LLI_HALF_CYCLE = 2
-L5Q_ALIGN = L5.phase_align  # cycles added to the L5Q phase to align it with L5I
 # s a pilot's code start may lie from the L1 channel's code period grid: the two bands'
 # paths through a front end differed by 0.1 microsecond on the two front ends measured, and
 # a pilot locked on something else lands anywhere in the millisecond
@@ -271,7 +270,7 @@ class Run:
     chans: list[tuple[TrackResult, LnavResult, np.ndarray, np.ndarray]]
     rx0: float  # GPS seconds of week assigned to sample 0 (`receiver_time0`)
     interval: float  # s; epoch i of the grid is the receiver time i * interval
-    first: int  # the grid's first and last index with an observation
+    first: int  # the grid's first and last index inside the channels' span
     last: int
     weeks_on: int  # whole weeks from the week of `rx0` to the first epoch
     origin_week: int | None  # the week of `rx0` from a decoded subframe 1, None without one
