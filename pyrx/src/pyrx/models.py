@@ -60,9 +60,15 @@ def geodetic(xyz: np.ndarray) -> tuple[float, float, float]:
     return float(lat), float(lon), float(h)
 
 
-def azimuth_elevation(rx_xyz: np.ndarray, sat_xyz: np.ndarray) -> tuple[float, float]:
-    """Azimuth in [0, 2 pi) and elevation (rad) of a satellite seen from a receiver."""
-    lat, lon, h = geodetic(rx_xyz)
+def azimuth_elevation(
+    rx_xyz: np.ndarray, sat_xyz: np.ndarray, rx_geodetic: tuple[float, float, float] | None = None
+) -> tuple[float, float]:
+    """Azimuth in [0, 2 pi) and elevation (rad) of a satellite seen from a receiver.
+
+    `rx_geodetic` is `geodetic(rx_xyz)` when the caller has it already: the conversion costs
+    more than the rest, and one receiver position serves every satellite of an epoch.
+    """
+    lat, lon, h = geodetic(rx_xyz) if rx_geodetic is None else rx_geodetic
     e, n, u = pm.ecef2enu(sat_xyz[0], sat_xyz[1], sat_xyz[2], lat, lon, h, deg=False)
     return atan2(e, n) % (2 * pi), asin(u / sqrt(e * e + n * n + u * u))
 
