@@ -160,6 +160,18 @@ class RinexHeader:
     receiver: str
 
 
+def _three_numbers(text: str) -> np.ndarray:
+    """The three F14.4 numbers of a header record; zeros for a blank record, which is how a
+    file says it has none (the position of a moving receiver). Numbers that fill their
+    fields touch, so a record that does not split into three is read by column."""
+    if not text.strip():
+        return np.zeros(3)
+    fields = text.split()
+    if len(fields) != 3:
+        fields = [text[i : i + 14] for i in (0, 14, 28)]
+    return np.array([float(v) for v in fields])
+
+
 def read_rinex_header(path) -> RinexHeader:
     """Marker, approximate position, antenna offset and equipment of an observation file."""
     marker = antenna = receiver = ""
@@ -173,9 +185,7 @@ def read_rinex_header(path) -> RinexHeader:
                 marker = line[:60].strip()
             elif label in ("APPROX POSITION XYZ", "ANTENNA: DELTA H/E/N"):
                 try:
-                    values = np.array([float(v) for v in line[:42].split()])
-                    if len(values) != 3:
-                        raise ValueError
+                    values = _three_numbers(line[:42])
                 except ValueError:
                     raise ValueError(f"{path}: malformed {label} header record") from None
                 if label == "APPROX POSITION XYZ":
