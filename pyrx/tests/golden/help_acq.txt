@@ -1,4 +1,4 @@
-usage: pyrx-acq [-h] --fs FS [--f-if F_IF] [--iq] [--signal {L1CA,L5,E5A}]
+usage: pyrx-acq [-h] --fs FS [--f-if F_IF] [--iq] [--signal {L1CA,L5,E5A,E1}]
                 [--prn PRN] [--t-start T_START] [--duration DURATION]
                 [--plot PLOT]
                 file
@@ -13,7 +13,7 @@ options:
   --fs FS               sample rate (Hz)
   --f-if F_IF           intermediate frequency (Hz)
   --iq                  file holds interleaved I/Q bytes
-  --signal {L1CA,L5,E5A}
+  --signal {L1CA,L5,E5A,E1}
                         signal to search: GPS L1 C/A, or the pilot of GPS L5
                         or Galileo E5a (default L1CA)
   --prn PRN             PRNs, e.g. 1-32 or 1,5,7 (default: all of the
