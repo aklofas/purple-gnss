@@ -251,6 +251,16 @@ def test_the_pull_in_window_is_judged_on_cn0_alone():
     assert not tracker.locked and tracker.phase_lock == 1.0
 
 
+def test_the_exempt_window_is_pyrx_first_cn0_window_whatever_the_pull_in_lasts(monkeypatch):
+    # pyrx exempts the first C/N0 window; a pull-in shorter than that window must not make
+    # the model judge it
+    monkeypatch.setattr("fpgamodel.loop.T_FLL_PULLIN", T_CN0 / 2)
+    tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)
+    k = _window(tracker, 0, _spinning)
+    _window(tracker, k, _spinning)
+    assert tracker.locked  # one bad window so far
+
+
 def test_track_model_rejects_a_disabled_channel():
     ch = Channel(code_bits(gps_ca(7)))
     tracker = Tracker(FS_SYN, F_IF_SYN, 0.0)

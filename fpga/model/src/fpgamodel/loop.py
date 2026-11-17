@@ -150,8 +150,9 @@ class Tracker:
                 self.cn0 += 0.5 * (10.0 * log10(s / n / t) - self.cn0)
             # the phase-lock indicator as pyrx sums it, in the same order, and its loss rule
             self.phase_lock = self._sum_d / self._sum_p if self._sum_p > 0.0 else nan
-            # the carrier spins by design in the window that overlaps pull-in
-            past_pull_in = self.epoch * t > T_FLL_PULLIN
+            # the carrier spins by design in the window that holds the pull-in: the first
+            # one, as pyrx counts it
+            past_pull_in = self.epoch > self._n_cn0
             bad = self.cn0 < CN0_LOST or (past_pull_in and self.phase_lock < PLI_LOCKED)
             self._bad_windows = self._bad_windows + 1 if bad else 0
             if self._bad_windows >= LOST_WINDOWS:
