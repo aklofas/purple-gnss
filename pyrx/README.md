@@ -617,9 +617,9 @@ or two; with two, the phases between them are half a cycle off, and one long fli
 fade can hold both. The phases from the first held epoch of the first such fade to the
 end of the last one's flag therefore carry the half-cycle flag; so do the phases from a
 fade after a channel's last subframe to its end, since nothing decoded later says where
-the loop settled. That takes the L1 phases with the half-cycle flag from 9.9 % to 13.9 %
-on the driving capture and from 10.2 % to 22.7 % on the cold-start drive, and adds seven
-and six ambiguity restarts to the 270 and 700 an RTK engine makes on them.
+the loop settled. That takes the L1 phases with the half-cycle flag from 9.9 % to 13.6 %
+on the driving capture and from 10.2 % to 21.5 % on the cold-start drive, and adds three
+and five ambiguity restarts to the 270 and 700 an RTK engine makes on them.
 
 ### L5 observations
 

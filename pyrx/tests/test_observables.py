@@ -514,6 +514,9 @@ def test_a_fade_belongs_where_its_held_epochs_are():
     assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [11, 12]
     epochs, base, ks = _held_channel(GAP, (7400, 7459))  # under the first, the gap after it
     assert _half_cycle(epochs, base, ks) == []
+    # nor does one that runs across the boundary of two subframes decoded back to back
+    epochs, base, ks = _held_channel(SFS, (13400, 14059))
+    assert _half_cycle(epochs, base, ks) == [] and _newly_flagged(epochs, base) == [12, 13]
     epochs, base, ks = _held_channel(sfs, (13499, 13558))  # its last epoch is the first after
     assert _half_cycle(epochs, base, ks) == [k for k in ks if k > 13499]
 
