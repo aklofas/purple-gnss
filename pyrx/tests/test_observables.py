@@ -599,6 +599,53 @@ def test_joint_l1_columns_equal_single_signal():
         assert l1[1] == want.carrier_phase or (np.isnan(l1[1]) and np.isnan(want.carrier_phase))
 
 
+# the same channel with the week boundary 13.5 s into it, and one that begins 2 s before it; near
+# 604800 s a double resolves 0.12 ns, 3.5 cm of range, so the bounds there are 5 cm
+SFS_ACROSS = [(1500, 604788, False), (7500, 604794, False), (13500, 0, False), (19500, 6, False)]
+SFS_AFTER = [(2000, 0, False), (8000, 6, False), (14000, 12, False), (20000, 18, False)]
+
+
+@pytest.mark.parametrize("pilot_start", [0, 14000])
+def test_joint_observables_across_the_week_rollover(pilot_start):
+    # the pilot takes L1's time on either side of the boundary, also a segment that begins
+    # after it; the epochs run on past 604800 in the week of the first one
+    track, ln = _still_channel(SFS_ACROSS)
+    pilot = _still_pilot(k_start=pilot_start, n=30000 - pilot_start)
+    single = make_observables([track], [ln])
+    joint = make_joint_observables([track], [ln], [pilot])
+    assert [(o.week, o.tow) for o in joint] == [(e.week, e.tow) for e in single]
+    assert joint[0].week == 2190 and joint[0].tow < 604800.0 < joint[-1].tow
+    rx0 = receiver_time0([track], [ln])
+    seen = []
+    for o in joint:
+        (pr, phase, _, _, _), l1 = _g5q(o)
+        if o.tow - rx0 <= pilot.t[pilot.sec_sync + 1]:
+            assert np.isnan(pr)
+            continue
+        seen.append(o.tow)
+        assert pr - l1[0] == pytest.approx(C_LIGHT * 30e-9, abs=0.05)
+        since = o.tow - rx0 - pilot.t[0] - 30e-9  # the segment's phase starts with it
+        assert phase == pytest.approx(420.0 * since + L5Q_ALIGN, abs=1e-4)
+    assert seen[0] < 604800.0 + 16.0 and seen[-1] > 604800.0 and len(seen) > 10
+
+
+@pytest.mark.parametrize("week", [None, 2190])
+def test_joint_observables_of_a_run_wholly_past_the_rollover(week):
+    # sample 0 lies 2 s before the boundary, every observation after it: the epochs are
+    # dated in the new week, given or derived, and the pilot is on the same clock
+    track, ln = _still_channel(SFS_AFTER, k0=2500)
+    pilot = _still_pilot()
+    assert 604798.0 < receiver_time0([track], [ln]) < 604800.0
+    single = make_observables([track], [ln], week=week)
+    joint = make_joint_observables([track], [ln], [pilot], week=week)
+    assert [(o.week, o.tow) for o in joint] == [(e.week, e.tow) for e in single]
+    assert joint[0].week == 2190 and 0.0 < joint[0].tow < 2.0 and len(joint) > 20
+    for o in joint:
+        (pr, _, _, _, _), l1 = _g5q(o)
+        assert pr - l1[0] == pytest.approx(C_LIGHT * 30e-9, abs=0.05)
+        assert l1[0] == pytest.approx(C_LIGHT * 0.068, abs=0.05)
+
+
 @pytest.mark.parametrize("polarity", [1, -1])
 def test_joint_5q_values(polarity):
     track, ln = _still_channel(SFS)
