@@ -239,7 +239,9 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
         lo = starts[j] + SUBFRAME_EPOCHS  # the first epoch after subframe j
         last = j + 1 == len(starts)
         hi = len(tr.t) if last else starts[j + 1]
-        between = [f for f in fades if f[1] >= lo and f[0] < hi]  # held in the gap
+        # the fades with a held epoch in the gap, which is empty between subframes decoded
+        # back to back
+        between = [f for f in fades if tr.held[max(f[0], lo) : min(f[1] + 1, hi)].any()]
         if last and between:
             is_open[between[0][0] + 1 :] = True
         elif not last and flipped[j + 1] == flipped[j] and between:
