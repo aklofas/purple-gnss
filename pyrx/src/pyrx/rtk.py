@@ -35,7 +35,8 @@ signal and against a trial update of the rest of the epoch (`_update_biases`,
 `_test_asked`), for a receiver that flags every phase that may have slipped;
 `min_lock` is RTKLIB's pos2-arlockcnt, counted as RTKLIB counts it (`_add`);
 `min_fix_sats` keeps an epoch float unless the integer search spans that many
-satellites, since a search over a few double differences passes the ratio test
+satellites (of one system: a further system brings its own reference satellite, which
+does not count), since a search over a few double differences passes the ratio test
 without pinning the position; `backward` runs the filter from the last epoch to the
 first, reading the indicators as RTKLIB does backward, over the pairs of the forward
 pass (RTKLIB pairs a rover epoch with the next base epoch when it runs backward; the
@@ -90,7 +91,9 @@ class RtkOptions:
     clock_stability: float = 5e-12  # s/s, receiver clock, times the differential age
     backward: bool = False  # the epochs last to first, the flags read from the other side
     min_lock: int = 0  # updates an ambiguity waits before the integer search (see `_add`)
-    min_fix_sats: int = 0  # satellites the searched ambiguities must span for a fix
+    # satellites the searched ambiguities must span for a fix, counted for one system: each
+    # further system's reference satellite does not count
+    min_fix_sats: int = 0
     slips: str = "restart"  # or "check": a phase the rover flags is looked at first
 
 
@@ -704,7 +707,8 @@ class Rtk:
         """LAMBDA on the double-differenced ambiguities with the ratio test (RTKLIB
         resamb_LAMBDA, continuous mode): status, ratio, position and the eligible
         ambiguities, searched from two on and only when they span `min_fix_sats`
-        satellites. The float states are kept whatever the outcome."""
+        satellites, one reference per system counted once. The float states are kept
+        whatever the outcome."""
         opt = self.opt
         n = len(self.x)
         pairs = []
@@ -737,7 +741,11 @@ class Rtk:
             y = D @ self.x
             Qb = D @ self.P @ D.T
             fixed = None
-            if nb >= 2 and len({key[0] for pair in pairs for key in pair}) >= opt.min_fix_sats:
+            sats = {key[0] for pair in pairs for key in pair}
+            # every system has its own reference: five satellites of one system are four
+            # beside it, and that is what a floor of five asks of several systems together
+            beside = len(sats) - len({sat[0] for sat in sats})
+            if nb >= 2 and beside >= opt.min_fix_sats - 1:
                 Qab = self.P[:3] @ D.T
                 try:
                     cands, s = lambda_fix(y, Qb, 2)

@@ -812,6 +812,39 @@ def test_no_integer_search_below_the_satellite_floor():
     assert run(6, ())[-1].status == "fix"
 
 
+def test_the_satellite_floor_counts_one_reference_per_system():
+    # every system has its own reference satellite, so three GPS and two Galileo satellites
+    # are three double differences, as few as four satellites of one system: the floor counts
+    # the satellites beside the references, and five of one system are four
+    gps = constellation()
+    ephs = gps + as_galileo(gps)
+    sats = [f"G{e.prn:02d}" for e in gps] + [f"E{e.prn + 10:02d}" for e in gps]
+
+    def run(floor, kept):
+        rng = np.random.default_rng(45)
+        rtk = _rtk(ephs, min_fix_sats=floor)
+        drop = {(sat, sig) for sat in sats if sat not in kept for sig in ("G1C", "E1C") if sig[0] == sat[0]}
+        return [
+            rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, signals=("G1C", "E1C"), drop=drop))
+            for k in range(12)
+        ]
+
+    three_and_two = sats[:3] + sats[6:8]
+    below = run(5, three_and_two)
+    assert all(f.ns == 5 and f.nb == 3 for f in below)
+    assert all(f.status == "float" and f.ratio == 0.0 for f in below)
+    assert all(a.integer is None for f in below for a in f.ambiguities)
+    # one more satellite of either system is the fourth double difference
+    for kept in (sats[:4] + sats[6:8], sats[:3] + sats[6:9]):
+        at = run(5, kept)
+        assert all(f.ns == 6 and f.nb == 4 for f in at)
+        assert all(f.ratio > 0.0 for f in at[1:])  # searched, as without a floor
+        assert [f.ratio for f in at] == [f.ratio for f in run(0, kept)]
+        assert all(f.status == "float" and f.ratio == 0.0 for f in run(6, kept))
+    # and without a floor the five satellites are searched
+    assert any(f.ratio > 0.0 for f in run(0, three_and_two))
+
+
 # --- slips="check": a phase the rover flags is looked at before its ambiguity restarts ----
 
 G03 = ("G03", "G1C")
