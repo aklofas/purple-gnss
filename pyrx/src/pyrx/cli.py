@@ -611,6 +611,13 @@ def rtk_main(argv: list[str] | None = None) -> int:
     except ValueError as e:  # a file outside the profile the readers accept
         print(e, file=sys.stderr)
         return 2
+    for system, name in (("G", "GPS"), ("E", "Galileo")):
+        if any(sig[0] == system for sig in signals) and not any(e.system == system for e in ephs):
+            print(
+                f"no {name} ephemeris in the navigation files: its signals take no part "
+                "(--nav-add names a further file)",
+                file=sys.stderr,
+            )
     station = Station(np.array(args.base_xyz), np.asarray(base_delta, dtype=float))
     fixes = solve_rtk(
         rover, base, ephs, station, np.asarray(rover_delta, dtype=float),

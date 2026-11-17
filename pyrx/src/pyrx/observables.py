@@ -87,9 +87,11 @@ ANCHOR_TOLERANCE = 1e-6
 SECONDARY_TIME = 0.100
 # s of the receiver clock: the lower end of the code length in which such a pilot's travel
 # time is taken. The clock is the latest GPS transmit time at sample 0 plus
-# TRAVEL_TIME_NOMINAL, up to 20 ms behind true time, and a Galileo satellite is 57 ms (the
-# two in eccentric orbits, at perigee) to 97 ms away: 39 to 98 ms by that clock
-TRAVEL_TIME_MIN = 0.035
+# TRAVEL_TIME_NOMINAL: a GPS satellite is 67 to 86 ms away, so the clock is up to 18 ms
+# behind true time and 1 ms ahead at most. A Galileo satellite is 77 to 97 ms away, the two
+# in eccentric orbits 57 to 106 ms: 39 to 107 ms by that clock. The window of 22 to 122 ms
+# leaves some 15 ms either side
+TRAVEL_TIME_MIN = 0.022
 # epochs from the one completing a pilot's coasted sum to the one completing the next sum,
 # whose update is in the phases after it
 COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)

@@ -10,7 +10,7 @@ from rtklib import rnx2rtkp_rtk, rnx2rtkp_ttff
 from pyrx.gpstime import C_LIGHT
 from pyrx.models import Station, geometric_range
 from pyrx.observations import to_epoch
-from pyrx.orbits import satellite_state, select_ephemeris
+from pyrx.orbits import satellite_state, select_ephemeris, usable
 from pyrx.pvt import solve_epoch
 from pyrx.rinex import read_rinex_header, read_rinex_nav, read_rinex_observations
 from pyrx.rtk import RtkOptions, solve_rtk
@@ -402,7 +402,8 @@ def test_galileo_pseudoranges_fit_the_broadcast_orbits_at_the_gps_fix(captures, 
     # clock; a wrong multiple of the code's 100 ms would be 30 000 km and a wrong millisecond
     # 300 km. At the single-point fix of the GPS L1 rows every E5a pseudorange is the range
     # to the satellite's broadcast position, within the atmosphere, the satellite's group
-    # delay and the front end's delay between its two bands (measured: -36 to +12 m).
+    # delay and the front end's delay between its two bands (measured over every epoch of
+    # the three captures: -37 to +15 m).
     rover = _car_with_galileo(captures, capture)[0]
     ephs, iono = read_rinex_nav(capture_file(captures, f"{capture}/pyrx_l1l5.nav"))
     galileo = _galileo_ephemerides(captures)
@@ -428,40 +429,51 @@ def test_galileo_pilots_give_the_cold_start_fixes_both_directions_agree_on(captu
     # directions never fix the same epoch at the same place. The six Galileo satellites the
     # base also has, on their E5a pilots, are the carrier redundancy that was missing.
     # Measured with the command's settings, forward fixed / backward fixed / together /
-    # apart: GPS 1 / 39 / 0 / 0, with Galileo 101 / 167 / 61 / 2 (134 and 135 s: a search
-    # over five double differences just after the obstruction). No truth for it.
+    # apart: GPS 1 / 39 / 0 / 0, with Galileo 104 / 177 / 54 / 0, twelve satellites or
+    # more in every fix. No truth for it, and the 54 depend on the satellite set at the level
+    # of centimeters: without the strongest Galileo satellite 61 are together, 39 of them the
+    # same epochs.
     gps = _car(captures, COLD_START, L1_L5)
     _, _, together, _ = _both_ways(gps, **COMMAND)
     assert together == []
     data = _car_with_galileo(captures, COLD_START)
     fwd, bwd, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 55 and len(apart) <= 3, (len(together), len(apart))
+    assert len(together) >= 50 and len(apart) <= 1, (len(together), len(apart))
     fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
-    assert fixed[0] >= 90 and fixed[1] >= 150, fixed
-    assert min(fwd[k].ns for k in together) >= 10
-    # RTKLIB's rules do not get there: the lock count and the check are needed too
-    assert len(_both_ways(data)[2]) <= 10
+    assert fixed[0] >= 98 and fixed[1] >= 168, fixed
+    assert min(fwd[k].ns for k in together) >= 12
+    # RTKLIB's rules get a quarter of that (14): the lock count and the check are needed too
+    assert len(_both_ways(data)[2]) <= 20
 
 
 def test_galileo_pilots_add_agreed_fixes_to_the_drive_and_the_parked_car(captures):
-    # Measured with the command's settings: the drive 237 / 247 / 222 / 4 where GPS alone has
-    # 202 / 178 / 144 / 1 (the four apart are 5.5 cm horizontal at 53 s and 10 to 14 cm
-    # vertical at 58 to 60 s, just past the bounds); the parked car in kinematic mode 294 /
-    # 285 / 280 / 0 where GPS alone fixes 14 epochs forward and none backward.
+    # Measured with the command's settings: the drive 242 / 255 / 227 / 4 where GPS alone has
+    # 202 / 178 / 144 / 1 (the four apart are 5.5 to 5.9 cm horizontal at 53, 68 and 69 s and
+    # 10.1 cm vertical at 58 s, just past the bounds); the parked car in kinematic mode 294 /
+    # 299 / 294 / 0 where GPS alone fixes 14 epochs forward and none backward.
     _, _, together, apart = _both_ways(_car_with_galileo(captures, DRIVING), **COMMAND)
-    assert len(together) >= 205 and len(apart) <= 5, (len(together), len(apart))
+    assert len(together) >= 220 and len(apart) <= 5, (len(together), len(apart))
     data = _car_with_galileo(captures, STATIC)
     fwd, _, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 270 and not apart
-    # and where the parked car's GPS-only fix is (static mode, 132 epochs): the medians
-    # within a centimeter, every kinematic fix within 3 cm of its own median
+    assert len(together) >= 288 and not apart
+    # and where the parked car's GPS-only fix is (static mode, 132 epochs): the medians 3 mm
+    # apart, every kinematic fix within 2 cm of its own median
     rover, base, ephs, iono, station, delta, _ = _car(captures, STATIC, L1_L5)
     options = RtkOptions(mode="static", **COMMAND)
     gps = [f for f in solve_rtk(rover, base, ephs, station, delta, options, iono) if f.status == "fix"]
     home = np.median([f.position for f in gps], axis=0)
     fixes = [f.position for f in fwd.values() if f.status == "fix"]
-    assert np.linalg.norm(np.median(fixes, axis=0) - home) < 0.01
-    assert max(np.linalg.norm(p - np.median(fixes, axis=0)) for p in fixes) < 0.03
+    assert np.linalg.norm(np.median(fixes, axis=0) - home) < 0.006
+    assert max(np.linalg.norm(p - np.median(fixes, axis=0)) for p in fixes) < 0.025
+
+
+def test_every_galileo_satellite_of_the_base_has_a_usable_ephemeris(captures):
+    # the public file writes a spare field in some Galileo records and not in others, which
+    # once read the strongest satellite's record of the hour as unhealthy
+    rover = _car_with_galileo(captures, COLD_START)[0]
+    galileo = _galileo_ephemerides(captures)
+    for prn in (13, 15, 21, 27, 29, 30, 34):
+        assert usable(select_ephemeris(galileo, prn, rover[100].tow, "E")), prn
 
 
 @pytest.mark.parametrize("runner", [rnx2rtkp_rtk, rnx2rtkp_ttff])

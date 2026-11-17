@@ -732,11 +732,11 @@ def _e5q(epoch, sat="E11"):
 GALILEO = ("L5", "E5A")
 
 
-@pytest.mark.parametrize("travel", [0.0355, 0.066, 0.080, 0.0995, 0.1345])
+@pytest.mark.parametrize("travel", [0.0225, 0.066, 0.080, 0.0995, 0.1215])
 @pytest.mark.parametrize("wraps", [-3, 0, 14])
 def test_galileo_pilot_takes_its_time_from_its_secondary_code(travel, wraps):
     # the code start with secondary chip 0 left at a multiple of 100 ms; which one follows
-    # from the receiver clock, the travel time taken between 35 and 135 ms
+    # from the receiver clock, the travel time taken between 22 and 122 ms
     track, ln = _still_channel(SFS)
     pilot, true_travel = _still_e5a(travel, wraps=wraps)
     joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
@@ -755,9 +755,9 @@ def test_galileo_pilot_takes_its_time_from_its_secondary_code(travel, wraps):
     assert seen > 20 and abs(true_travel - travel) < 1e-3
 
 
-@pytest.mark.parametrize("travel", [0.0345, 0.1355])
+@pytest.mark.parametrize("travel", [0.0215, 0.1225])
 def test_a_travel_time_outside_the_window_is_taken_a_code_length_off(travel):
-    # 100 ms of ambiguity: outside 35 to 135 ms the neighboring multiple is the one taken
+    # 100 ms of ambiguity: outside 22 to 122 ms the neighboring multiple is the one taken
     track, ln = _still_channel(SFS)
     pilot, true_travel = _still_e5a(travel)
     joint = make_joint_observables([track], [ln], [pilot], pilot_signals=GALILEO)
@@ -838,6 +838,46 @@ def test_a_galileo_and_a_gps_satellite_of_one_number_are_two_rows():
         np.testing.assert_array_equal(o.pseudorange[i, :2], u.pseudorange[0])
         np.testing.assert_array_equal(o.carrier_phase[i, :2], u.carrier_phase[0])
         np.testing.assert_array_equal(o.lli[i, :2], u.lli[0])
+
+
+@pytest.mark.parametrize("k_start", [0, 6000, 6037])
+def test_galileo_segments_time_themselves_wherever_they_begin(k_start):
+    # a segment that begins late, also off the 100 ms grid of the first: its own secondary
+    # origin and its own first code start give the same time as a segment from the start
+    track, ln = _still_channel(SFS)
+    whole, travel = _still_e5a()
+    late, late_travel = _still_e5a(k_start=k_start, n=30000 - k_start)
+    assert late_travel == pytest.approx(travel, abs=1e-9)
+    a = make_joint_observables([track], [ln], [whole], pilot_signals=GALILEO)
+    b = make_joint_observables([track], [ln], [late], pilot_signals=GALILEO)
+    rx0 = receiver_time0([track], [ln])
+    seen = 0
+    for o, u in zip(b, a, strict=True):
+        if "E11" in o.sats:
+            seen += 1
+            assert o.tow - rx0 > late.t[late.sec_sync + 1]
+            assert _e5q(o)[0] == pytest.approx(_e5q(u)[0], abs=1e-3)
+    assert seen > 15
+
+
+def test_two_segments_of_a_galileo_satellite_found_with_opposite_polarity():
+    # re-acquired, the pilot can be found inverted where it was upright before: each
+    # segment's phase gets its own half cycle, and both are on the same time
+    track, ln = _still_channel(SFS)
+    first, travel = _still_e5a(n=12000, polarity=1)
+    second, _ = _still_e5a(k_start=14000, n=16000, polarity=-1)
+    joint = make_joint_observables([track], [ln], [first, second], pilot_signals=GALILEO)
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0, _e5q(o)) for o in joint if "E11" in o.sats]
+    early = [(t, r) for t, r in rows if t < 12.0]
+    late = [(t, r) for t, r in rows if t > 14.0 + 1.6]
+    assert len(early) > 8 and len(late) > 10 and len(early) + len(late) == len(rows)
+    assert all(r[0] == pytest.approx(C_LIGHT * travel, abs=1e-3) for _, r in rows)
+    for t, r in early:
+        assert r[1] == pytest.approx(420.0 * (t - 0.2e-3) - 0.25, abs=1e-6)
+    for t, r in late:  # the second segment's phase begins with it, half a cycle put back
+        assert r[1] == pytest.approx(420.0 * (t - 14.0 - 0.2e-3) - 0.5 - 0.25, abs=1e-6)
+    assert late[0][1][4] == LLI_SLIP  # and its first phase is a slip
 
 
 def test_galileo_pilot_without_the_secondary_code_is_left_out():

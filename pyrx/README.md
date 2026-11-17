@@ -529,8 +529,8 @@ epochs; only one that appears unflagged within those first epochs is searched at
 `min_fix_sats` keeps an epoch float unless the ambiguities eligible for the search span
 that many satellites, the reference among them. The number is meant for one system: every
 system has its own reference satellite, so with GPS and Galileo five satellites are three
-double differences, and the floor counts the satellites beside the references (five of
-one system are four; so are three and three of two). On the drive, searches spanning five
+double differences, and the floor counts the satellites of the search less one per system
+(five of one system are four; so are three and three of two). On the drive, searches spanning five
 satellites or fewer passed the ratio test, some with ratios above 100, at positions the
 filter run the other way contradicts by up to a meter.
 `backward` runs the filter from the last epoch to the first over the same pairs of
@@ -606,23 +606,29 @@ command's options, fixed forward and backward, agreed, apart:
 
 | Capture | GPS L1 + L5 | with Galileo E5a |
 |---|---|---|
-| started while driving | 1, 39, 0, 0 | 101, 167, 61, 2 |
-| the drive | 202, 178, 144, 1 | 237, 247, 222, 4 |
-| parked, kinematic mode | 14, 0, 0, 0 | 294, 285, 280, 0 |
+| started while driving | 1, 39, 0, 0 | 104, 177, 54, 0 |
+| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 |
+| parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 |
 
-The capture started while driving has its first agreed epochs, in stretches of up to 18 s
-between the fades, with eleven or twelve satellites in the solution. Its two epochs apart
-come just after the obstruction, from a search over five double differences; the drive's
-four are 5.5 cm apart horizontally at one epoch and 10 to 14 cm vertically at three, where
-one direction has just come back from float with half its ambiguities. On the parked car
-the fixes with Galileo lie within 3 mm horizontally and 8 mm vertically of the GPS-only
-static solution, every kinematic one within 5 mm and 20 mm of their median. RTKLIB's rules
-on the same files agree at 2, 92 and 284 epochs: the lock count and the check are needed
-with Galileo too. None of this has a truth. A solution from the Galileo satellites alone
-would be a check that shares no satellite with the GPS one, but on one frequency and six
-satellites it is not usable: its few fixes on the parked car lie 18 to 36 cm from the
-others, the two directions at different places. That check waits for Galileo's second
-signal, E1.
+The capture started while driving has its first agreed epochs, in stretches of up to 17 s
+between the fades, with twelve or more satellites in the solution and no epoch apart. The
+drive's four epochs apart are just past the bounds (5.5 to 5.9 cm horizontally at three,
+10.1 cm vertically at one), where one direction has just come back from float with half
+its ambiguities. On the parked car the fixes with Galileo have their median 3 mm
+horizontally and 2 mm vertically from the GPS-only static solution, and every kinematic one
+lies within 6 mm and 19 mm of that median. RTKLIB's rules on the same files agree at 14, 97
+and 298 epochs: the lock count and the check are needed with Galileo too.
+
+None of this has a truth, and the agreed epochs of the capture started while driving are
+evidence at the level of centimeters, not millimeters. They depend on the satellite set:
+with the strongest Galileo satellite left out, 61 epochs are agreed, 39 of them the same,
+and at those the forward fix lies 14 mm away in the median and more than 3 cm at eight
+epochs (5.6 cm at most). On the drive the same comparison keeps 218 of 222 epochs, 6 mm
+apart in the median and one epoch over 3 cm. A solution from the Galileo satellites alone
+would be a check that shares no satellite with the GPS one, but on one frequency and seven
+satellites it is not usable: it fixes 8 and 4 epochs of the capture started while driving,
+26 and 8 of the drive, none of the parked car, and no epoch in both directions. That check
+waits for Galileo's second signal, E1.
 
 ## Standalone positioning
 
@@ -904,8 +910,9 @@ page, which starts on the second). So once the secondary code is found, the tran
 time of every code start is known up to a multiple of 100 ms, and the travel time from
 a satellite at that height is 60 to 100 ms: the receiver's clock, which the GPS channels
 set within 20 ms of true time, says which multiple. pyrx takes the travel time between
-35 and 135 ms by that clock (`TRAVEL_TIME_MIN`: the two Galileo satellites in eccentric
-orbits come as close as 57 ms, and the clock can be 18 ms behind). The run therefore
+22 and 122 ms by that clock (`TRAVEL_TIME_MIN`: the two Galileo satellites in eccentric
+orbits are 57 to 106 ms away, and the clock can be 18 ms behind, so a travel time reads 39
+to 107 ms). Nothing at run time checks the time a pilot is given beyond that. The run therefore
 needs GPS L1 for its clock, and the difference between Galileo's and GPS's system time,
 tens of nanoseconds, is in the pseudoranges; a relative solution with a reference
 satellite per system does not see it.
@@ -921,13 +928,18 @@ L5 pilot lags, it would be the opposite quarter cycle: half a cycle between the 
 conventions, the same on every Galileo satellite, so it cancels between satellites and no
 relative solution depends on it.
 
+Galileo's orbits come from a navigation file: only its I/NAV records are read, as RTKLIB
+does, so a satellite is used when the whole health word of that record is zero, and the
+E5a signal's own health bits, which the F/NAV records carry, are not looked at.
+
 Checked on the car-roof captures (`test_rtk_reference.py`): at the single-point fix of
 the GPS L1 rows, the E5a pseudorange of every Galileo satellite is the range to the
 satellite's broadcast position within the atmosphere, the group delays and the front
-end's delay between its bands (-36 to +12 m measured on the three captures; the test
-allows 100 m, and a wrong
-millisecond would be 300 km). The GPS rows of a file with Galileo are those of the file
-without. What the Galileo observations do for the fix is in "Flagged phases, the lock
+end's delay between its bands (-37 to +15 m over every epoch of the three captures; the
+test allows 100 m, and a wrong millisecond would be 300 km). Against the Galileo
+pseudoranges Pocket SDR forms from the same recordings, differenced between satellites,
+they agree within 0.25 m in the mean on every satellite with a minute of common epochs. The GPS rows of a file with Galileo are those of
+the file without. What the Galileo observations do for the fix is in "Flagged phases, the lock
 count and the backward pass" above.
 
 ## Navigation message decode
