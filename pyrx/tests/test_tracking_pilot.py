@@ -363,6 +363,11 @@ def test_coherent_loop_is_rebuilt_from_the_prompts(depth_db, sec_index, on_close
         assert r.doppler[k] == fd, k
     assert kinds >= expected and (depth_db is None or "coasted" not in kinds)
     assert r.held.dtype == bool and not r.held[: r.sec_sync + 1].any()
+    if depth_db is None:
+        # the window's indicator stays above the lock threshold through the outage (the
+        # track is still locked), and the coasted sums are what marks the stretch
+        marked = r.t[r.held]
+        assert len(marked) >= 15 and 3.0 <= marked.min() < 3.05 and marked.max() < 3.45
 
 
 @pytest.mark.parametrize("name", SPECS)
@@ -408,21 +413,8 @@ def test_a_long_outage_still_ends_the_track():
     assert not r.locked and 4.0 < r.lost_at < 6.0
 
 
-def test_an_outage_is_marked_as_held():
-    # the signal gone for 0.4 s after the sync: the window's indicator stays above the lock
-    # threshold, and the coasted sums are what marks the stretch
-    seconds, gone_from, gone_len = 4.5, 3.0, 0.4
-    noisy = _signal(L5, 6, seconds, 45.0, seed=7, sec_index=5)
-    clean = _signal(L5, 6, seconds, 300.0, seed=7, sec_index=5)
-    t = np.arange(len(noisy)) / FS
-    gone = (t >= gone_from) & (t < gone_from + gone_len)
-    x = noisy.copy()
-    x[gone] -= clean[gone]
-    r = _track(x, L5, 6, seed=(700 / FS, 3.0, 45.0))
-    marked = r.t[r.held]
-    assert len(marked) >= 15 and gone_from <= marked.min() < gone_from + 0.05
-    assert marked.max() < gone_from + gone_len + 0.05
-    steady = _track(noisy, L5, 6, seed=(700 / FS, 3.0, 45.0))
+def test_a_steady_pilot_has_no_coasted_sum():
+    steady = _track(_signal(L5, 6, 4.5, 45.0, seed=7, sec_index=5), L5, 6, seed=(700 / FS, 3.0, 45.0))
     assert steady.held is not None and not steady.held.any()
 
 
