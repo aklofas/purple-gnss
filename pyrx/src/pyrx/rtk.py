@@ -71,6 +71,7 @@ class RtkOptions:
     bias_noise: float = 1e-4  # cycles per sqrt(s), ambiguity process noise
     position_sigma: float = 30.0  # m, kinematic position reset
     clock_stability: float = 5e-12  # s/s, receiver clock, times the differential age
+    backward: bool = False  # the epochs last to first, the flags read from the other side
 
 
 @dataclass(frozen=True)
@@ -244,13 +245,16 @@ class Rtk:
     def _index(self, key):
         return 3 + self.keys.index(key)
 
-    @staticmethod
-    def _flagged(last, key, lli):
+    def _flagged(self, last, key, lli):
         """Whether one receiver's loss-of-lock indicator marks a slip: value 1 (bit 0) set, or the
-        half-cycle bit changed since that receiver's previous indicator (RTKLIB detslp_ll)."""
+        half-cycle bit changed since that receiver's previous indicator (RTKLIB detslp_ll).
+
+        Bit 0 says the phase is not continuous with the one before it in time. A backward
+        filter comes to that pair from the later phase, so it reads the bit from the
+        indicator it read last and restarts at the earlier one."""
         prev = last.get(key, lli)
         last[key] = lli
-        return bool(lli & 1) or bool((prev ^ lli) & 2)
+        return bool((prev if self.opt.backward else lli) & 1) or bool((prev ^ lli) & 2)
 
     def _hold_slips(self, rover, base):
         """Keep the slips of an epoch that ends before the ambiguities are looked at: every
@@ -412,6 +416,8 @@ class Rtk:
                 if jb is None:
                     continue
                 key = (sat, sig)
+                # backward, RTKLIB takes the half-cycle bit too from the indicators read last
+                before = self.lli_rover.get(key, 0) | self.lli_base.get(key, 0)
                 # each receiver's indicator counts on its own, whether or not the other
                 # receiver has a phase; a base epoch reused for several rover epochs
                 # reports its slips once
@@ -423,7 +429,8 @@ class Rtk:
                 if isfinite(yr_p[j]) and isfinite(yb_p[jb]):
                     phase = yr_p[j] - yb_p[jb]
                     code = yr_c[j] - yb_c[jb] if isfinite(yr_c[j]) and isfinite(yb_c[jb]) else None
-                    halves[key] = bool((lli_r[j] | lli_b[jb]) & 2)
+                    now = int(lli_r[j] | lli_b[jb])
+                    halves[key] = bool((before if opt.backward else now) & 2)
                     if sig == ref_sig:
                         ref_phase = phase
                     elif ref_phase is not None:  # geometry-free against the first signal
@@ -600,11 +607,18 @@ def solve_rtk(
     iono: Ionosphere | None = None,
 ) -> list[Fix]:
     """Fix every rover epoch that has one, pairing it with the latest base epoch. `rover` and
-    `base` in time order without a repeated time (ValueError otherwise)."""
+    `base` in time order without a repeated time (ValueError otherwise). With
+    `options.backward` the filter runs from the last epoch to the first over the same
+    pairs; the fixes come back in time order either way."""
     rtk = Rtk(ephs, base_station, rover_delta_enu, options, iono)
+    pairs = pair_epochs(rover, base, rtk.opt.max_age)
+    if rtk.opt.backward:
+        pairs.reverse()
     out = []
-    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+    for r, b in pairs:
         fix = rtk.step(r, b)
         if fix is not None:
             out.append(fix)
+    if rtk.opt.backward:
+        out.reverse()
     return out

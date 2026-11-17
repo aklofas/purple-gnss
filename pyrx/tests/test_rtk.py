@@ -639,3 +639,87 @@ def test_one_eligible_pair_is_reported_as_a_float_ambiguity():
     (a,) = fix.ambiguities
     assert (a.ref, a.sat, a.signal, a.integer) == ("G01", "G02", "G1C", None)
     assert a.std > 0 and abs(a.value - _truth(a)) < 3 * a.std
+
+
+def _l1_run(rng, ephs, seconds, amb_at=None, lli_at=None):
+    """A 1 Hz L1-only run as (rover, base) pairs; `amb_at(k)` gives the rover ambiguities
+    of second k and `lli_at(k)` its indicators."""
+    return [
+        _pair(
+            rng, ephs, TOW + 1.0 * k, signals=("G1C",),
+            amb_r=amb_at(k) if amb_at else None, lli=lli_at(k) if lli_at else None,
+        )
+        for k in range(seconds)
+    ]  # fmt: skip
+
+
+def test_the_backward_pass_runs_last_to_first_and_reports_in_time_order():
+    rng = np.random.default_rng(40)
+    ephs = constellation()
+    pairs = _l1_run(rng, ephs, 20)
+    rover, base = [p[0] for p in pairs], [p[1] for p in pairs]
+    station = Station(USUD, np.zeros(3))
+    fwd = solve_rtk(rover, base, ephs, station, np.zeros(3))
+    bwd = solve_rtk(rover, base, ephs, station, np.zeros(3), RtkOptions(backward=True))
+    assert [f.tow for f in bwd] == [f.tow for f in fwd] == [r.tow for r in rover]
+    # each filter ends converged where the other begins: the ambiguities are known best at
+    # the last epoch forward and at the first backward
+    spread = lambda f: max(a.std for a in f.ambiguities)
+    assert spread(fwd[-1]) < 0.5 * spread(fwd[0]) and spread(bwd[0]) < 0.5 * spread(bwd[-1])
+    assert fwd[-1].status == "fix" and bwd[0].status == "fix"
+    for f in (*fwd, *bwd):
+        if f.status == "fix":
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+
+
+def test_backward_a_flagged_slip_is_met_at_the_phase_before_it():
+    # the flag sits on the first phase after the slip; a filter coming from the other side
+    # passes that phase with its ambiguity intact and must restart at the one before it
+    rng = np.random.default_rng(41)
+    ephs = constellation()
+    key = ("G03", "G1C")
+    after = dict(AMB_R)
+    after[key] += 7
+    pairs = _l1_run(
+        rng, ephs, 8,
+        amb_at=lambda k: after if k >= 5 else AMB_R,
+        lli_at=lambda k: {key: 1} if k == 5 else None,
+    )  # fmt: skip
+    rtk = _rtk(ephs, backward=True)
+    locks = {}
+    for k in range(7, -1, -1):
+        fix = rtk.step(*pairs[k])
+        locks[k] = rtk.biases[key].lock
+        if fix.status == "fix":
+            np.testing.assert_allclose(fix.position, ROVER, atol=0.01, rtol=0)
+    assert locks == {7: 1, 6: 2, 5: 3, 4: 1, 3: 2, 2: 3, 1: 4, 0: 5}
+    assert fix.status == "fix"
+
+
+def test_backward_the_half_cycle_bit_is_read_from_the_phase_processed_before():
+    # RTKLIB's rule: backward, the bit that keeps an ambiguity out of the search is the one
+    # of the indicator read before, so it follows a change of the file's bit one epoch late
+    rng = np.random.default_rng(42)
+    ephs = constellation()
+    key = ("G03", "G1C")
+    open_ = dict(AMB_R)
+    open_[key] += 0.5
+    pairs = _l1_run(
+        rng, ephs, 8,
+        amb_at=lambda k: open_ if k <= 3 else AMB_R,
+        lli_at=lambda k: {key: 2} if k <= 3 else None,
+    )  # fmt: skip
+    rtk = _rtk(ephs, backward=True)
+    seen = {}
+    for k in range(7, -1, -1):
+        rtk.step(*pairs[k])
+        seen[k] = (rtk.biases[key].lock, rtk.biases[key].half)
+    assert seen[4] == (4, False)
+    assert seen[3] == (1, False)  # restarted at the change; the bit is still the one of 4
+    assert seen[2] == (2, True) and seen[0] == (4, True)
+    forward = _rtk(ephs)
+    for k in range(8):
+        forward.step(*pairs[k])
+        if k == 3:
+            assert forward.biases[key].half
+    assert not forward.biases[key].half and forward.biases[key].lock == 4
