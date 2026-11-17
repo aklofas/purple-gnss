@@ -418,6 +418,28 @@ def test_pair_epochs_carries_skipped_slip_events_once_and_only_onto_a_phase():
     assert pairs[2][1].lli[i3, 0] == 1 and pairs[2][1].lli.sum() == 1
 
 
+@pytest.mark.parametrize(
+    ("half_cycle_epochs", "at_0", "at_5"),
+    [
+        (range(2, 11), 0, 3),  # the bit comes on in a skipped epoch and stays: its own 2, carried 1
+        (range(3), 2, 1),  # on from the start, it goes off in a skipped epoch: carried 1
+        (range(11), 2, 2),  # on throughout: no change, nothing carried
+    ],
+)
+def test_each_edge_of_the_half_cycle_bit_in_a_skipped_epoch_is_carried(half_cycle_epochs, at_0, at_5):
+    rng = np.random.default_rng(35)
+    ephs = constellation()
+    rover, base = [], []
+    for k in range(11):
+        r, b = _pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",))
+        rover.append(r)
+        base.append(_flag(b, "G06", "G1C", 2) if k in half_cycle_epochs else b)
+    i6 = base[0].sats.index("G06")
+    pairs = pair_epochs([rover[0], rover[5], rover[10]], base, 30.0)
+    assert [int(b.lli[i6, 0]) for _, b in pairs[:2]] == [at_0, at_5]
+    assert all(int(b.lli.sum()) == b.lli[i6, 0] for _, b in pairs)  # no other satellite touched
+
+
 def _run_with_a_slip_before_an_epoch_without_a_solution(spoil):
     """A 1 Hz base against a rover every 5 s: the base slips G03 by 7 cycles at 61 s, flagged
     there only, and `spoil` edits the pair at 65 s, the epoch that slip is carried to. Returns

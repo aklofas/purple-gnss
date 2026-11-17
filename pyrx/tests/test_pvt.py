@@ -10,8 +10,6 @@ from pyrx.models import azimuth_elevation
 from pyrx.observations import Epoch, Observation
 from pyrx.orbits import satellite_state
 from pyrx.pvt import (
-    CN0_REF,
-    CN0_SIGMA,
     IONO_DEFAULT,
     _variance,
     chi2_threshold,
@@ -166,10 +164,10 @@ def test_variance_floors_only_the_weight_term_at_five_degrees():
 def test_variance_gains_the_cn0_term_only_when_given_one():
     base = _variance(0, np.radians(40.0), 3.0)
     assert _variance(0, np.radians(40.0), 3.0, np.nan) == base
-    assert _variance(0, np.radians(40.0), 3.0, CN0_REF) == pytest.approx(base + CN0_SIGMA**2)
-    # ten times the variance for every 10 dB down
-    weak = _variance(0, np.radians(40.0), 3.0, CN0_REF - 10.0)
-    assert weak == pytest.approx(base + 10.0 * CN0_SIGMA**2, rel=1e-12)
+    # (1.5 m)^2 at 45 dB-Hz and ten times the variance for every 10 dB down, in numbers of
+    # their own and not the solver's constants
+    for cn0, term in ((45.0, 2.25), (35.0, 22.5), (55.0, 0.225)):
+        assert _variance(0, np.radians(40.0), 3.0, cn0) - base == pytest.approx(term, rel=1e-9)
 
 
 def _epoch_with_a_weak_biased_satellite(error=20.0, cn0=30.0):
