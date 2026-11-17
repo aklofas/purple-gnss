@@ -72,7 +72,10 @@ _L5Q_XB_ADVANCE = (
 
 
 def _signs(bits: str) -> np.ndarray:
-    return np.array([1 - 2 * int(b) for b in bits], dtype=np.int8)
+    """+1 for a 0 and -1 for a 1, read-only: the secondary codes are shared between PRNs."""
+    signs = np.array([1 - 2 * int(b) for b in bits], dtype=np.int8)
+    signs.setflags(write=False)
+    return signs
 
 
 NH10 = _signs("0000110101")  # on every I5 code period, IS-GPS-705 3.3.3.1.2
