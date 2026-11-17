@@ -41,6 +41,21 @@ def test_pair_epochs_takes_the_latest_base_within_age():
     assert [None if b is None else b.tow for _, b in pairs] == [0.0, 30.01, 59.0, None]
 
 
+@pytest.mark.parametrize("tows", [(30.0, 0.0, 60.0), (0.0, 30.0, 30.0)])
+@pytest.mark.parametrize("which", ["rover", "base"])
+def test_pair_epochs_refuses_epochs_out_of_order_or_repeated(tows, which):
+    # the pairing walks both lists once, forward: out of order it would pair with the wrong
+    # base epoch and lose slips without a word
+    def mk(tow):
+        z = np.zeros((0, 0))
+        return Observations(2190, tow, (), (), z, z, z, z, np.zeros((0, 0), int))
+
+    good, bad = [mk(0.0), mk(30.0), mk(60.0)], [mk(t) for t in tows]
+    rover, base = (bad, good) if which == "rover" else (good, bad)
+    with pytest.raises(ValueError, match=f"{which} epochs"):
+        pair_epochs(rover, base, 30.0)
+
+
 def test_rtk_fixes_a_synthetic_dual_frequency_pair():
     rng = np.random.default_rng(10)
     ephs = constellation()

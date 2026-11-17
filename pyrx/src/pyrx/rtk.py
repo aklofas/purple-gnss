@@ -137,7 +137,13 @@ def pair_epochs(
     there (the lost-lock bit set, or the half-cycle bit changed from the base's
     previous phase of that satellite and signal) sets the lost-lock bit in a copy of
     the next paired base epoch that has the phase.
+
+    Both lists must be in time order without a repeated time, as the readers return
+    them; ValueError otherwise.
     """
+    for name, epochs in (("rover", rover), ("base", base)):
+        if np.any(np.diff([_time(e) for e in epochs]) <= 0.0):
+            raise ValueError(f"{name} epochs are not in time order, or one is repeated")
     out = []
     j = 0
     half: dict[tuple[str, str], int] = {}  # half-cycle bit of the base's last phase
@@ -562,7 +568,8 @@ def solve_rtk(
     options: RtkOptions | None = None,
     iono: Ionosphere | None = None,
 ) -> list[Fix]:
-    """Fix every rover epoch that has one, pairing it with the latest base epoch."""
+    """Fix every rover epoch that has one, pairing it with the latest base epoch. `rover` and
+    `base` in time order without a repeated time (ValueError otherwise)."""
     rtk = Rtk(ephs, base_station, rover_delta_enu, options, iono)
     out = []
     for r, b in pair_epochs(rover, base, rtk.opt.max_age):
