@@ -645,3 +645,27 @@ def test_rtk_main_turns_away_a_negative_count(option, capsys):
         rtk_main(["rover.obs", "base.obs", "brdc.nav", option, "-1"])
     assert e.value.code == 2
     assert "0 or more" in capsys.readouterr().err
+
+
+
+def test_segment_lines_end_a_segment_at_the_next_one_of_its_own_satellite(capsys):
+    # two satellites, the second with two segments: a segment's rows are those from its start
+    # to the start of the next segment of the same PRN, whatever other satellites do between
+    def segment(prn, start, n):
+        t = start + np.arange(n) * 1e-3
+        return TrackResult(
+            prn, t, np.zeros((n, 4), np.complex64), t % 1e-3, np.zeros(n), np.zeros(n), np.zeros(n),
+            np.zeros(n), np.ones(n), True, None, np.zeros(n), np.zeros(n),
+        )  # fmt: skip
+
+    segments = [segment(4, 0.0, 30000), segment(7, 0.0, 9000), segment(7, 12.0, 18000)]
+
+    def rows(r):
+        return [(100.0 + k, 2.0e7 + 1000.0 * r.prn + k, float(r.prn)) for k in range(30)]
+
+    cli._print_segments(segments, "", 100.0, rows)
+    assert capsys.readouterr().out.splitlines() == [
+        "PRN  4  epochs 30  P 20004.0 km  D 4.0 Hz",
+        "PRN  7  epochs 12  P 20007.0 km  D 7.0 Hz",
+        "PRN  7 from 12.0 s  epochs 18  P 20007.0 km  D 7.0 Hz",
+    ]

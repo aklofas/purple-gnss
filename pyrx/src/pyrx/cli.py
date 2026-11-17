@@ -171,17 +171,13 @@ def _in_segment(t_file: float, r: TrackResult, t_end: float | None) -> bool:
 
 def _print_segments(segments: list[TrackResult], prefix: str, rx0: float, rows) -> None:
     """One line per track segment: its observations among `rows(segment)`, the (time of week,
-    pseudorange, Doppler) of its satellite's signal in every epoch, counted where the
-    pseudorange exists, with the first one's values; `no time tag` for a segment without."""
+    pseudorange, Doppler) of its satellite's signal, counted, with the first one's values;
+    `no time tag` for a segment without."""
     for i, r in enumerate(segments):
         label = f"{prefix}{_segment_label(segments, i)}"
         later = i + 1 < len(segments) and segments[i + 1].prn == r.prn
         t_end = segments[i + 1].t[0] if later else None
-        mine = [
-            (p, d)
-            for tow, p, d in rows(r)
-            if _in_segment((tow - rx0) % WEEK_S, r, t_end) and np.isfinite(p)
-        ]
+        mine = [(p, d) for tow, p, d in rows(r) if _in_segment((tow - rx0) % WEEK_S, r, t_end)]
         if not mine:
             print(f"{label}  no time tag")
             continue
@@ -414,6 +410,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
         def pilot_rows(r):
             sat = f"G{r.prn:02d}"
             at = [(e, e.sats.index(sat)) for e in joint if sat in e.sats]
+            at = [(e, i) for e, i in at if np.isfinite(e.pseudorange[i, 1])]  # where it has L5
             return [(e.tow, e.pseudorange[i, 1], e.doppler[i, 1]) for e, i in at]
 
         _print_segments(pilots, "G5Q ", rx0, pilot_rows)

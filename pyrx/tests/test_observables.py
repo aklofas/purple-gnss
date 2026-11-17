@@ -13,7 +13,6 @@ from pyrx.navdecode import LnavResult, decode_lnav
 from pyrx.observables import (
     FADE_SLIP,
     FADE_SPAN,
-    L5Q_ALIGN,
     LLI_HALF_CYCLE,
     LLI_SLIP,
     code_starts,
@@ -25,10 +24,11 @@ from pyrx.observables import (
 )
 from pyrx.samples import ArraySamples
 from pyrx.signals import L1_FREQ
-from pyrx.signalspec import SIGNALS
+from pyrx.signalspec import L5, SIGNALS
 from pyrx.synth import frame, synth_l1ca
 from pyrx.tracking import T_PILOT_COH, TrackResult, track_l1ca
 
+L5Q_ALIGN = L5.phase_align  # RINEX's quarter cycle between L5Q and L5I
 PILOT_SUM = round(T_PILOT_COH / CA_PERIOD)  # epochs in a pilot loop's coherent sum
 T0 = 5044 * 6 - 6 - 100 * 0.020  # transmit time (s of week) of bit 0, 100 bits before the frame
 
@@ -630,7 +630,7 @@ def test_joint_observables_across_the_week_rollover(pilot_start):
     assert seen[0] < 604800.0 + 16.0 and seen[-1] > 604800.0 and len(seen) > 10
 
 
-@pytest.mark.parametrize("week", [None, 2190])
+@pytest.mark.parametrize("week", [None, 2190, 2191])
 def test_joint_observables_of_a_run_wholly_past_the_rollover(week):
     # sample 0 lies 2 s before the boundary, every observation after it: the epochs are
     # dated in the new week, given or derived, and the pilot is on the same clock
@@ -640,7 +640,8 @@ def test_joint_observables_of_a_run_wholly_past_the_rollover(week):
     single = make_observables([track], [ln], week=week)
     joint = make_joint_observables([track], [ln], [pilot], week=week)
     assert [(o.week, o.tow) for o in joint] == [(e.week, e.tow) for e in single]
-    assert joint[0].week == 2190 and 0.0 < joint[0].tow < 2.0 and len(joint) > 20
+    # a week that is given is the one written, also against the decoded one
+    assert joint[0].week == (week or 2190) and 0.0 < joint[0].tow < 2.0 and len(joint) > 20
     for o in joint:
         (pr, _, _, _, _), l1 = _g5q(o)
         assert pr - l1[0] == pytest.approx(C_LIGHT * 30e-9, abs=0.05)
@@ -681,9 +682,22 @@ def test_joint_builder_takes_the_pilot_identity_from_its_description(monkeypatch
     monkeypatch.setitem(SIGNALS, "L5", other)
     joint = make_joint_observables([track], [ln], [_still_pilot()])
     assert all(o.signals == ("G1C", "G5X") for o in joint)
-    shift = [o.carrier_phase[0, 1] - u.carrier_phase[0, 1] for o, u in zip(joint, usual, strict=True)]
+    pairs = zip(joint, usual, strict=True)
+    shift = [o.carrier_phase[0, 1] - u.carrier_phase[0, 1] for o, u in pairs]
     shift = [d for d in shift if np.isfinite(d)]
     assert len(shift) > 20 and np.allclose(shift, 0.125 - L5Q_ALIGN, rtol=0, atol=1e-9)
+
+
+def test_pilot_contributes_from_the_epoch_after_its_secondary_code_was_found():
+    # at 0.5 ms the grid has an instant in every tracking epoch: the first one with an L5
+    # row lies in epoch sec_sync + 1
+    track, ln = _still_channel(SFS)
+    pilot = _still_pilot(sec_sync=1600)
+    joint = make_joint_observables([track], [ln], [pilot], interval=0.0005)
+    rx0 = receiver_time0([track], [ln])
+    first = next(o for o in joint if np.isfinite(_g5q(o)[0][0]))
+    starts = code_starts(pilot)
+    assert starts[1601] <= first.tow - rx0 < starts[1601] + 0.0005
 
 
 def test_pilot_reacquired_gets_a_new_anchor():
