@@ -33,3 +33,15 @@ def test_a_symbol_spans_the_data_secondary_code():
         assert len(spec.secondary(1)) % spec.symbol_epochs == 0
         assert abs(spec.data_axis) == pytest.approx(1.0) and spec.data_axis.real == 0.0
     assert L1CA.data_axis == 0j
+
+
+@pytest.mark.parametrize("spec", [L5, E5A])
+def test_secondary_codes_cannot_be_written_through(spec):
+    # every PRN of a signal is handed the same array for a shared code: a write through one
+    # would change the code of all
+    prn = spec.prns[0]
+    for code in (spec.secondary(prn), spec.data_secondary(prn)):
+        before = code.copy()
+        with pytest.raises(ValueError, match="read-only"):
+            code[0] = -code[0]
+        np.testing.assert_array_equal(code, before)
