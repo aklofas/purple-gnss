@@ -1256,6 +1256,53 @@ def test_a_vouched_first_signal_vouches_for_a_third(monkeypatch):
     for pair in pairs:
         rtk.step(*pair)
     assert [rtk.biases[("G03", sig)].lock for sig in signals] == [12, 12, 12]
+    # and in the other order: the first two flagged, the third settles the first after the
+    # second was looked at, and the second is settled with it
+    pairs = _l1_run(
+        np.random.default_rng(71), ephs, 12,
+        lli_at=lambda k: {G03: 1, ("G03", "G2W"): 1} if k == 6 else None, signals=signals,
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check")
+    for pair in pairs:
+        rtk.step(*pair)
+    assert [rtk.biases[("G03", sig)].lock for sig in signals] == [12, 12, 12]
+
+
+def test_a_first_signal_that_stepped_vouches_for_nothing():
+    # three signals: the first slips four cycles without a flag, which shows against the
+    # second and restarts both; the third slips three cycles with a flag. Against the first
+    # the two slips cancel to 3 mm, but the first is no longer known to be continuous
+    ephs = constellation()
+    signals = ("G1C", "G2W", "G5Q")
+    third = ("G03", "G5Q")
+    after = dict(AMB_R)
+    after[G03] += 4
+    after[third] += 3
+    pairs = _l1_run(
+        np.random.default_rng(73), ephs, 12, amb_at=lambda k: after if k >= 6 else AMB_R,
+        lli_at=lambda k: {third: 1} if k == 6 else None, signals=signals,
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, pairs)
+    assert [rtk.biases[("G03", sig)].lock for sig in signals] == [6, 6, 6]
+    assert fixes[11].status == "fix"
+
+
+def test_a_held_base_flag_of_a_system_the_rover_does_not_use_is_no_trouble():
+    # the base file carries Galileo, the rover is asked for GPS only: a Galileo flag of an
+    # epoch that ended early has no first signal on the rover's side to look up
+    gps = constellation()
+    ephs = gps + as_galileo(gps)
+    rng = np.random.default_rng(74)
+    rtk = _rtk(ephs, slips="check")
+    for k in range(8):
+        r, _ = _pair(rng, gps, TOW + 1.0 * k, signals=("G1C",))
+        _, b = _pair(rng, ephs, TOW + 1.0 * k, signals=("G1C", "E1C"))
+        if k == 4:
+            r, b = _blunder(r, _flag(b, "E13", "E1C", 1))
+        fix = rtk.step(r, b)
+        assert (fix is None) == (k == 4)
+    assert fix.status == "fix" and rtk.biases[G03].lock == 7
 
 
 def test_the_floor_counts_satellites_of_every_signal_not_double_differences():
