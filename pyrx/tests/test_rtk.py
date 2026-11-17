@@ -772,3 +772,30 @@ def test_an_ambiguity_begun_again_after_an_outage_waits_too():
     ]
     # back at the fifth: the ambiguity is the old one and is searched at once
     assert [_searched(f, "G03") for f in fixes] == [True] * 3 + [False] * 4 + [True] * 2
+
+
+def test_no_integer_search_below_the_satellite_floor():
+    # a search over few ambiguities passes the ratio test without pinning the position; with
+    # min_fix_sats the epoch stays float unless the eligible ambiguities span that many
+    # satellites, the reference among them
+    ephs = constellation()
+    five = {("G06", "G1C")}  # no base observation: five satellites in the solution
+
+    def run(floor, drop):
+        rng = np.random.default_rng(45)
+        rtk = _rtk(ephs, min_fix_sats=floor)
+        return [
+            rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, signals=("G1C",), drop=drop)) for k in range(12)
+        ]
+
+    below = run(6, five)
+    assert all(f.ns == 5 and f.nb == 4 for f in below)
+    for f in below:
+        assert f.status == "float" and f.ratio == 0.0
+        assert len(f.ambiguities) == 4 and all(a.integer is None for a in f.ambiguities)
+        np.testing.assert_array_equal(f.position, f.float_position)
+    at = run(5, five)
+    assert at[-1].status == "fix" and at[-1].ratio >= 3.0
+    np.testing.assert_allclose(at[-1].position, ROVER, atol=0.01, rtol=0)
+    assert [f.status for f in at] == [f.status for f in run(0, five)]
+    assert run(6, ())[-1].status == "fix"
