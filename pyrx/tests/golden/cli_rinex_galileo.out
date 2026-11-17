@@ -1,0 +1,7 @@
+PRN  4  epochs 19  P 20445.6 km  D 800.2 Hz
+G5Q PRN  4  epochs 12  P 20445.4 km  D 597.5 Hz
+E5Q PRN  4  epochs 13  P 20505.8 km  D -300.0 Hz
+E5Q PRN 11  epochs 7  P 20505.8 km  D -300.0 Hz
+E5Q PRN 30  no time tag
+EPOCHS 19  from 2021-12-26 08:24:18 to 2021-12-26 08:24:36
+TIME = <t> s
