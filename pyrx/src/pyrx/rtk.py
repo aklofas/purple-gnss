@@ -452,7 +452,9 @@ class Rtk:
         for key in self.held:  # slips of the epochs since the last one that came this far
             if key in self.biases:
                 self._remove(key)
-            if check:  # nor can its phase vouch for the satellite's other signal now
+            # nor can its phase vouch for the satellite's other signal now (a base flag may
+            # be of a system the rover's signals do not have)
+            if check and key[0][0] in first_sigs:
                 self._forget_references(*key, first_sigs[key[0][0]], signals)
         self.held.clear()
         sd = {}  # (sat, signal) -> (phase m, code m)
@@ -464,6 +466,7 @@ class Rtk:
             ref_phase = None
             ref_asked = ref_clear = False  # the first signal: in question, unflagged
             restarted = []
+            waiting = []  # in question beside a first signal that was in question too
             for j, sig in enumerate(signals):
                 jb = cols[j]
                 if jb is None:
@@ -504,6 +507,7 @@ class Rtk:
                         question = ref_asked or asked
                         if prev is not None and abs(gf - prev) > opt.slip_threshold:
                             slip, asked, ref_asked, question = True, False, False, False
+                            ref_clear = False  # which of the two stepped is not known
                             self.asked.discard((sat, ref_sig))
                             if (sat, ref_sig) in self.biases:
                                 self._remove((sat, ref_sig))
@@ -513,6 +517,8 @@ class Rtk:
                             self.asked.discard((sat, ref_sig))
                         elif prev is not None and asked and ref_clear:
                             asked = False
+                        elif prev is not None and asked and ref_asked:
+                            waiting.append(key)
                         # the reference waits while a phase of the pair is in question; a
                         # restart of either moves it on below
                         if prev is None or not question:
@@ -530,6 +536,8 @@ class Rtk:
                     if key in self.biases:
                         i = self._index(key)
                         self.P[i, i] += opt.bias_noise**2 * abs(tt)
+            if ref_clear:  # the first signal was settled after these were looked at
+                self.asked.difference_update(waiting)
             if check:
                 for sig in restarted:
                     self._forget_references(sat, sig, ref_sig, signals)
