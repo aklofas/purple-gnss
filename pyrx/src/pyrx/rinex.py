@@ -21,7 +21,7 @@ import numpy as np
 
 from pyrx.ephemeris import Ephemeris, Ionosphere, ura_index, ura_metres
 from pyrx.gpstime import GPS_EPOCH, WEEK_S, full_week, gps_datetime, week_tow
-from pyrx.observations import Epoch, Observation, Observations
+from pyrx.observations import Epoch, Observation, Observations, from_epoch
 
 OBS_TYPES = ("C1C", "L1C", "D1C", "S1C")
 # georinex navigation variable -> Ephemeris field
@@ -113,9 +113,21 @@ def write_rinex_obs(
     epochs = [e for e in epochs if e.obs]
     if any(e.week is None for e in epochs):
         raise ValueError("week unknown: no ephemeris decoded and none given")
+    # a record keeps the blanks its last field ends in, and an empty file its G1C header
+    rows = [from_epoch(e) for e in epochs]
+    _write_observations(path, rows, ("G1C",), marker, program, marker_type, strip=False)
+
+
+def _write_observations(path, epochs, signals, marker, program, marker_type, strip) -> None:
+    """The observation file of both writers: `epochs` as `Observations` with rows, `signals`
+    for the header and the columns, `strip` to end each record at its last field."""
+    systems = sorted({s[0] for s in signals})
+    if not set(systems) <= {"G", "E"}:
+        raise ValueError(f"systems {systems}: only GPS (G) and Galileo (E) are written")
+    sat_sys = "M: MIXED" if len(systems) != 1 else {"G": "G: GPS", "E": "E: Galileo"}[systems[0]]
     out = [
         _line(
-            f"{3.05:9.2f}{'':11s}{'OBSERVATION DATA':<20s}{'G: GPS':<20s}", "RINEX VERSION / TYPE"
+            f"{3.05:9.2f}{'':11s}{'OBSERVATION DATA':<20s}{sat_sys:<20s}", "RINEX VERSION / TYPE"
         ),
         _pgm_line(program),
         _line(marker, "MARKER NAME"),
@@ -125,26 +137,40 @@ def write_rinex_obs(
         _line("", "ANT # / TYPE"),
         _line(f"{0.0:14.4f}{0.0:14.4f}{0.0:14.4f}", "APPROX POSITION XYZ"),
         _line(f"{0.0:14.4f}{0.0:14.4f}{0.0:14.4f}", "ANTENNA: DELTA H/E/N"),
-        _line(f"G  {len(OBS_TYPES):3d} " + " ".join(OBS_TYPES), "SYS / # / OBS TYPES"),
     ]
+    for system in systems:
+        codes = [k + sig[1:] for sig in signals if sig[0] == system for k in "CLDS"]
+        for i in range(0, len(codes), 13):
+            head = f"{system}  {len(codes):3d} " if i == 0 else "       "
+            out.append(_line(head + " ".join(codes[i : i + 13]), "SYS / # / OBS TYPES"))
     if epochs:
         t = gps_datetime(epochs[0].week, epochs[0].tow)
         sec = t.second + t.microsecond * 1e-6
         stamp = f"{t.year:6d}{t.month:6d}{t.day:6d}{t.hour:6d}{t.minute:6d}{sec:13.7f}     GPS"
         out.append(_line(stamp, "TIME OF FIRST OBS"))
-    out.append(_phase_shift_line("G1C"))
+    out.extend(_phase_shift_line(sig) for sig in signals)
     out.append(_line("", "END OF HEADER"))
     for e in epochs:
         t = gps_datetime(e.week, e.tow)
         sec = t.second + t.microsecond * 1e-6
         out.append(
             f"> {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "
-            f"{sec:10.7f}  0{len(e.obs):3d}\n"
+            f"{sec:10.7f}  0{len(e.sats):3d}\n"
         )
-        for o in e.obs:
-            values = ((o.pseudorange, 0), (o.carrier_phase, o.lli), (o.doppler, 0), (o.cn0, 0))
-            fields = ("" if isnan(v) else f"{v:14.3f}{lli or ' '} " for v, lli in values)
-            out.append(f"G{o.prn:02d}" + "".join(f"{f:16s}" for f in fields) + "\n")
+        for i, sat in enumerate(e.sats):
+            fields = []
+            for j, sig in enumerate(signals):
+                if sig[0] != sat[0]:
+                    continue
+                for a, lli in (
+                    (e.pseudorange[i, j], 0),
+                    (e.carrier_phase[i, j], e.lli[i, j]),
+                    (e.doppler[i, j], 0),
+                    (e.cn0[i, j], 0),
+                ):
+                    fields.append("" if isnan(a) else f"{a:14.3f}{lli or ' '} ")
+            record = sat + "".join(f"{f:16s}" for f in fields)
+            out.append((record.rstrip() if strip else record) + "\n")
     Path(path).write_text("".join(out))
 
 
@@ -501,56 +527,7 @@ def write_rinex_observations(
     """
     epochs = [e for e in epochs if e.sats]
     signals = epochs[0].signals if epochs else ()
-    systems = sorted({s[0] for s in signals})
-    if not set(systems) <= {"G", "E"}:
-        raise ValueError(f"systems {systems}: only GPS (G) and Galileo (E) are written")
-    sat_sys = "M: MIXED" if len(systems) != 1 else {"G": "G: GPS", "E": "E: Galileo"}[systems[0]]
-    out = [
-        _line(
-            f"{3.05:9.2f}{'':11s}{'OBSERVATION DATA':<20s}{sat_sys:<20s}", "RINEX VERSION / TYPE"
-        ),
-        _pgm_line(program),
-        _line(marker, "MARKER NAME"),
-        *([_line(_field(marker_type, 20, "MARKER TYPE"), "MARKER TYPE")] if marker_type else []),
-        _line("", "OBSERVER / AGENCY"),
-        _line(f"{'':<20s}{program:<20s}", "REC # / TYPE / VERS"),
-        _line("", "ANT # / TYPE"),
-        _line(f"{0.0:14.4f}{0.0:14.4f}{0.0:14.4f}", "APPROX POSITION XYZ"),
-        _line(f"{0.0:14.4f}{0.0:14.4f}{0.0:14.4f}", "ANTENNA: DELTA H/E/N"),
-    ]
-    for system in systems:
-        codes = [k + sig[1:] for sig in signals if sig[0] == system for k in "CLDS"]
-        for i in range(0, len(codes), 13):
-            head = f"{system}  {len(codes):3d} " if i == 0 else "       "
-            out.append(_line(head + " ".join(codes[i : i + 13]), "SYS / # / OBS TYPES"))
-    if epochs:
-        t = gps_datetime(epochs[0].week, epochs[0].tow)
-        sec = t.second + t.microsecond * 1e-6
-        stamp = f"{t.year:6d}{t.month:6d}{t.day:6d}{t.hour:6d}{t.minute:6d}{sec:13.7f}     GPS"
-        out.append(_line(stamp, "TIME OF FIRST OBS"))
-    out.extend(_phase_shift_line(sig) for sig in signals)
-    out.append(_line("", "END OF HEADER"))
-    for e in epochs:
-        t = gps_datetime(e.week, e.tow)
-        sec = t.second + t.microsecond * 1e-6
-        out.append(
-            f"> {t.year:4d} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d} "
-            f"{sec:10.7f}  0{len(e.sats):3d}\n"
-        )
-        for i, sat in enumerate(e.sats):
-            fields = []
-            for j, sig in enumerate(signals):
-                if sig[0] != sat[0]:
-                    continue
-                for a, lli in (
-                    (e.pseudorange[i, j], 0),
-                    (e.carrier_phase[i, j], e.lli[i, j]),
-                    (e.doppler[i, j], 0),
-                    (e.cn0[i, j], 0),
-                ):
-                    fields.append("" if isnan(a) else f"{a:14.3f}{lli or ' '} ")
-            out.append(sat + "".join(f"{f:16s}" for f in fields).rstrip() + "\n")
-    Path(path).write_text("".join(out))
+    _write_observations(path, epochs, signals, marker, program, marker_type, strip=True)
 
 
 def write_rinex_nav(
