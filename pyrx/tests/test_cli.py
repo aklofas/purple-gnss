@@ -261,8 +261,8 @@ def test_pvt_main_weights_by_cn0_unless_asked_for_rtklibs(tmp_path, capsys):
 
 def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, capsys):
     # a 1 Hz pair whose rover flags a continuous phase twice: the command keeps that
-    # ambiguity, waits five updates after a restart and fixes on six satellites, where the
-    # library's engine restarts at every flag unless told otherwise, as RTKLIB does
+    # ambiguity, waits five updates after a restart and fixes on five satellites or more,
+    # where the library's engine restarts at every flag unless told otherwise, as RTKLIB does
     from pyrx.models import Station
     from pyrx.rinex import read_rinex_header, read_rinex_observations
     from pyrx.rtk import RtkOptions, solve_rtk
@@ -282,7 +282,7 @@ def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, cap
     write_rinex_observations(base, [p[1] for p in pairs], "BASE")
     write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
     args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C"]
-    command = ["--slips", "check", "--min-lock", "5", "--fix-sats", "6"]
+    command = ["--slips", "check", "--min-lock", "5", "--fix-sats", "5"]
     rtklib = ["--slips", "restart", "--min-lock", "0", "--fix-sats", "0"]
     rows = {}
     for name, flags in {"default": [], "command": command, "rtklib": rtklib, "back": ["--backward"]}.items():
@@ -305,7 +305,7 @@ def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, cap
             for f in fixes
         ]
 
-    ours = {"slips": "check", "min_lock": 5, "min_fix_sats": 6}
+    ours = {"slips": "check", "min_lock": 5, "min_fix_sats": 5}
     assert rows["rtklib"] == library()
     assert rows["command"] == library(**ours)
     assert rows["back"] == library(**ours, backward=True) != rows["command"]

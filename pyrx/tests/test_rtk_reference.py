@@ -236,8 +236,24 @@ def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
     }
 
 
+@pytest.mark.parametrize("signals,freq", [(("G1C", "G2W"), "l1+l2"), (("G1C",), "l1")])
+def test_lock_count_matches_rtklib_on_a_station_pair(captures, tmp_path, signals, freq):
+    # six hours with satellites rising and setting: an ambiguity that begins after the first
+    # epochs waits in RTKLIB like one begun again, and a few do each hour
+    base_name, rover_name, base_xyz, _ = PAIRS["MATE"]
+    rover, base, ephs, hb, hr = _load(captures, "MATE", signals)
+    station = Station(np.array(base_xyz), hb.delta_enu)
+    fixes = solve_rtk(rover, base, ephs, station, hr.delta_enu, RtkOptions(min_lock=5))
+    ref = rnx2rtkp_rtk(
+        capture_file(captures, rover_name), capture_file(captures, base_name), capture_file(captures, NAV),
+        tmp_path / "rtk", base_xyz, hb.delta_enu[2], hr.delta_enu[2], "kinematic", freq, 1, ts=TS, te=TE,
+        arlockcnt=5,
+    )  # fmt: skip
+    assert _same_as_rtklib(fixes, ref) >= 700
+
+
 STATIC = "sky/20261103_030551_carroof-static"  # the same car parked there ten minutes earlier
-COMMAND = {"slips": "check", "min_lock": 5, "min_fix_sats": 6}  # what pyrx-rtk turns on
+COMMAND = {"slips": "check", "min_lock": 5, "min_fix_sats": 5}  # what pyrx-rtk turns on
 L1_L5 = ("G1C", "G5Q")
 
 
@@ -263,17 +279,20 @@ def test_a_drive_fixes_more_where_both_directions_agree(captures):
     # There is no truth for this drive. What can be checked is that the filter run backward
     # arrives at the same position: a wrong set of integers rarely survives both ways.
     # Measured: RTKLIB's rules fix 157 epochs forward and 122 backward, 84 of them together
-    # and one 5 m apart (four satellites in an obstruction); the command's settings 198 and
-    # 176, 143 together, none apart.
+    # and one 5 m apart (four satellites in an obstruction); the command's settings 202 and
+    # 178, 144 together and one apart (five satellites in the search); a floor of six
+    # satellites instead of five 198 and 177, 144 together, none apart.
     data = _car(captures, DRIVING, L1_L5)
     assert len(data[0]) == 291
     fwd, bwd, together, apart = _both_ways(data, **COMMAND)
     _, _, stock_together, stock_apart = _both_ways(data)
     assert 75 <= len(stock_together) <= 95 and len(stock_apart) <= 2
     assert len(together) >= 130 and len(together) >= len(stock_together) + 40
-    assert not apart
+    assert len(apart) <= 1
     fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
     assert fixed[0] >= 185 and fixed[1] >= 165, fixed
+    six = _both_ways(data, **{**COMMAND, "min_fix_sats": 6})
+    assert len(six[2]) >= 130 and not six[3]
 
 
 def test_the_parked_start_of_the_drive_fixes_where_the_parked_capture_did(captures):
