@@ -392,8 +392,9 @@ compare number for number on the same files; the deliberate differences (existin
 ambiguities aligned to the current clock per signal rather than per frequency, the
 geometry-free slip test run past a missing band, the tie order of two reference
 candidates at the same elevation, a slip flagged in a base epoch that pairs with no
-rover epoch carried to the next paired one) are listed in `rtk.py` and do not change the
-default-configuration comparisons. One limit is kept as RTKLIB has it: the loss-of-lock
+rover epoch carried to the next paired one, a slip flagged in an epoch that gets no
+solution before the ambiguities are looked at applied at the next one that does) are
+listed in `rtk.py` and do not change the default-configuration comparisons. One limit is kept as RTKLIB has it: the loss-of-lock
 flags are read only for satellites both receivers contribute at an epoch, so a slip
 flagged by one receiver while the other lacks the satellite goes unseen if the satellite
 is common again within five epochs (a second signal's geometry-free test can still catch

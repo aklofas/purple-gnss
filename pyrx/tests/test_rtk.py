@@ -418,6 +418,71 @@ def test_pair_epochs_carries_skipped_slip_events_once_and_only_onto_a_phase():
     assert pairs[2][1].lli[i3, 0] == 1 and pairs[2][1].lli.sum() == 1
 
 
+def _run_with_a_slip_before_an_epoch_without_a_solution(spoil):
+    """A 1 Hz base against a rover every 5 s: the base slips G03 by 7 cycles at 61 s, flagged
+    there only, and `spoil` edits the pair at 65 s, the epoch that slip is carried to. Returns
+    the fixes by rover time and the filter."""
+    rng = np.random.default_rng(32)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    amb_b = dict(AMB_B)
+    rover, base = [], []
+    for k in range(100):
+        if k == 61:
+            amb_b["G03", "G1C"] += 7
+        r, b = synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), AMB_R, amb_b, rng)
+        if k == 65:
+            r, b = spoil(r, b)
+        base.append(_flag(b, "G03", "G1C", 1) if k == 61 else b)
+        if k % 5 == 0:
+            rover.append(r)
+    fixes = {}
+    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+        fixes[r.tow - TOW] = rtk.step(r, b)
+    return fixes, rtk
+
+
+def _blunder(r, b):  # 500 m on one pseudorange: the single-point seed is rejected
+    P = r.pseudorange.copy()
+    P[r.sats.index("G05"), 0] += 500.0
+    return replace(r, pseudorange=P), b
+
+
+def _no_common_satellite(r, b):
+    return r, replace(b, pseudorange=np.full_like(b.pseudorange, np.nan))
+
+
+@pytest.mark.parametrize("spoil", [_blunder, _no_common_satellite])
+def test_a_slip_at_an_epoch_without_a_solution_is_applied_at_the_next(spoil):
+    # the epoch at 65 s ends before the ambiguities are looked at, and the base epochs after
+    # it carry no flag: the slip has to wait for the epoch at 70 s, or G03's ambiguity stays
+    # 7 cycles off and pulls the float solution tens of meters away
+    fixes, rtk = _run_with_a_slip_before_an_epoch_without_a_solution(spoil)
+    assert fixes[60.0].status == "fix" and fixes[65.0] is None
+    assert rtk.biases["G03", "G1C"].lock == 6  # started again at 70 s, kept to 95 s
+    assert all(rtk.biases[k].lock == 19 for k in rtk.biases if k[0] != "G03")
+    for t in (70.0, 75.0, 95.0):
+        np.testing.assert_allclose(fixes[t].position, ROVER, atol=0.05, rtol=0)
+    assert fixes[95.0].status == "fix"
+
+
+def test_a_rover_slip_at_an_epoch_without_a_base_is_applied_at_the_next():
+    rng = np.random.default_rng(34)
+    ephs = constellation()
+    rtk = _rtk(ephs)
+    amb_r = dict(AMB_R)
+    for k in range(12):
+        if k == 10:
+            amb_r["G03", "G1C"] += 7
+        r, b = _pair(rng, ephs, TOW + 30.0 * k, signals=("G1C",), amb_r=amb_r)
+        if k == 10:  # the rover flags the slip in an epoch that has no base
+            assert rtk.step(_flag(r, "G03", "G1C", 1), None) is None
+        else:
+            fix = rtk.step(r, b)
+    assert rtk.biases["G03", "G1C"].lock == 1
+    np.testing.assert_allclose(fix.position, ROVER, atol=0.05, rtol=0)
+
+
 def test_ambiguities_survive_a_base_gap_longer_than_the_outage_limit():
     # 1 Hz rover, 30 s base with one epoch missing: the rover epochs that get no base (or
     # no seed) never reach the relative solution, so they must not count as outages; the

@@ -16,8 +16,12 @@ against the first signal for every other signal present (RTKLIB stops at the
 first missing one); of two reference candidates at exactly the same
 elevation the first by satellite id is taken (RTKLIB the last); and a slip the
 base reports in an epoch that pairs with no rover epoch (a base faster than the
-rover) is applied at the next paired base epoch (RTKLIB reads only the paired
-epochs, so that flag is lost).
+rover, or a gap in the rover's epochs) is applied at the next paired base epoch (RTKLIB
+reads only the paired epochs, so that flag is lost); and a slip either receiver flags
+in an epoch that ends before the ambiguities are looked at (no base epoch in reach, the
+single-point seed rejected, no common satellite) is applied at the next epoch that gets
+there, whichever satellites are common in it (RTKLIB returns before it reads those
+indicators, and the ambiguity survives the slip).
 
 Kept as in RTKLIB: the loss-of-lock indicators are read only for the satellites
 both receivers contribute at an epoch (observed, with an ephemeris, above the
@@ -213,6 +217,7 @@ class Rtk:
         self.lli_rover: dict[tuple[str, str], int] = {}  # each receiver's last indicator
         self.lli_base: dict[tuple[str, str], int] = {}
         self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
+        self.held: set[tuple[str, str]] = set()  # slips of epochs that ended early, to apply
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
@@ -246,6 +251,24 @@ class Rtk:
         prev = last.get(key, lli)
         last[key] = lli
         return bool(lli & 1) or bool((prev ^ lli) & 2)
+
+    def _hold_slips(self, rover, base):
+        """Keep the slips of an epoch that ends before the ambiguities are looked at: every
+        phase either receiver flags (as `_flagged` reads the indicator) waits in `held` for
+        the next epoch that reaches `_update_biases`."""
+        for i, k in zip(*np.nonzero(np.isfinite(rover.carrier_phase)), strict=True):
+            key = (rover.sats[i], rover.signals[k])
+            if self._flagged(self.lli_rover, key, int(rover.lli[i, k])):
+                self.held.add(key)
+        if base is None:
+            return
+        t_base = _time(base)
+        for i, k in zip(*np.nonzero(np.isfinite(base.carrier_phase)), strict=True):
+            key = (base.sats[i], base.signals[k])
+            if self.base_seen.get(key) != t_base:  # a base epoch reports its slips once
+                self.base_seen[key] = t_base
+                if self._flagged(self.lli_base, key, int(base.lli[i, k])):
+                    self.held.add(key)
 
     def _age(self):
         for key in list(self.keys):
@@ -304,6 +327,7 @@ class Rtk:
         tt = 0.0 if self.last_time is None else t - self.last_time
         self.last_time = t
         if base is None:
+            self._hold_slips(rover, None)
             return None
         seed = solve_epoch(
             to_epoch(rover, _seed_signal(rover.signals)),
@@ -312,6 +336,7 @@ class Rtk:
             opt.mask_deg,
         )
         if seed is None:
+            self._hold_slips(rover, base)
             return None
         if opt.mode == "kinematic" or not self.P[:3, :3].any():
             self.x[:3] = seed.position
@@ -325,6 +350,7 @@ class Rtk:
         yr = self._residuals(rover, self.x[:3], sats, 1, doy, mask)
         common = sorted(set(yr) & set(yb))
         if not common:
+            self._hold_slips(rover, base)
             return None
         # outages count only on epochs that reach the relative solution (RTKLIB returns
         # before udbias without a base, beyond the age limit, without a seed or without
@@ -369,6 +395,10 @@ class Rtk:
         (satellite, signal).
         """
         opt = self.opt
+        for key in self.held:  # slips of the epochs since the last one that came this far
+            if key in self.biases:
+                self._remove(key)
+        self.held.clear()
         sd = {}  # (sat, signal) -> (phase m, code m)
         halves = {}
         for sat in common:
