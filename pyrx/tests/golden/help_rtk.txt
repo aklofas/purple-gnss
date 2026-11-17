@@ -1,4 +1,4 @@
-usage: pyrx-rtk [-h] --base-xyz X Y Z [--base-delta E N U]
+usage: pyrx-rtk [-h] [--nav-add FILE] --base-xyz X Y Z [--base-delta E N U]
                 [--rover-delta E N U] [--signals SIGNALS]
                 [--mode {kinematic,static}] [--slips {check,restart}]
                 [--min-lock N] [--fix-sats N] [--backward] [--mask MASK]
@@ -15,6 +15,9 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --nav-add FILE        a further navigation file for the systems the files
+                        before it lack, e.g. a public file with Galileo beside
+                        the rover's decoded GPS (may be repeated)
   --base-xyz X Y Z
   --base-delta E N U    base marker to antenna reference point (m); default
                         from the file header

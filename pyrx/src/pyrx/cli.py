@@ -539,12 +539,32 @@ def pvt_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _navigation(paths: list[str]):
+    """Ephemerides and ionosphere of navigation files in the order given: every system from
+    the first file that has it, the ionosphere from the first that has one. A file that
+    repeats a system therefore changes nothing about it."""
+    ephs, iono, systems = [], None, set()
+    for path in paths:
+        more, more_iono = read_rinex_nav(path)
+        new = {e.system for e in more} - systems
+        ephs += [e for e in more if e.system in new]
+        systems |= new
+        if iono is None:
+            iono = more_iono
+    return ephs, iono
+
+
 def rtk_main(argv: list[str] | None = None) -> int:
     """RTK baseline per epoch from rover and base RINEX observation files and a navigation file."""
     p = argparse.ArgumentParser(prog="pyrx-rtk", description=rtk_main.__doc__)
     p.add_argument("rover", help="rover RINEX observation file (plain, .gz or Hatanaka)")
     p.add_argument("base", help="base RINEX observation file")
     p.add_argument("nav", help="RINEX navigation file")
+    p.add_argument(
+        "--nav-add", action="append", default=[], metavar="FILE",
+        help="a further navigation file for the systems the files before it lack, e.g. a "
+        "public file with Galileo beside the rover's decoded GPS (may be repeated)",
+    )  # fmt: skip
     p.add_argument("--base-xyz", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
     p.add_argument(
         "--base-delta", type=float, nargs=3, default=None, metavar=("E", "N", "U"),
@@ -587,7 +607,7 @@ def rtk_main(argv: list[str] | None = None) -> int:
         base_delta = args.base_delta or read_rinex_header(args.base).delta_enu
         rover = read_rinex_observations(args.rover, signals, tlim)
         base = read_rinex_observations(args.base, signals, tlim)
-        ephs, iono = read_rinex_nav(args.nav)
+        ephs, iono = _navigation([args.nav, *args.nav_add])
     except ValueError as e:  # a file outside the profile the readers accept
         print(e, file=sys.stderr)
         return 2
