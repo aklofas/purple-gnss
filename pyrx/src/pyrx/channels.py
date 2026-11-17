@@ -67,8 +67,11 @@ def track_prn(
     Probes start at `t_start` and fall on the grid `t_start + interval * k`; each
     integrates `window` seconds. `duration` limits the walk to that many seconds
     from `t_start` (the whole file when None). When `rejected` is given, every
-    detection the trial turned down is appended to it as `(prn, probe instant)`.
+    detection the trial turned down is appended to it as `(prn, probe instant)`. Raises
+    ValueError for an `interval` of zero or less, with which the walk would not advance.
     """
+    if interval <= 0:
+        raise ValueError(f"interval must be positive, got {interval}")
     spec = SIGNALS[signal]
     source = SampleFile(path, fs, iq)
     end = source.n_samples / fs
@@ -129,6 +132,8 @@ def track_prns(
     `kwargs` and `rejected` go to `track_prn`. Each worker process reopens the file,
     so nothing large is pickled in.
     """
+    if kwargs.get("interval", REACQ_INTERVAL) <= 0:  # before any worker starts
+        raise ValueError(f"interval must be positive, got {kwargs['interval']}")
     jobs = [(os.fspath(path), fs, iq, f_if, prn, kwargs) for prn in prns]
     if workers is None:
         workers = min(len(jobs), os.cpu_count() or 1)
