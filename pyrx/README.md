@@ -610,16 +610,16 @@ against 15 times at 5 Hz. The rule is checked only where a pilot exists, and a s
 outside a fade would not be flagged.
 
 The fades also say where the half cycle is open (value 2). A subframe that decoded held
-its polarity throughout, so fades under subframes decoded back to back are slips of
-whole cycles at most. Where two or more fades lie between the end of one subframe and
-the start of the next one of the same polarity, the phases from the first held epoch of
-the first fade to the end of the last fade's flag may be half a cycle off, and carry the
-flag; so do the phases from a fade after a channel's last subframe to its end, since
-nothing decoded later says where the loop settled. That takes the L1 phases with the
-half-cycle flag from 9.9 % to 13.8 % on the driving capture and from 10.2 % to 21.7 % on
-the cold-start drive, and adds three ambiguity restarts to the 270 and 700 an RTK engine
-makes on each. One fade alone between two subframes of one polarity gets the slip flag
-only: the polarity came back, so it held no slip or two.
+its polarity throughout, so a fade whose held epochs all lie under decoded subframes is a
+slip of whole cycles at most. Where fades lie between the end of one subframe and the
+start of the next one of the same polarity, the polarity came back, so they held no slip
+or two; with two, the phases between them are half a cycle off, and one long flickering
+fade can hold both. The phases from the first held epoch of the first such fade to the
+end of the last one's flag therefore carry the half-cycle flag; so do the phases from a
+fade after a channel's last subframe to its end, since nothing decoded later says where
+the loop settled. That takes the L1 phases with the half-cycle flag from 9.9 % to 13.9 %
+on the driving capture and from 10.2 % to 22.7 % on the cold-start drive, and adds seven
+and six ambiguity restarts to the 270 and 700 an RTK engine makes on them.
 
 ### L5 observations
 
