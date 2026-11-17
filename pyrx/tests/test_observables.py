@@ -789,6 +789,20 @@ def test_joint_e5q_values(polarity):
     assert seen > 20 and SIGNALS["E5A"].phase_align == -0.25
 
 
+def test_each_pilot_is_aligned_by_its_own_description(monkeypatch):
+    # a Galileo pilot beside a GPS one: each phase gets its own signal's alignment
+    track, ln = _still_channel(SFS)
+    pilots = [_still_pilot(), _still_e5a()[0]]
+    usual = make_joint_observables([track], [ln], pilots, pilot_signals=GALILEO)
+    monkeypatch.setitem(SIGNALS, "E5A", dataclasses.replace(SIGNALS["E5A"], phase_align=0.125))
+    moved = make_joint_observables([track], [ln], pilots, pilot_signals=GALILEO)
+    for o, u in zip(moved, usual, strict=True):
+        if "E11" in o.sats:
+            assert _e5q(o)[1] - _e5q(u)[1] == pytest.approx(0.375, abs=1e-9)
+        np.testing.assert_array_equal(_g5q(o)[0][1], _g5q(u)[0][1])
+    assert sum("E11" in o.sats for o in moved) > 20
+
+
 def test_galileo_pilot_flags_follow_the_gps_pilot_rules():
     # a window without phase lock blanks the phase and flags the next one; a coasted sum
     # flags the phases up to the one that holds the loop's return
