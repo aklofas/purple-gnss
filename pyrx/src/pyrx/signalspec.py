@@ -100,13 +100,13 @@ class SignalSpec:
         return _with_subcarrier(self.data_code(prn), self.subcarrier)
 
 
-_replicas: dict[tuple[int, tuple[int, ...]], np.ndarray] = {}
+_replicas: dict[tuple[bytes, tuple[int, ...]], np.ndarray] = {}
 
 
 def _with_subcarrier(code: np.ndarray, subcarrier: tuple[int, ...]) -> np.ndarray:
     if subcarrier == (1,):
         return code
-    key = (id(code), subcarrier)  # the code generators hand out one array per PRN
+    key = (code.tobytes(), subcarrier)  # by the chips, not by the array that holds them
     if key not in _replicas:
         replica = np.repeat(code, len(subcarrier)) * np.tile(
             np.array(subcarrier, dtype=np.int8), len(code)
@@ -155,7 +155,7 @@ E5A = SignalSpec(
     secondary=gal_cs100, data_code=gal_e5ai, data_secondary=_cs20, symbol_epochs=20, data_axis=-1j,
     phase_align=-0.25,
 )  # fmt: skip
-# Galileo OS SIS ICD 2.3.3, Eq. 11: the E1 signal is (e_E1-B - e_E1-C) / sqrt 2 on its carrier;
+# Galileo OS SIS ICD issue 2.2, 2.3.3, Eq. 12: the E1 signal is (e_E1-B - e_E1-C) / sqrt 2 on its carrier;
 # RINEX 3.05 Table A23 has L1C half a cycle from L1B
 E1 = SignalSpec(
     "E1", "E1C", FREQUENCY["E1"], E1_CHIP_RATE, E1_LENGTH, range(1, 37), gal_e1c,
