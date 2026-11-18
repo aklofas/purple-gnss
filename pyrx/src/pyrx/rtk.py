@@ -32,7 +32,9 @@ not seen, and the ambiguity survives it when the satellite is common again withi
 Beyond RTKLIB's defaults, all off unless asked for: `slips="check"` looks at a phase
 only the rover flags before its ambiguity restarts, against the satellite's other
 signal and against a trial update of the rest of the epoch (`_update_biases`,
-`_test_asked`), for a receiver that flags every phase that may have slipped;
+`_test_asked`), for a receiver that flags every phase that may have slipped, and
+with `change_limit` the other signal's word is not taken when either of the two
+changed against the other satellites since the previous epoch (`_moved`);
 `min_lock` is RTKLIB's pos2-arlockcnt, counted as RTKLIB counts it (`_add`);
 `min_fix_sats` keeps an epoch float unless the integer search spans that many
 satellites (of one system: a further system brings its own reference satellite, which
@@ -72,6 +74,11 @@ DTTOL = 0.025  # s, base and rover epochs closer than this are the same epoch
 # settles half a cycle away) and that fit is predicted, state and noise, within the second
 CHECK_INNOVATION = 0.25
 CHECK_SIGMA = 0.125
+# a verdict on which phases changed against the others since the previous epoch (`_moved`):
+CHANGE_FIT = 0.015  # m, a phase within this of the solution is explained by it
+CHANGE_MIN_PHASES = 12  # phases no receiver flags that it takes
+CHANGE_MIN_BAND = 3  # explained phases on a frequency for its phases to be judged
+CHANGE_MAX_STEP = 5.0  # s between the two epochs
 
 
 @dataclass(frozen=True)
@@ -95,6 +102,10 @@ class RtkOptions:
     # further system's reference satellite does not count
     min_fix_sats: int = 0
     slips: str = "restart"  # or "check": a phase the rover flags is looked at first
+    # m, with slips="check"; 0 for no limit: a phase in question is not settled by its
+    # satellite's other signal when either of the two changed by more than this against
+    # the other satellites since the previous epoch (see `_moved`)
+    change_limit: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -142,6 +153,69 @@ class _Bias:
 
 def _time(obs: Observations) -> float:
     return obs.week * WEEK_S + obs.tow
+
+
+def _least_deviations(a: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """A solution close to the one with the least sum of absolute residuals, by thirty
+    rounds of reweighted least squares: a few rows far off do not steer it as they steer
+    least squares."""
+    weight = np.ones(len(y))
+    for _ in range(30):
+        root = np.sqrt(weight)
+        x = np.linalg.lstsq(a * root[:, None], y * root, rcond=None)[0]
+        weight = 1.0 / np.maximum(np.abs(y - a @ x), 1e-4)
+    return x
+
+
+def _moved(
+    change: np.ndarray,
+    los: np.ndarray,
+    band: np.ndarray,
+    sat: np.ndarray,
+    clean: np.ndarray,
+    limit: float,
+) -> np.ndarray | None:
+    """Per phase, whether its change (m) since the previous epoch stands more than `limit`
+    from what the other phases explain; None without a verdict.
+
+    Between two epochs the single-differenced residual of a phase changes by the change of
+    the position error along its line of sight `los`, by a receiver clock term that is one
+    number per carrier frequency (`band`, an index; the term also holds the antenna's turn,
+    one cycle a turn on every phase of a frequency), and by what the phase did on its own.
+    The unknowns are fitted to the `clean` phases, those neither receiver flags at either
+    epoch, with the least sum of absolute residuals. A phase that moved still pulls on
+    such a solution when few phases are there, so one is formed without each satellite in
+    turn (`sat`, an index), and the one that explains the most clean phases within
+    CHANGE_FIT gives the verdict. There is none with fewer than CHANGE_MIN_PHASES clean
+    phases, or when the phases it explains, less one per unknown (any solution explains
+    that many for nothing), do not outnumber the clean phases it leaves out: those may be
+    the receiver's motion and the others the ones that moved. A phase of a frequency with
+    fewer than CHANGE_MIN_BAND phases among the explained is not judged: a clock fitted to
+    one or two phases explains them whatever they did.
+
+    The position error meant is that of the position the residuals were formed at. In
+    kinematic mode that is each epoch's single-point seed, meters off, and the lines of
+    sight turn between the epochs: the change then also holds that turn times the earlier
+    error, a millimeter over a second and centimeters over half a minute, which is why the
+    engine asks for no verdict across more than CHANGE_MAX_STEP.
+    """
+    if clean.sum() < CHANGE_MIN_PHASES:
+        return None
+    a = np.zeros((len(change), 3 + int(band.max()) + 1))
+    a[:, :3] = los  # the sign of the unknown change of position does not matter
+    a[np.arange(len(band)), 3 + band] = 1.0
+    best = None
+    for left_out in np.unique(sat[clean]):
+        rows = clean & (sat != left_out)
+        off = np.abs(change - a @ _least_deviations(a[rows], change[rows]))
+        fit = clean & (off <= CHANGE_FIT)
+        if best is None or fit.sum() > best[0]:
+            best = (fit.sum(), off, fit)
+    _, off, fit = best
+    if fit.sum() - a.shape[1] <= clean.sum() - fit.sum():
+        return None
+    judged = np.bincount(band[fit], minlength=band.max() + 1)[band] >= CHANGE_MIN_BAND
+    return (off > limit) & judged
 
 
 def _seed_signal(signals: tuple[str, ...]) -> str:
@@ -233,6 +307,8 @@ class Rtk:
         self.opt = options or RtkOptions()
         if self.opt.slips not in ("restart", "check"):
             raise ValueError(f"slips is 'restart' or 'check', not {self.opt.slips!r}")
+        if self.opt.change_limit < 0.0:
+            raise ValueError(f"change_limit is a length in m, not {self.opt.change_limit}")
         self.iono = iono
         self.keys: list[
             tuple[str, str]
@@ -251,6 +327,12 @@ class Rtk:
         self.asked: set[tuple[str, str]] = set()  # phases in question at this epoch
         self.fresh: dict[tuple[str, str], tuple[float, bool]] = {}  # what a restart begins with
         self.gf_now: dict[tuple[str, str], float] = {}  # geometry-free values of this epoch
+        # per phase of the previous epoch that came to the ambiguities: its single-differenced
+        # residual (m), the rover's line of sight, and whether no receiver flagged it; and
+        # that epoch's rover and base time
+        self.residuals: dict[tuple[str, str], tuple[float, np.ndarray, bool]] = {}
+        self.residuals_at = (0.0, 0.0)
+        self.moved: set[tuple[str, str]] = set()  # phases the other satellites contradict now
         self.x = np.zeros(3)
         self.P = np.zeros((3, 3))
         self.last_time: float | None = None
@@ -446,12 +528,18 @@ class Rtk:
         two is then compared with its value at the last epoch neither was in question (or
         at the last restart of either), so a slip spread over flagged epochs is measured
         whole: a step restarts both, as always; without one, a phase in question beside an
-        unflagged one is continuous.
+        unflagged one is continuous. With `change_limit` that last holds only while
+        neither of the two changed against the other satellites since the previous epoch
+        (`_judge_changes`): two signals that move together leave their difference where it
+        was, and the phase in question then stays one.
         """
         opt = self.opt
         check = opt.slips == "check"
         self.asked, self.gf_now = set(), {}
         self.slipped = set()
+        self.moved = set()
+        if check and opt.change_limit > 0.0:
+            self.moved = self._judge_changes(signals, cols, common, yr, yb, t_base)
         for key in self.held:  # slips of the epochs since the last one that came this far
             if key in self.biases:
                 self._remove(key)
@@ -515,6 +603,10 @@ class Rtk:
                             if (sat, ref_sig) in self.biases:
                                 self._remove((sat, ref_sig))
                                 restarted.append(ref_sig)
+                        elif prev is not None and (
+                            key in self.moved or (sat, ref_sig) in self.moved
+                        ):
+                            pass  # the two may have moved together: neither vouches
                         elif prev is not None and ref_asked and clear:
                             ref_asked, ref_clear = False, True
                             self.asked.discard((sat, ref_sig))
@@ -567,6 +659,54 @@ class Rtk:
                 if k in self.asked:
                     self.fresh[k] = (v, halves[k])
         return sd
+
+    def _judge_changes(self, signals, cols, common, yr, yb, t_base) -> set[tuple[str, str]]:
+        """The phases whose single-differenced residual changed by more than `change_limit`
+        against the other satellites since the previous epoch that came this far (`_moved`);
+        empty without a verdict. Keeps this epoch's residuals for the next.
+
+        No verdict either when the two epochs are more than CHANGE_MAX_STEP apart, or when
+        the base epoch changed by another step than the rover's (a base at a lower rate:
+        the base's own residuals over that step are then in the change; between its epochs
+        the base's part stands still and the verdict is the rover's)."""
+        now = {}
+        for sat in common:
+            for j, sig in enumerate(signals):
+                jb = cols[j]
+                if jb is None:
+                    continue
+                residual = yr[sat][0][j] - yb[sat][0][jb]
+                if isfinite(residual):
+                    # a flag held from an epoch that ended early lies between the two epochs
+                    clean = not (int(yr[sat][4][j]) | int(yb[sat][4][jb])) & 1
+                    now[(sat, sig)] = (residual, yr[sat][2], clean and (sat, sig) not in self.held)
+        at = (self.last_time, t_base)
+        (before, before_at), self.residuals, self.residuals_at = (
+            (self.residuals, self.residuals_at),
+            now,
+            at,
+        )
+        step, base_step = at[0] - before_at[0], at[1] - before_at[1]
+        keys = [key for key in now if key in before]
+        if (
+            not keys
+            or abs(step) > CHANGE_MAX_STEP
+            or min(abs(base_step), abs(base_step - step)) > DTTOL
+        ):
+            return set()
+        lams = sorted({wavelength(sig) for _, sig in keys})
+        sats = sorted({sat for sat, _ in keys})
+        verdict = _moved(
+            np.array([now[key][0] - before[key][0] for key in keys]),
+            np.array([now[key][1] for key in keys]),
+            np.array([lams.index(wavelength(sig)) for _, sig in keys]),
+            np.array([sats.index(sat) for sat, _ in keys]),
+            np.array([now[key][2] and before[key][2] for key in keys]),
+            self.opt.change_limit,
+        )
+        return (
+            set() if verdict is None else {key for key, m in zip(keys, verdict, strict=True) if m}
+        )
 
     def _forget_references(self, sat, sig, ref_sig, signals):
         """After a restart of one signal of a satellite: the geometry-free references it

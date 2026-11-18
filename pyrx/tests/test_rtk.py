@@ -6,7 +6,8 @@ from support import AMB_B, AMB_R, ROVER, SIGNALS
 
 from pyrx.models import Station, marker_from_arp
 from pyrx.observations import Observations
-from pyrx.rtk import Rtk, RtkOptions, pair_epochs, solve_rtk
+from pyrx.rtk import Rtk, RtkOptions, _moved, pair_epochs, solve_rtk
+from pyrx.signals import wavelength
 from pyrx.synth import TOW, USUD, as_galileo, constellation, synthetic_pair
 
 
@@ -1350,3 +1351,569 @@ def test_the_floor_counts_satellites_of_every_signal_not_double_differences():
     rtk = _rtk(ephs, min_fix_sats=6)
     fixes = [rtk.step(*_pair(rng, ephs, TOW + 30.0 * k, lli={("G06", "G1C"): 2})) for k in range(4)]
     assert fixes[-1].nb == 9 and fixes[-1].status == "fix"
+
+
+def _changes(rng, sats, bands=2, noise=0.002):
+    """Changes (m) of `sats` satellites on `bands` frequencies that one change of position and
+    one clock per frequency explain: (change, lines of sight, frequency index, satellite
+    index, clean)."""
+    az, el = rng.uniform(0.0, 2.0 * np.pi, sats), rng.uniform(np.radians(15.0), np.pi / 2, sats)
+    up = np.stack([np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)], axis=1)
+    los, band = np.repeat(up, bands, axis=0), np.tile(np.arange(bands), sats)
+    change = -los @ rng.normal(0.0, 1.0, 3) + rng.normal(0.0, 0.3, bands)[band]
+    change += rng.normal(0.0, noise, len(band))
+    return change, los, band, np.repeat(np.arange(sats), bands), np.ones(len(band), dtype=bool)
+
+
+def _which(verdict):
+    return list(np.flatnonzero(verdict))
+
+
+def test_changes_that_one_solution_explains_are_not_moved():
+    for seed in range(20):
+        assert not _moved(*_changes(np.random.default_rng(seed), 8), 0.03).any()
+
+
+@pytest.mark.parametrize("move", [0.05, -0.05, 0.10, -0.10, 0.25])
+@pytest.mark.parametrize("flagged", [False, True])
+def test_a_phase_that_moved_alone_stands_out(move, flagged):
+    # whether or not a receiver flags it: a flagged phase takes no part in the solution of
+    # the others and is judged by it all the same
+    for seed in range(20):
+        change, los, band, sat, clean = _changes(np.random.default_rng(seed), 9)
+        change[5] += move
+        clean[5] = not flagged
+        assert _which(_moved(change, los, band, sat, clean, 0.03)) == [5]
+    change, los, band, sat, clean = _changes(np.random.default_rng(0), 9)
+    change[5] += 0.02
+    assert not _moved(change, los, band, sat, clean, 0.03).any()
+
+
+def test_a_pair_that_moved_together_stands_out():
+    # both signals of a satellite by the same length: their difference shows nothing; against
+    # the other satellites they stand out together
+    found = 0
+    for seed in range(40):
+        change, los, band, sat, clean = _changes(np.random.default_rng(seed), 12)
+        change[[6, 7]] += 0.06
+        verdict = _which(_moved(change, los, band, sat, clean, 0.03))
+        # where the satellite stands alone in its part of the sky the position takes the
+        # move up and nothing shows; no other phase is blamed for it
+        assert verdict in ([6, 7], [])
+        found += verdict == [6, 7]
+    assert found >= 38
+
+
+def test_flagged_phases_do_not_steer_the_solution():
+    change, los, band, sat, clean = _changes(np.random.default_rng(3), 10)
+    change[:6] += 0.5
+    clean[:6] = False
+    assert _which(_moved(change, los, band, sat, clean, 0.03)) == [0, 1, 2, 3, 4, 5]
+
+
+def test_no_verdict_below_the_least_number_of_unflagged_phases():
+    change, los, band, sat, clean = _changes(np.random.default_rng(4), 10)
+    clean[:9] = False
+    assert _moved(change, los, band, sat, clean, 0.03) is None  # 11 unflagged
+    clean[8] = True
+    assert not _moved(change, los, band, sat, clean, 0.03).any()
+
+
+@pytest.mark.parametrize("flagged,moved,verdict", [(0, 4, True), (0, 8, False), (1, 7, False)])
+def test_no_verdict_when_too_many_phases_moved(flagged, moved, verdict):
+    # twenty phases, some of them moved, each by its own 20 cm to 1 m. A solution of five
+    # unknowns explains five phases for nothing, so twelve explained and eight left out
+    # (7 against 8) is no majority, sixteen and four (11 against 4) is one; and with one of
+    # the twenty flagged, twelve and seven (7 against 7) is none either. Six more phases
+    # that are flagged and did not move add nothing to the explained side
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        change, los, band, sat, clean = _changes(rng, 13)
+        clean[20:] = False
+        clean[:flagged] = False
+        which = np.sort(flagged + rng.permutation(20 - flagged)[:moved])
+        change[which] += rng.uniform(0.2, 1.0, moved) * rng.choice([-1, 1], moved)
+        result = _moved(change, los, band, sat, clean, 0.03)
+        if verdict:
+            assert _which(result) == list(which)
+        else:
+            assert result is None
+
+
+def test_one_frequency_has_one_clock():
+    change, los, band, sat, clean = _changes(np.random.default_rng(6), 16, bands=1)
+    change[4] += 0.05
+    assert _which(_moved(change, los, band, sat, clean, 0.03)) == [4]
+
+
+@pytest.mark.parametrize("unflagged,judged", [(1, False), (2, False), (3, False), (4, True)])
+def test_a_frequency_is_judged_on_three_explained_phases_or_more(unflagged, judged):
+    # a clock fitted to one phase explains it whatever it did, and to two not much less: on
+    # the second frequency all but a few phases are flagged, and the first unflagged one
+    # moved by 6 cm. With fewer than three others explained beside it nothing on that
+    # frequency is judged, the flagged phases that did not move least of all
+    for seed in range(20):
+        change, los, band, sat, clean = _changes(np.random.default_rng(seed), 16)
+        second = np.flatnonzero(band == 1)
+        clean[second[unflagged:]] = False
+        change[second[0]] += 0.06
+        verdict = _moved(change, los, band, sat, clean, 0.03)
+        assert _which(verdict) == ([second[0]] if judged else [])
+
+
+@pytest.mark.parametrize(
+    "bands,sats,flagged,moved,least", [(2, 10, 1, 6, 13), (2, 10, 0, 7, 13), (3, 8, 0, 9, None)]
+)
+def test_the_majority_counts_one_phase_off_for_every_unknown(bands, sats, flagged, moved, least):
+    # two frequencies, five unknowns: of 19 unflagged phases six moved (thirteen explained
+    # less five outnumber six) and of 20 seven moved (eight against seven): a verdict,
+    # where the solution finds them (15 and 17 of the 20 epochs). Three frequencies, six
+    # unknowns: of 24 nine moved, fifteen less six do not outnumber nine: none
+    exact = 0
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        change, los, band, sat, clean = _changes(rng, sats, bands=bands)
+        clean[:flagged] = False
+        which = np.sort(flagged + rng.permutation(len(change) - flagged)[:moved])
+        change[which] += rng.uniform(0.2, 1.0, moved) * rng.choice([-1, 1], moved)
+        verdict = _moved(change, los, band, sat, clean, 0.03)
+        assert verdict is None or _which(verdict) == list(which)
+        exact += verdict is not None
+    assert exact == 0 if least is None else exact >= least
+
+
+def test_a_frequency_without_an_unflagged_phase_is_not_judged():
+    # its clock is not known, so the changes of its phases say nothing
+    change, los, band, sat, clean = _changes(np.random.default_rng(7), 16)
+    clean[band == 1] = False
+    change[band == 1] += 7.0
+    change[4] += 0.05  # an unflagged phase of the other frequency
+    assert _which(_moved(change, los, band, sat, clean, 0.03)) == [4]
+
+
+@pytest.mark.parametrize("noise,found_least,blamed_most", [(0.002, 93, 3), (0.005, 93, 3)])
+def test_the_verdict_holds_from_strong_to_weak_phases(noise, found_least, blamed_most):
+    # twelve satellites, eight of their 24 phases flagged, among them one signal of the
+    # satellite whose two phases move together by 6 cm; the changes carry the noise of a
+    # strong pair of phases (2 mm) and of a weak one (5 mm: 4 mm is what the phases of a
+    # parked car at 30 to 34 dB-Hz show). Of 100 epochs: how often both are found, how often
+    # another phase is blamed, and that nothing is called moved when nothing moved. Measured
+    # on these seeds 100 and 0 at both; on the next hundred 95 and 1, 96 and 2
+    found = blamed = 0
+    for seed in range(100):
+        rng = np.random.default_rng(seed)
+        change, los, band, sat, clean = _changes(rng, 12, noise=noise)
+        clean[[0, *rng.permutation(np.arange(2, 24))[:7]]] = False
+        assert not _moved(change, los, band, sat, clean, 0.03)[clean].any()
+        change[:2] += 0.06
+        verdict = _moved(change, los, band, sat, clean, 0.03)
+        found += verdict[:2].all()
+        blamed += verdict[2:].any()
+    assert found >= found_least and blamed <= blamed_most, (found, blamed)
+
+
+def test_the_solutions_without_one_satellite_find_a_small_move_among_weak_phases():
+    # twelve unflagged phases of twelve satellites with 5 mm of noise, a flagged phase and
+    # its unflagged partner moved by 4 cm: the partner pulls on the solution of all the
+    # unflagged phases, which then finds the two in 119 of 200 epochs; with the solutions
+    # that leave one satellite out, 149
+    found = 0
+    for seed in range(200):
+        rng = np.random.default_rng(seed)
+        change, los, band, sat, clean = _changes(rng, 12, noise=0.005)
+        clean[[0, *rng.permutation(np.arange(2, 24))[:11]]] = False
+        change[:2] += 0.04
+        verdict = _moved(change, los, band, sat, clean, 0.03)
+        found += verdict is not None and verdict[:2].all()
+    assert found >= 140
+
+
+# two systems on two frequencies: 24 phases, enough for a verdict on an epoch's changes
+BOTH = ("G1C", "G2W", "E1C", "E5Q")
+G03_2 = ("G03", "G2W")
+
+
+def _two_systems():
+    return constellation() + as_galileo(constellation())
+
+
+def _moved_by(meters, start, stop=None, keys=(G03, G03_2)):
+    """Rover ambiguities by second with the phases `keys` moved by one length from `start`
+    (to `stop`): what the geometry-free difference of two signals cannot show."""
+    moved = dict(AMB_R)
+    for key in keys:
+        moved[key] += meters / wavelength(key[1])
+    return lambda k: moved if k >= start and (stop is None or k < stop) else AMB_R
+
+
+def _locks(pairs, ephs, keys=(G03, G03_2), **options):
+    rtk = _rtk(ephs, slips="check", **options)
+    for pair in pairs:
+        rtk.step(*pair)
+    return [rtk.biases[key].lock for key in keys]
+
+
+@pytest.mark.parametrize("flagged,locks", [(G03, [6, 12]), (G03_2, [12, 6])])
+def test_a_flagged_phase_whose_pair_moved_is_not_vouched_for(flagged, locks):
+    # both signals of a satellite move by 8 cm at 6 s and one of them carries a flag. Their
+    # difference did not step, so the unflagged one vouched for the flagged one; against the
+    # other satellites both moved, and the flagged one goes to the test against the rest of
+    # the epoch, which it fails by a third of a cycle or more
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(80), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {flagged: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs) == [12, 12]
+    assert _locks(pairs, ephs, change_limit=0.03) == locks
+
+
+@pytest.mark.parametrize("flagged,locks", [(G03, [6, 12]), (G03_2, [12, 6])])
+def test_a_flagged_phase_that_moved_under_the_step_threshold_is_not_vouched_for(
+    monkeypatch, flagged, locks
+):
+    # 4 cm on the flagged signal alone: under the 5 cm of the geometry-free test, over the
+    # limit against the other satellites
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)  # the test against the filter keeps nothing
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(81), ephs, 12, amb_at=_moved_by(0.04, 6, keys=(flagged,)),
+        lli_at=lambda k: {flagged: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs) == [12, 12]
+    assert _locks(pairs, ephs, change_limit=0.03) == locks
+
+
+@pytest.mark.parametrize("meters", [0.0, 0.02])
+def test_the_other_signal_still_vouches_when_neither_moved(monkeypatch, meters):
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(82), ephs, 12, amb_at=_moved_by(meters, 6),
+        lli_at=lambda k: {G03: 1} if k in (6, 7) else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
+
+
+def test_without_a_verdict_the_other_signal_vouches_as_before():
+    # one system: 12 phases, and 11 without the flagged one, too few to judge their changes
+    ephs = constellation()
+    pairs = _l1_run(
+        np.random.default_rng(83), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=SIGNALS,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
+
+
+@pytest.mark.parametrize("options", [{}, {"slips": "restart"}])
+def test_the_limit_changes_nothing_without_a_flag_or_in_restart_mode(options):
+    ephs = _two_systems()
+    flags = (lambda k: {G03: 1} if k == 6 else None) if options else None
+    pairs = _l1_run(
+        np.random.default_rng(84), ephs, 12, amb_at=_moved_by(0.08, 6), lli_at=flags, signals=BOTH
+    )
+    options = {"slips": "check", **options}
+    plain, limited = _rtk(ephs, **options), _rtk(ephs, change_limit=0.03, **options)
+    moved = set()
+    for pair in pairs:
+        a, b = plain.step(*pair), limited.step(*pair)
+        assert (a.status, a.ratio, a.nb, a.ns) == (b.status, b.ratio, b.nb, b.ns)
+        np.testing.assert_array_equal(a.position, b.position)
+        np.testing.assert_array_equal(a.float_position, b.float_position)
+        moved |= limited.moved
+    # judged in check mode only (and there the pair did stand out)
+    assert moved == (set() if options["slips"] == "restart" else {G03, G03_2})
+    assert bool(limited.residuals) == (options["slips"] == "check")
+
+
+def test_a_second_signal_that_moved_is_not_settled_through_a_third(monkeypatch):
+    # three signals, the first two flagged, the third settles the first after the second
+    # was looked at. The second moved by 4 cm on its own: it stays in question
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)
+    ephs = _two_systems()
+    signals = ("G1C", "G2W", "G5Q", "E1C", "E5Q")
+    keys = [("G03", sig) for sig in signals[:3]]
+    pairs = _l1_run(
+        np.random.default_rng(85), ephs, 12, amb_at=_moved_by(0.04, 6, keys=(G03_2,)),
+        lli_at=lambda k: {G03: 1, G03_2: 1} if k == 6 else None, signals=signals,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, keys) == [12, 12, 12]
+    assert _locks(pairs, ephs, keys, change_limit=0.03) == [12, 6, 12]
+
+
+def test_the_change_is_taken_over_an_epoch_without_a_solution():
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(86), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    # no base at 5 s: the epoch ends before the ambiguities, and 6 s is compared with 4 s
+    for limit, lock in ((0.0, 11), (0.03, 6)):
+        rtk = _rtk(ephs, slips="check", change_limit=limit)
+        for k, (rover, base) in enumerate(pairs):
+            rtk.step(rover, None if k == 5 else base)
+        assert (rtk.biases[G03].lock, rtk.biases[G03_2].lock) == (lock, 11)
+
+
+def test_a_satellite_without_a_phase_the_epoch_before_has_no_change():
+    # G04 is missing at the base at 5 s: nothing to compare its phases at 6 s with, and the
+    # others are judged without it
+    ephs = _two_systems()
+    gone = {("G04", "G1C"), ("G04", "G2W")}
+    pairs = _l1_run(
+        np.random.default_rng(87), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+        drop_at=lambda k: gone if k == 5 else (),
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    for k, pair in enumerate(pairs):
+        rtk.step(*pair)
+        if k == 6:
+            assert rtk.moved == {G03, G03_2}
+    assert rtk.biases[G03].lock == 6
+
+
+def test_backward_a_pair_that_moved_is_not_vouched_for():
+    # the move between 5 and 6 s, flagged at 6: backward the filter meets it at 5
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(88), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    for limit, lock in ((0.0, 12), (0.03, 6)):
+        rtk = _rtk(ephs, slips="check", backward=True, change_limit=limit)
+        for k in range(11, -1, -1):
+            rtk.step(*pairs[k])
+        assert (rtk.biases[G03].lock, rtk.biases[G03_2].lock) == (lock, 12)
+
+
+def test_a_negative_change_limit_is_refused():
+    with pytest.raises(ValueError, match="change_limit"):
+        _rtk(constellation(), slips="check", change_limit=-0.01)
+
+
+def _shifted(obs, keys, meters):
+    """The observations with the phases `keys` moved by one length."""
+    phase = obs.carrier_phase.copy()
+    for sat, sig in keys:
+        phase[obs.sats.index(sat), obs.signals.index(sig)] += meters / wavelength(sig)
+    return replace(obs, carrier_phase=phase)
+
+
+def test_a_move_at_the_base_counts_as_one_at_the_rover():
+    # the ambiguity is of the difference of the two receivers' phases: both of the base's
+    # phases of G03 move by 8 cm at 6 s, unflagged, while the rover flags its first signal
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(89), ephs, 12, lli_at=lambda k: {G03: 1} if k == 6 else None,
+        signals=BOTH,
+    )  # fmt: skip
+    pairs = [(r, _shifted(b, (G03, G03_2), 0.08) if k >= 6 else b) for k, (r, b) in enumerate(pairs)]
+    assert _locks(pairs, ephs) == [12, 12]
+    assert _locks(pairs, ephs, change_limit=0.03) == [6, 12]
+
+
+@pytest.mark.parametrize("backward", [False, True])
+@pytest.mark.parametrize("receiver", ["rover", "base"])
+def test_phases_either_receiver_flags_take_no_part_in_the_solution(receiver, backward):
+    # every GPS phase is flagged at 6 s by one receiver and stands somewhere else, each by
+    # its own length. The twelve Galileo phases alone give the verdict: the GPS phases on
+    # their frequency moved; G2W, with no unflagged phase on its frequency, is not judged.
+    # Were the flagged phases part of the solution there would be no majority and no verdict
+    ephs = _two_systems()
+    gps = [(f"G{n:02d}", sig) for n in range(1, 7) for sig in ("G1C", "G2W")]
+    after = dict(AMB_R)
+    for i, key in enumerate(gps):
+        after[key] += 2 + i
+    flags = {key: 1 for key in gps}
+    pairs = _l1_run(
+        np.random.default_rng(90), ephs, 12, amb_at=lambda k: after if k >= 6 else AMB_R,
+        lli_at=(lambda k: flags if k == 6 else None) if receiver == "rover" else None, signals=BOTH,
+    )  # fmt: skip
+    if receiver == "base":
+        r, b = pairs[6]
+        lli = b.lli.copy()
+        lli[[b.sats.index(sat) for sat, _ in gps], [b.signals.index(sig) for _, sig in gps]] = 1
+        pairs[6] = (r, replace(b, lli=lli))
+    rtk = _rtk(ephs, slips="check", change_limit=0.03, backward=backward)
+    seen = {}
+    for k in range(11, -1, -1) if backward else range(12):
+        rtk.step(*pairs[k])
+        seen[k] = set(rtk.moved)
+    # the move lies between 5 and 6 s: forward it is met at 6, backward at 5
+    at = 5 if backward else 6
+    assert seen[at] == {key for key in gps if key[1] == "G1C"}
+    assert all(not moved for k, moved in seen.items() if k != at)
+
+
+def test_a_phase_with_the_half_cycle_bit_is_as_good_as_any_for_the_solution():
+    # every phase carries the half-cycle bit throughout, as L1 C/A phases do before the
+    # polarity is known: that is no lost lock, and the verdict is given
+    ephs = _two_systems()
+    keys = [key for key in AMB_R if key[1] in BOTH]
+    pairs = _l1_run(
+        np.random.default_rng(91), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {key: 3 if key == G03 and k == 6 else 2 for key in keys}, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs) == [12, 12]
+    assert _locks(pairs, ephs, change_limit=0.03) == [6, 12]
+
+
+def test_a_change_is_taken_from_the_epoch_before_and_no_earlier(monkeypatch):
+    # the pair moves at 6 s without a flag and stays there; a flag at 8 s finds nothing
+    # that changed since 7 s, and the other signal vouches
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(92), ephs, 12, amb_at=_moved_by(0.08, 6),
+        lli_at=lambda k: {G03: 1} if k == 8 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
+
+
+def test_a_turn_of_the_antenna_moves_no_phase(monkeypatch):
+    # every phase of the rover by half a cycle at 6 s: 9.5 cm on one frequency, 12.2 and
+    # 12.7 cm on the others, a clock term apiece. One clock for all would leave them 1.6 cm
+    # out, which a limit of 1 cm shows
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)
+    ephs = _two_systems()
+    turned = {key: n + 0.5 for key, n in AMB_R.items()}
+    pairs = _l1_run(
+        np.random.default_rng(93), ephs, 12, amb_at=lambda k: turned if k >= 6 else AMB_R,
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.01) == [12, 12]
+
+
+def test_the_engine_hands_the_verdict_each_phase_with_its_frequency_and_satellite(monkeypatch):
+    import pyrx.rtk as rtk_module
+
+    calls = []
+    judge = rtk_module._moved
+    monkeypatch.setattr(rtk_module, "_moved", lambda *a: calls.append(a) or judge(*a))
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(94), ephs, 3, lli_at=lambda k: {G03: 1} if k == 2 else None,
+        signals=BOTH,
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    for pair in pairs:
+        rtk.step(*pair)
+    assert len(calls) == 2  # nothing to compare the first epoch with
+    change, los, band, sat, clean, limit = calls[-1]
+    keys = list(rtk.residuals)
+    assert len(change) == len(keys) == 24 and limit == 0.03
+    for i, (name, sig) in enumerate(keys):
+        same_sat = [j for j, key in enumerate(keys) if key[0] == name]
+        assert [j for j in range(24) if sat[j] == sat[i]] == same_sat
+        np.testing.assert_array_equal(los[i], los[same_sat[0]])
+        same_band = [j for j, key in enumerate(keys) if wavelength(key[1]) == wavelength(sig)]
+        assert [j for j in range(24) if band[j] == band[i]] == same_band
+        assert clean[i] == ((name, sig) != G03)
+    assert len(set(band)) == 3  # L1 and E1 are one frequency
+    np.testing.assert_allclose(np.linalg.norm(los, axis=1), 1.0)
+    assert np.abs(change).max() < 5.0 and np.abs(change - change.mean()).max() > 1e-4
+
+
+def test_a_pair_whose_difference_stepped_restarts_both_as_before():
+    # the first signal alone by 8 cm, flagged: the geometry-free test comes first and
+    # restarts both, with the limit as without
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(95), ephs, 12, amb_at=_moved_by(0.08, 6, keys=(G03,)),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs) == [6, 6]
+    assert _locks(pairs, ephs, change_limit=0.03) == [6, 6]
+
+
+def test_a_move_that_is_back_at_the_next_epoch_costs_the_flagged_phase_its_ambiguity():
+    # out by 8 cm at 6 s and back at 7 s, the common case in a fade: the flagged phase is
+    # not vouched for at 6 s, fails the test and begins again on the displaced phase
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(96), ephs, 12, amb_at=_moved_by(0.08, 6, 7),
+        lli_at=lambda k: {G03: 1} if k == 6 else None, signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs) == [12, 12]
+    assert _locks(pairs, ephs, change_limit=0.03) == [6, 12]
+
+
+def test_no_verdict_across_a_long_step():
+    # 30 s between epochs: the lines of sight turn, and with them what an error of the
+    # epoch's seed position puts into the residuals, by centimeters; no verdict is given
+    ephs = _two_systems()
+    pairs = [
+        _pair(
+            np.random.default_rng(97 + k), ephs, TOW + 30.0 * k, signals=BOTH,
+            amb_r=_moved_by(0.08, 6)(k), lli={G03: 1} if k == 6 else None,
+        )
+        for k in range(12)
+    ]  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
+
+
+@pytest.mark.parametrize("at,locks", [(5, [12, 12]), (7, [5, 12])])
+def test_no_verdict_where_the_base_epoch_changed_by_another_step_than_the_rover(at, locks):
+    # a base every 5 s under a 1 Hz rover: between base epochs the base's part of the
+    # difference stands still and the verdict is the rover's; where the base epoch changes,
+    # 5 s of the base's own residuals are in the change and none is given
+    ephs = _two_systems()
+    pairs = _l1_run(
+        np.random.default_rng(98), ephs, 12, amb_at=_moved_by(0.08, at),
+        lli_at=lambda k: {G03: 1} if k == at else None, signals=BOTH,
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    rover, base = [r for r, _ in pairs], [b for k, (_, b) in enumerate(pairs) if k % 5 == 0]
+    for r, b in pair_epochs(rover, base, rtk.opt.max_age):
+        rtk.step(r, b)
+    assert [rtk.biases[key].lock for key in (G03, G03_2)] == locks
+
+
+def test_a_flag_of_an_epoch_that_ended_early_keeps_its_phase_out_of_the_solution(monkeypatch):
+    # G05's first signal slips and is flagged at 5 s, an epoch without a base: at 6 s its
+    # indicator is clear again, but its change since 4 s holds the slip
+    import pyrx.rtk as rtk_module
+
+    calls = []
+    judge = rtk_module._moved
+    monkeypatch.setattr(rtk_module, "_moved", lambda *a: calls.append(a) or judge(*a))
+    ephs = _two_systems()
+    slipped = ("G05", "G1C")
+    pairs = _l1_run(
+        np.random.default_rng(99), ephs, 7, amb_at=_offset(slipped, 7.0, 5),
+        lli_at=lambda k: {slipped: 1} if k == 5 else None, signals=BOTH,
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    for k, (rover, base) in enumerate(pairs):
+        rtk.step(rover, None if k == 5 else base)
+    clean = dict(zip(rtk.residuals, calls[-1][4], strict=True))
+    assert not clean[slipped] and sum(clean.values()) == 23
+
+
+def test_an_epoch_without_a_verdict_is_still_the_one_the_next_is_compared_with(monkeypatch):
+    # at 5 s the pair moves and fourteen other phases carry a flag: too few unflagged for a
+    # verdict. A flag on the pair at 6 s is judged against 5 s, where nothing changed since
+    import pyrx.rtk as rtk_module
+
+    monkeypatch.setattr(rtk_module, "CHECK_SIGMA", 0.0)
+    ephs = _two_systems()
+    flagged = ("G01", "G02", "G05", "G06", "E11", "E12", "E16")
+    many = [(sat, sig) for sat in flagged for sig in BOTH if sig[0] == sat[0]]
+    pairs = _l1_run(
+        np.random.default_rng(100), ephs, 12, amb_at=_moved_by(0.08, 5),
+        lli_at=lambda k: dict.fromkeys(many, 1) if k == 5 else {G03: 1} if k == 6 else None,
+        signals=BOTH,
+    )  # fmt: skip
+    assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
+
