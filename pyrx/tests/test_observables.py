@@ -15,6 +15,7 @@ from pyrx.observables import (
     FADE_SPAN,
     LLI_HALF_CYCLE,
     LLI_SLIP,
+    PILOT_AGREEMENT,
     code_starts,
     make_joint_observables,
     make_observables,
@@ -902,6 +903,160 @@ def test_galileo_pilot_across_the_week_rollover():
     assert rows[0][0] < 604800.0 < rows[-1][0] and len(rows) > 20
     # near 604800 s a double resolves 3.5 cm of range
     assert all(pr == pytest.approx(C_LIGHT * travel, abs=0.05) for _, pr in rows)
+
+
+def _still_e1(true_travel, prn=11, n=30000, k_start=0, sec_sync=1599, polarity=1, wraps=3,
+              phase_lock=None, doppler=-560.0):  # fmt: skip
+    """A Galileo E1 pilot segment beside `_still_channel(SFS)` whose code arrives
+    `true_travel` s after it was sent: epochs of 1 ms, each a quarter of the 4 ms code, the
+    segment beginning with a code period (up to three epochs after `k_start` for that), and
+    epoch k carrying the entry of the secondary code, 25 chips held four epochs each, that
+    the millisecond of its transmit time names."""
+    track, ln = _still_channel(SFS)
+    rx0 = receiver_time0([track], [ln])
+    # the code starts' place against the receiver's millisecond, within half of one
+    delay = (true_travel - rx0 + CA_PERIOD / 2) % CA_PERIOD - CA_PERIOD / 2
+    ms0 = round((rx0 + k_start * CA_PERIOD + delay - true_travel) / CA_PERIOD)
+    k_start += (-ms0) % 4
+    ms0 += (-ms0) % 4  # the millisecond of week of epoch 0, the start of a code period
+    t = (k_start + np.arange(n)) * CA_PERIOD
+    return TrackResult(
+        prn, t, np.zeros((n, 4), np.complex64), (t + delay) % CA_PERIOD, np.full(n, doppler),
+        doppler * CA_PERIOD * np.arange(1, n + 1), np.zeros(n), np.full(n, 41.0),
+        np.ones(n) if phase_lock is None else phase_lock, True, None, np.zeros(n), np.zeros(n),
+        signal="E1", sec_sync=sec_sync, sec_origin=(-ms0) % 100 + 100 * wraps,
+        sec_polarity=polarity, data_prompt=np.zeros(n, np.complex64),
+    )  # fmt: skip
+
+
+def _e1c(epoch, sat="E11"):
+    """(pseudorange, phase, doppler, cn0, lli) of a satellite's E1C at an epoch."""
+    i, j = epoch.sats.index(sat), epoch.signals.index("E1C")
+    return [getattr(epoch, f)[i, j] for f in ("pseudorange", "carrier_phase", "doppler", "cn0", "lli")]
+
+
+BOTH_BANDS = ("L5", "E1", "E5A")
+
+
+@pytest.mark.parametrize("travel", [0.0225, 0.066, 0.0801234, 0.0995, 0.1215])
+@pytest.mark.parametrize("wraps", [-2, 0, 3])
+def test_e1_pilot_takes_its_time_from_its_secondary_code(travel, wraps):
+    # the E1 pilot's secondary code lasts 100 ms too, one chip per 4 ms code period: the
+    # same rule on the tracker's 1 ms epochs
+    track, ln = _still_channel(SFS)
+    pilot = _still_e1(travel, wraps=wraps)
+    assert pilot.sec_origin % 4 == 0
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=BOTH_BANDS)
+    seen = 0
+    for o in joint:
+        assert o.signals == ("G1C", "G5Q", "E1C", "E5Q")
+        if "E11" not in o.sats:
+            continue
+        seen += 1
+        assert _e1c(o)[0] == pytest.approx(C_LIGHT * travel, abs=1e-3)
+        assert np.isnan(o.pseudorange[0, [0, 1, 3]]).all()
+    assert seen > 20
+
+
+@pytest.mark.parametrize("polarity", [1, -1])
+def test_joint_e1c_values(polarity):
+    track, ln = _still_channel(SFS)
+    travel = 0.0801234
+    pilot = _still_e1(travel, polarity=polarity)
+    joint = make_joint_observables([track], [ln], [pilot], pilot_signals=BOTH_BANDS)
+    rx0 = receiver_time0([track], [ln])
+    seen = 0
+    for o in joint:
+        t = o.tow - rx0
+        if t <= pilot.t[pilot.sec_sync + 1]:
+            assert "E11" not in o.sats  # nothing before the sync
+            continue
+        seen += 1
+        _, phase, doppler, cn0, lli = _e1c(o)
+        assert doppler == -560.0 and cn0 == 41.0
+        # the negated accumulated phase, the half cycle of an inverted pilot, and RINEX's
+        # half cycle that aligns E1-C with E1-B
+        adr = -560.0 * (t - code_starts(pilot)[0])
+        half = 0.5 if polarity < 0 else 0.0
+        assert phase == pytest.approx(-(adr + half) + 0.5, abs=1e-6)
+        assert lli == (LLI_SLIP if seen == 1 or t - pilot.t[0] <= 2.0 else 0)
+    assert seen > 20 and SIGNALS["E1"].phase_align == 0.5
+
+
+def test_e1_and_e5a_of_a_satellite_are_two_columns_of_its_row():
+    track, ln = _still_channel(SFS)
+    e5a, travel = _still_e5a()
+    joint = make_joint_observables(
+        [track], [ln], [_still_pilot(), e5a, _still_e1(travel)], pilot_signals=BOTH_BANDS
+    )
+    plain = make_joint_observables([track], [ln], [_still_pilot()])
+    both = 0
+    for o, u in zip(joint, plain, strict=True):
+        assert o.signals == ("G1C", "G5Q", "E1C", "E5Q")
+        if "E11" in o.sats and np.isfinite(_e1c(o)[0]):
+            both += 1
+            # one satellite, one transmit time: the two bands' pseudoranges are the same
+            assert _e1c(o)[0] == pytest.approx(_e5q(o)[0], abs=1e-3)
+            assert _e1c(o)[0] == pytest.approx(C_LIGHT * travel, abs=1e-3)
+            assert np.isfinite(_e1c(o)[1]) and np.isfinite(_e5q(o)[1])
+        # the GPS row is what it is without Galileo
+        i = o.sats.index("G04")
+        np.testing.assert_array_equal(o.pseudorange[i, :2], u.pseudorange[0])
+        np.testing.assert_array_equal(o.carrier_phase[i, :2], u.carrier_phase[0])
+        assert np.isnan(o.pseudorange[i, 2:]).all()
+    assert both > 20
+
+
+@pytest.mark.parametrize("apart", [0.9e-6, -0.9e-6, 1.1e-6, -1.1e-6, 1e-3, 4e-3, -4e-3])
+def test_e1_and_e5a_that_disagree_write_neither_where_both_are(apart):
+    # nothing says which of the two is wrong, so where both pilots of a satellite are tracked
+    # and their transmit times stand more than a microsecond apart, neither is written; each
+    # is written where it is alone, and the other satellites are not touched
+    track, ln = _still_channel(SFS)
+    e5a, travel = _still_e5a(n=20000)  # 0 to 20 s
+    e1 = _still_e1(travel + apart, k_start=8000, n=18000)  # 8 to 26 s
+    other, _ = _still_e5a(prn=19)
+    pilots = [e5a, e1, other]
+    joint = make_joint_observables([track], [ln], pilots, pilot_signals=BOTH_BANDS)
+    alone = make_joint_observables([track], [ln], [e5a, other], pilot_signals=BOTH_BANDS)
+    rx0 = receiver_time0([track], [ln])
+    agree = abs(apart) < PILOT_AGREEMENT
+    counts = {"e5a": 0, "both": 0, "e1": 0, "neither": 0}
+    for o, u in zip(joint, alone, strict=True):
+        t = o.tow - rx0
+        here = [np.isfinite(_e1c(o)[0]), np.isfinite(_e5q(o)[0])] if "E11" in o.sats else [False] * 2
+        if t <= e1.t[e1.sec_sync + 1]:
+            assert here == [False, t > e5a.t[e5a.sec_sync + 1]]
+            counts["e5a"] += here[1]
+        elif t < e5a.t[-1]:
+            assert here == [agree, agree], (t, here)
+            counts["both" if agree else "neither"] += 1
+        elif t < e1.t[-1]:
+            assert here == [True, False]
+            counts["e1"] += 1
+            assert _e1c(o)[0] == pytest.approx(C_LIGHT * (travel + apart), abs=1e-3)
+        if here[1]:
+            # what is written of E5a is what it is without the E1 pilot, flags too: a stretch
+            # not written is no loss of lock
+            np.testing.assert_array_equal(_e5q(o), _e5q(u))
+        if "E19" in u.sats:
+            np.testing.assert_array_equal(_e5q(o, "E19"), _e5q(u, "E19"))
+    assert counts["e5a"] > 5 and counts["e1"] > 4
+    assert counts["both" if agree else "neither"] > 8 and counts["neither" if agree else "both"] == 0
+    assert PILOT_AGREEMENT == 1e-6
+
+
+def test_the_first_e1_phase_written_after_a_disagreement_is_flagged_as_a_first_phase():
+    # an E1 segment whose every epoch beside E5a was withheld has written nothing yet when
+    # E5a ends: its first written phase is a first phase
+    track, ln = _still_channel(SFS)
+    e5a, travel = _still_e5a(n=20000)
+    e1 = _still_e1(travel + 4e-3, k_start=8000, n=18000)
+    joint = make_joint_observables([track], [ln], [e5a, e1], pilot_signals=BOTH_BANDS)
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0, _e1c(o)) for o in joint if "E11" in o.sats and np.isfinite(_e1c(o)[0])]
+    assert len(rows) > 4 and rows[0][0] > e5a.t[-1] > e1.t[0] + 10.0
+    assert [r[4] for _, r in rows] == [LLI_SLIP] + [0] * (len(rows) - 1)
 
 
 def test_pilot_reacquired_gets_a_new_anchor():
