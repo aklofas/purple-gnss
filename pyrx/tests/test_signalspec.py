@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -19,7 +21,7 @@ from pyrx.signals import FREQUENCY
 from pyrx.signalspec import E1, E5A, L1CA, L5, SIGNALS
 
 
-def test_the_three_signals():
+def test_the_signals():
     assert SIGNALS == {"L1CA": L1CA, "L5": L5, "E5A": E5A, "E1": E1}
     assert [s.rinex for s in (L1CA, L5, E5A)] == ["G1C", "G5Q", "E5Q"]
     assert [s.carrier for s in (L1CA, L5, E5A)] == [FREQUENCY["G1"], FREQUENCY["G5"], FREQUENCY["E5"]]
@@ -78,13 +80,22 @@ def test_the_galileo_e1_signal():
     assert np.array_equal(E1.secondary(11), np.repeat(GAL_CS25, 4))
     # a symbol of E1-B is one code period, with no secondary code on it
     assert E1.symbol_epochs == 4 and E1.data_secondary(11).tolist() == [1]
-    # ICD Eq. 11: the two components on one axis with opposite signs
+    # ICD issue 2.2, Eq. 12: the two components on one axis with opposite signs
     assert E1.data_axis == -1
     # RINEX 3.05 Table A23: L1C half a cycle from the band's reference signal L1B
     assert E1.phase_align == 0.5
     # side peaks half a chip either side; the discriminator nine times as steep as a plain
     # code's at a quarter chip
     assert E1.side_taps == (0.5, -0.5) and E1.dll_slope == 9.0
+
+
+def test_a_replica_is_of_the_code_it_is_asked_for():
+    # a code function may build its array anew on every call, and a new array can take the
+    # place in memory of one that is gone: the replica kept is found by the code's chips
+    fresh = dataclasses.replace(E1, code=lambda prn: np.array(gal_e1c(prn)))
+    for prn in range(1, 37):
+        assert np.array_equal(fresh.replica(prn)[0::2], gal_e1c(prn)), prn
+    assert E1.replica(11) is E1.replica(11)
 
 
 def test_plain_signals_are_their_own_replica():
