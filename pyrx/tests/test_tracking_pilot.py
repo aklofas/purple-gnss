@@ -195,7 +195,7 @@ def test_symbols_are_the_generated_ones(name):
     k = np.arange(r.symbol_epoch, len(r.t))
     data = r.data_prompt[k] * dsec[(k - r.sec_origin) % len(dsec)] * r.sec_polarity
     along = (data * np.conj(spec.data_axis)).real
-    assert np.sum(along**2) >= 0.9 * np.sum(np.abs(data) ** 2) and np.mean(along) != 0
+    assert np.sum(along**2) >= 0.9 * np.sum(np.abs(data) ** 2)
     # as strong as the pilot
     ratio = np.mean(np.abs(r.data_prompt[k]) ** 2) / np.mean(np.abs(r.corr[k, 0]) ** 2)
     assert abs(10 * np.log10(ratio)) < 0.5

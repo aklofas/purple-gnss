@@ -70,8 +70,8 @@ def _add_sample_arguments(p: argparse.ArgumentParser, signal: bool = False) -> N
             "--signal",
             choices=list(SIGNALS),
             default="L1CA",
-            help="signal to search: GPS L1 C/A, or the pilot of GPS L5 or Galileo E5a "
-            "(default L1CA)",
+            help="signal to search: GPS L1 C/A, or the pilot of GPS L5, Galileo E5a or "
+            "Galileo E1 (default L1CA)",
         )
         p.add_argument(
             "--prn", default=None, help="PRNs, e.g. 1-32 or 1,5,7 (default: all of the signal's)"

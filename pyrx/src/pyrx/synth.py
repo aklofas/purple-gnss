@@ -108,8 +108,9 @@ def synth_pilot(
 ) -> np.ndarray:
     """`n` complex64 I/Q samples of a pilot signal with its data component, in white noise.
 
-    Both components have amplitude 1 and sit a quarter cycle apart as the signal's
-    interface specification has them (`spec.data_axis`); `cn0_dbhz` is the C/N0 of the
+    Both components have amplitude 1 and stand to each other as the signal's interface
+    specification has them (`spec.data_axis`: a quarter cycle apart on L5 and E5a, on one
+    axis with opposite signs on E1); `cn0_dbhz` is the C/N0 of the
     pilot alone. A code period starts at sample index `code_offset`; that period carries
     chip `sec_index` of the pilot's secondary code, and the data component's secondary
     code and symbols run on the same count of 1 ms epochs, so a symbol starts wherever the

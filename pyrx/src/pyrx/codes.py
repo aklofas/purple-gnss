@@ -197,7 +197,7 @@ def gal_cs100(prn: int) -> np.ndarray:
 
 E1_CHIP_RATE = 1.023e6
 E1_LENGTH = 4092
-GAL_CS25 = _hex_signs("380AD90", 25)  # the secondary code of every E1-C, ICD Table 20
+GAL_CS25 = _hex_signs("380AD90", 25)  # the secondary code of every E1-C, ICD issue 2.2 Table 22
 
 _e1_cache: dict[str, tuple[np.ndarray, ...]] = {}
 

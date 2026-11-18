@@ -98,7 +98,8 @@ COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
-    """Receiver time (s from the source start) of every epoch's code-period start."""
+    """Receiver time (s from the source start) at which every epoch's 1 ms of code starts: a
+    code period, or a quarter of Galileo E1's."""
     off = (track.code_offset - track.t + CA_PERIOD / 2) % CA_PERIOD - CA_PERIOD / 2
     return track.t + off
 
