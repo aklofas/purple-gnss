@@ -1,8 +1,8 @@
 usage: pyrx-rtk [-h] [--nav-add FILE] --base-xyz X Y Z [--base-delta E N U]
                 [--rover-delta E N U] [--signals SIGNALS]
                 [--mode {kinematic,static}] [--slips {check,restart}]
-                [--min-lock N] [--fix-sats N] [--backward] [--mask MASK]
-                [--ts TS] [--te TE] [-o OUT] [-v]
+                [--min-lock N] [--fix-sats N] [--change-limit M] [--backward]
+                [--mask MASK] [--ts TS] [--te TE] [-o OUT] [-v]
                 rover base nav
 
 RTK baseline per epoch from rover and base RINEX observation files and a
@@ -33,6 +33,11 @@ options:
                         search, RTKLIB's pos2-arlockcnt (default 5; RTKLIB 0)
   --fix-sats N          satellites the integer search must span for a fix
                         (default 5; RTKLIB 0)
+  --change-limit M      with --slips check, a flagged phase is not taken for
+                        continuous on the word of its satellite's other signal
+                        when either of the two changed by more than this (m)
+                        against the other satellites since the previous epoch
+                        (default 0.03; 0: no limit)
   --backward            run the filter from the last epoch to the first
   --mask MASK           elevation mask (deg)
   --ts TS               first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'
