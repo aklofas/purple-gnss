@@ -1,3 +1,4 @@
 # the Galileo E1 code tables are kept byte for byte as published (CRLF line ends)
 pyrx/src/pyrx/data/C7_E1B.txt -text
 pyrx/src/pyrx/data/C8_E1C.txt -text
+pyrx/src/pyrx/data/OS-SIS-ICD-2.2-terms-and-annex-H.pdf binary

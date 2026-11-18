@@ -5,8 +5,13 @@ C7_E1B.txt and C8_E1C.txt are the Galileo E1-B and E1-C primary codes (fifty cod
     Issue 2.2, November 2025. (c) European Union 2025.
     https://www.gsc-europa.eu
 
-They are reproduced here unmodified. The codes are Technical Data of that document, owned
-by the European Union. Their use and storage are authorised, royalty-free, under the terms
-of the document's Annex H (Authorisation Concerning the OS SIS ICD IPRs), which each user
-accepts for themselves; that authorisation cannot be transferred or licensed. These two
-files are therefore not covered by this repository's license.
+They are reproduced here unmodified. OS-SIS-ICD-2.2-terms-and-annex-H.pdf holds, as
+published and unmodified, the pages of that document that govern them: its "Terms of Use
+and Disclaimers" (pp. i-ii) and its Annex H, "Authorisation Concerning the OS SIS ICD IPRs"
+(pp. 105-114). Those terms ask that both be passed on, whole, with any part of the
+document.
+
+The codes are Technical Data of that document, owned by the European Union. Annex H
+allows their use and storage royalty-free, the source acknowledged, on its own terms and
+limits, which each user accepts for themselves; what it grants cannot be transferred or
+licensed. These three files are therefore not covered by this repository's license.

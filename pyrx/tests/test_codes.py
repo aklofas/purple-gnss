@@ -240,6 +240,9 @@ def test_pilot_codes_bad_prn(gen, bad):
 E1_FILES = {  # the files attached to the Galileo OS SIS ICD, issue 2.2, and their SHA-256
     "C7_E1B.txt": "26ce97a6a76b579f003f2ad6cbd7715c32768c1cb25afcfa9af38c30fe0a0df2",
     "C8_E1C.txt": "4151184f12d536ba0fedccb041406ff5480ce4e919547c94196bad3f1a5b0875",
+    # the document's terms of use and its Annex H, which go with them: pages i-ii and 105-114
+    # of the published file, cut out unchanged
+    "OS-SIS-ICD-2.2-terms-and-annex-H.pdf": "768ca2feb2ad1b4a6fb76eb44597ed1875d8521f1addfa868f0a8c021eeed6fd",
 }
 
 
@@ -247,6 +250,9 @@ E1_FILES = {  # the files attached to the Galileo OS SIS ICD, issue 2.2, and the
 def test_e1_code_files_are_the_interface_documents_attachments(name):
     data = importlib.resources.files("pyrx").joinpath("data", name).read_bytes()
     assert hashlib.sha256(data).hexdigest() == E1_FILES[name]
+    # and the notice beside them names every one of them
+    notice = importlib.resources.files("pyrx").joinpath("data", "NOTICE.txt").read_text("ascii")
+    assert name in notice and "not covered by this repository's license" in notice
 
 
 @pytest.mark.parametrize(

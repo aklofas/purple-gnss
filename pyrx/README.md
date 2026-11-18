@@ -1100,8 +1100,10 @@ Galileo E1 is tracked on its pilot E1-C through the same stages. Its description
 per satellite and component, read from the two tables published with the Galileo Open
 Service ICD (`src/pyrx/data/C7_E1B.txt` and `C8_E1C.txt`, unmodified). The codes are the
 European Union's: the ICD's Annex H authorizes their use and storage royalty-free to each
-user, which no license can pass on, so those two files are not under this repository's
-license (`src/pyrx/data/NOTICE.txt`). The tracker keeps its 1 ms epochs and each one
+user, on terms no license can pass on, and the ICD asks that its terms of use and that
+annex go with any part of it. They are beside the tables as published
+(`OS-SIS-ICD-2.2-terms-and-annex-H.pdf`), and the three files are not under this
+repository's license (`src/pyrx/data/NOTICE.txt`). The tracker keeps its 1 ms epochs and each one
 correlates a quarter of the code, so every loop schedule above stays as it is. The
 secondary code has 25 chips, one per code period (100 ms), and is held over the four
 epochs of a period. Held like that it matches itself at 0.76 one epoch off, against the
