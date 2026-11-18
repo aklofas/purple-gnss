@@ -509,8 +509,8 @@ def test_e1_and_e5a_pseudoranges_differ_by_one_value_on_every_satellite(captures
     # nothing but the sample clock, and each takes its time from its own secondary code.
     # E1C minus E5Q is the front end's delay between its bands, 31 m, with meters of
     # ionosphere and code noise: every epoch of every satellite within 7 m of it on the
-    # three captures. An E1 channel on a side peak of its correlation would stand 147 m
-    # off, one a quarter chip off 73 m, a wrong millisecond 300 km.
+    # three captures. An E1 channel beside a side peak of its correlation would stand 147
+    # to 183 m off, one a quarter chip off 73 m, a wrong millisecond 300 km.
     pairs = _galileo_pairs(captures, capture)
     assert len(pairs) == satellites
     common = np.median(np.concatenate([r[:, 1] - r[:, 2] for r in pairs.values()]))
@@ -553,9 +553,10 @@ def test_both_galileo_bands_give_the_cold_start_more_fixes_both_directions_agree
 def test_both_galileo_bands_on_the_drive_and_the_parked_car(captures):
     # Measured with the command's settings: the drive 245 / 249 / 216 / 3 where GPS alone has
     # 202 / 178 / 144 / 1 and E5a beside it 242 / 255 / 227 / 4. The three apart are 5.4 to
-    # 5.6 cm horizontal, at 53, 66 and 67 s, in the twenty seconds of a turn in which G24
-    # and G11 are 10 dB down with their L1 phases flagged at every epoch; without G24 none
-    # stands apart (210 together). The parked car in kinematic mode 294 / 299 / 294 / 0.
+    # 5.6 cm horizontal, at 53, 66 and 67 s, in twenty seconds of a turn in which G24 is 5
+    # to 13 dB down with its L1 phase flagged at every epoch; without G24 none stands apart
+    # (210 together), without G11 or E27 one, without E13 seven. The parked car in kinematic
+    # mode 294 / 299 / 294 / 0.
     data = _car_with_galileo(captures, DRIVING, BOTH_BANDS, E1_E5A_FILE)
     _, _, together, apart = _both_ways(data, **COMMAND)
     assert len(together) >= 208 and len(apart) <= 4, (len(together), len(apart))
