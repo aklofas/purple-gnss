@@ -11,7 +11,7 @@ today is the reference receiver, and its interfaces will change:
 
 | Part                                   | Status                                                                                                                                                                   | Start here                         |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A and L5 samples to RINEX, and RINEX to a standalone or RTK fix; GPS L5, Galileo E5a and Galileo E1 pilots tracked; checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
+| **`pyrx`**, offline receiver in Python | Working: recorded GPS L1 C/A and L5 and Galileo E1 and E5a samples to RINEX, and RINEX to a standalone or RTK fix; GPS L5, Galileo E5a and Galileo E1 pilots tracked; checked against Pocket SDR and RTKLIB | [`pyrx/README.md`](pyrx/README.md) |
 | **`fpga`**, tracking channel RTL       | In simulation: an L1 C/A tracking channel, bit-exact against its Python model, with a register bus and SPI slave; builds for the Lattice LIFCL-40-EVN board              | [`fpga/README.md`](fpga/README.md) |
 | **Hardware**                           | In design                                                                                                                                                                |                                    |
 
