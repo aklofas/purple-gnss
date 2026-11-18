@@ -788,10 +788,14 @@ def test_rinex_main_galileo_says_which_band_has_no_pilot(tmp_path, capsys, monke
     l5.write_bytes(b"\0" * 64)
     real = cli.track_prns
 
+    asked = {}
+
     def walk(path, fs_, iq, f_if, prns, **kwargs):
         signal = kwargs.get("signal", "L1CA")
+        asked[signal] = (str(path), iq, f_if, kwargs.get("t_start"), kwargs.get("duration"))
         if signal == "L1CA":
-            walk.l1 = real(path, fs_, iq, f_if, prns, **kwargs)
+            if not hasattr(walk, "l1"):
+                walk.l1 = real(path, fs_, iq, f_if, prns, **kwargs)
             return walk.l1
         if signal == "L5":
             return [_pilot_beside(walk.l1[0], 500, 14000, 30e-9)]
@@ -808,6 +812,15 @@ def test_rinex_main_galileo_says_which_band_has_no_pilot(tmp_path, capsys, monke
         err = capsys.readouterr().err
         where = str(f) if missing == "E1" else str(l5)
         assert err.strip() == f"--galileo: no {missing} pilot tracked in {where}"
+    assert asked["E1"] == (str(f), True, 0.0, 0.0, None)
+    # The E1 walk reads the L1 file as the L1 walk does: real samples at its intermediate
+    # frequency, the same span; the E5a walk the L5 file, I/Q at its own. (The L1 tracks of
+    # the first run stand in for this one's.)
+    args = [str(f), "--fs", "2.5e6", "--f-if", "625e3", "--t-start", "0.5", "--duration", "17"]
+    args += ["--prn", "4", "--l5", str(l5), "--l5-f-if", "1500", "--galileo"]
+    assert rinex_main([*args, "--obs", str(tmp_path / "real.obs")]) == 0
+    assert asked["E1"] == asked["L1CA"] == (str(f), False, 625e3, 0.5, 17.0)
+    assert asked["E5A"] == (str(l5), True, 1500.0, 0.5, 17.0)
 
 
 def test_rinex_main_galileo_needs_the_l5_recording(tmp_path, capsys):
