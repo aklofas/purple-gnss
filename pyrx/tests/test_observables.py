@@ -1046,6 +1046,50 @@ def test_e1_and_e5a_that_disagree_write_neither_where_both_are(apart):
     assert PILOT_AGREEMENT == 1e-6
 
 
+@pytest.mark.parametrize("event", ["none", "unlocked", "coasted"])
+def test_a_stretch_withheld_is_not_a_loss_of_lock(event):
+    # E5a tracked for 30 s; from 8 to 18 s an E1 pilot of the satellite stands a code period
+    # off, so neither is written while both are there. E5a's first phase after the stretch
+    # carries on its line without a flag when the loop held all through; an unlocked window
+    # or a coasted sum inside the stretch is carried to that phase as it would be to the
+    # next phase written
+    lock = np.ones(30000)
+    held = np.zeros(30000, dtype=bool)
+    if event == "unlocked":
+        lock[12000:13000] = 0.1
+    if event == "coasted":
+        held[13100:13301:20] = True
+    track, ln = _still_channel(SFS)
+    e5a, travel = _still_e5a(phase_lock=lock, held=held)
+    e1 = _still_e1(travel + 4e-3, k_start=8000, n=10000)
+    joint = make_joint_observables([track], [ln], [e5a, e1], pilot_signals=BOTH_BANDS)
+    rx0 = receiver_time0([track], [ln])
+    rows = [(o.tow - rx0, _e5q(o)) for o in joint if "E11" in o.sats]
+    assert all(np.isnan(_e1c(o)[0]) for o in joint if "E11" in o.sats)  # E1 is never alone
+    before = [(t, r) for t, r in rows if t < 12.0]
+    after = [(t, r) for t, r in rows if t > 12.0]
+    # nothing of the satellite from E1's sync to its end, both written sides of it there
+    assert len(before) > 6 and len(after) > 10 and len(before) + len(after) == len(rows)
+    assert before[-1][0] < e1.t[e1.sec_sync + 1] + 1.0 and e1.t[-1] < after[0][0] < e1.t[-1] + 1.0
+    first = after[0][1]
+    assert first[1] == pytest.approx(420.0 * (after[0][0] - 0.2e-3) - 0.25, abs=1e-6)
+    assert first[4] == (0 if event == "none" else LLI_SLIP)
+    assert not any(r[4] for _, r in after[1:])
+
+
+def test_a_pilot_without_phase_lock_still_speaks_for_its_time():
+    # the time of a pilot comes from its code and its secondary code, which hold without
+    # phase lock: an E1 pilot whose phase is blank still withholds E5a where their times
+    # disagree
+    track, ln = _still_channel(SFS)
+    e5a, travel = _still_e5a()
+    e1 = _still_e1(travel + 4e-3, k_start=8000, n=10000, phase_lock=np.full(10000, 0.1))
+    joint = make_joint_observables([track], [ln], [e5a, e1], pilot_signals=BOTH_BANDS)
+    rx0 = receiver_time0([track], [ln])
+    inside = [o for o in joint if e1.t[e1.sec_sync + 1] + 1.0 < o.tow - rx0 < e1.t[-1] - 1.0]
+    assert len(inside) > 5 and all("E11" not in o.sats for o in inside)
+
+
 def test_the_first_e1_phase_written_after_a_disagreement_is_flagged_as_a_first_phase():
     # an E1 segment whose every epoch beside E5a was withheld has written nothing yet when
     # E5a ends: its first written phase is a first phase
