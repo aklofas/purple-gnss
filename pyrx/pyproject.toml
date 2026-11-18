@@ -26,7 +26,7 @@ pyrx-rtk = "pyrx.cli:rtk_main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyrx = ["data/*.txt"]
+pyrx = ["data/*.txt", "data/*.pdf"]
 
 [tool.ruff]
 line-length = 100

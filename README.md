@@ -51,3 +51,8 @@ coordinates (`--base-xyz`); see
 
 Licensed under **MIT** ([`LICENSE-MIT`](LICENSE-MIT)) or **Apache-2.0** ([`LICENSE-APACHE`](LICENSE-APACHE)),
 at your option.
+
+Three files are not ours to license: the Galileo E1 code tables in `pyrx/src/pyrx/data/` and
+the pages of the Galileo interface document that govern them, which belong to the European
+Union and are reproduced unmodified under that document's own terms
+([`NOTICE.txt`](pyrx/src/pyrx/data/NOTICE.txt)).
