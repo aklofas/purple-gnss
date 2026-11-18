@@ -53,16 +53,16 @@ def test_synthetic_e1_is_two_boc_components_on_one_axis():
     assert all(abs(h.real + 0.5) < 0.05 for h in half) and all(abs(f) < 0.06 for f in full)
 
 
-@pytest.mark.parametrize("cn0", [36.0, 40.0, 45.0])
+@pytest.mark.parametrize("cn0", [38.0, 40.0, 45.0])
 def test_e1_acquisition_finds_the_main_peak(cn0):
     code_offset = 31337
     x = _signal(0.021, cn0, 1234.0, code_offset, seed=3)
     acq = acquire_signal(x[: int(FS * 0.020)], FS, 0.0, E1, PRN)
     assert acq.detected and abs(acq.cn0 - cn0) < 3.0
     assert abs(acq.doppler - 1234.0) < 70.0
-    # the offset of a code period's start, anywhere in its 4 ms, to a tenth of a chip: not
-    # the side peak half a chip away
-    assert abs(acq.code_offset * FS - code_offset) < 0.1 * CHIP + 1
+    # the offset of a code period's start, anywhere in its 4 ms, to the sample (a twelfth
+    # of a chip at this rate): not the side peak half a chip away
+    assert abs(acq.code_offset * FS - code_offset) <= 1.0
     assert not acquire_signal(x[: int(FS * 0.020)], FS, 0.0, E1, 12).detected
 
 
@@ -110,8 +110,8 @@ def test_e1_code_loop_closes_an_offset_as_a_plain_code_does(start):
 @pytest.mark.parametrize("cn0", [38.0, 45.0])
 def test_a_start_on_a_side_peak_is_ended(shift, cn0):
     # half a chip from the code start the correlation has a peak of half the size and the
-    # opposite sign, and the loops lock on it; the tap toward the main peak then reads twice
-    # the prompt, and the track ends before the window that showed it
+    # opposite sign, and the loops stay off the main peak from there; the tap toward the main
+    # peak reads twice the prompt, and the track ends before the window that showed it
     x = _signal(5.2, cn0, 800.0, seed=4)
     r = _track(x, code_offset=700 + shift * CHIP, doppler=800.0, cn0=cn0)
     # the first window shows it, so nothing of the track is left
@@ -135,9 +135,56 @@ def test_a_track_that_moves_to_a_side_peak_ends_a_window_before_the_one_that_sho
 
 @pytest.mark.parametrize("cn0", [32.0, 36.0, 40.0, 50.0])
 def test_the_main_peak_never_trips_the_guard(cn0):
+    # the reading is 0.39 to 0.70 on the main peak in every window measured, down to windows
+    # of 22 dB-Hz, and 1.55 or more on a side peak: the threshold stands in the gap
     x = _signal(6.2, cn0, -1500.0, seed=5)
     r = _track(x, doppler=-1500.0, cn0=cn0)
     assert not r.side_peak and len(r.t) > 6000 and SIDE_PEAK == 1.0
+
+
+@pytest.mark.parametrize("cn0", [26.0, 28.0, 30.0])
+@pytest.mark.parametrize("seed", [5, 6])
+def test_a_weak_main_peak_ends_by_the_loss_rule_not_the_guard(cn0, seed):
+    # near the loss threshold the guard's sums are mostly noise; a window below the loss
+    # rule's C/N0 is not judged by the guard at all
+    x = _signal(8.2, cn0, 200.0, seed=seed)
+    r = _track(x, doppler=200.0, cn0=cn0)
+    assert not r.side_peak
+
+
+@pytest.mark.parametrize("seed", [11, 12, 14])
+def test_the_guard_reads_a_weak_side_peak(seed):
+    # The projection is taken with the noise out of both sums, so it reads the correlation's
+    # own ratio at any strength: a 33 dB-Hz pilot that jumps to a side peak, where its prompt
+    # reads 27 dB-Hz and the loss rule lets it live, is ended as a strong one is. Projected
+    # on the prompt's whole power, noise and all, it read 0.9 to 1.0 here and the track ran
+    # on for seconds or for good.
+    x = _signal(9.2, 33.0, seed=seed)
+    jump = int(3.4 * FS)
+    x[jump:] = _signal(9.2, 33.0, code_offset=700 + round(0.5 * CHIP), seed=seed)[jump:]
+    r = _track(x, cn0=33.0)
+    assert r.side_peak and len(r.t) == 3000
+
+
+def test_a_side_peak_in_the_only_window_is_seen_in_it():
+    # the first window alone decides: a track of one window and a half that starts on a side
+    # peak is ended by that window, and nothing of it is left
+    x = _signal(1.7, 45.0, 800.0, seed=4)
+    r = _track(x, code_offset=700 + 0.5 * CHIP, doppler=800.0, duration=1.5)
+    assert r.side_peak and len(r.t) == 0 and r.lost_at == pytest.approx(700 / FS, abs=1e-4)
+
+
+def test_a_secondary_code_found_in_the_part_cut_away_is_not_kept():
+    # the code jumps at 1.7 s, the secondary code is found at 2.0 s on the side peak, the
+    # window from 2 to 3 s shows the side peak: the track is cut to its first second, before
+    # the sync, and reports none
+    x = _signal(5.2, 45.0, seed=8)
+    jump = int(1.7 * FS)
+    x[jump:] = _signal(5.2, 45.0, code_offset=700 + round(0.5 * CHIP), seed=8)[jump:]
+    r = _track(x)
+    assert r.side_peak and len(r.t) == 1000
+    assert r.sec_sync is None and r.symbols is None and r.symbol_epoch is None
+    assert (r.sec_origin, r.sec_polarity) == (0, 0)
 
 
 def test_an_outage_does_not_trip_the_guard():

@@ -81,12 +81,16 @@ LOST_WINDOWS = 2  # consecutive bad windows that end a track
 EL_SPACING = 0.25  # chips each side of prompt
 NOISE_TAP = -10.0  # chips
 TAPS = np.array([0.0, EL_SPACING, -EL_SPACING, NOISE_TAP])  # prompt, early, late, noise
-# A signal with a subcarrier has side peaks in its correlation, and the loops lock on one as
-# well as on the main peak. A tap at a side peak, projected on the prompt over a C/N0 window
-# (minus the sum of Re(tap conj(prompt)) over the sum of |prompt|^2), reads the correlation
-# there over the correlation at prompt with the sign turned: 0.5 from the main peak of
-# BOC(1,1), also in noise, whose correlation between the taps is the code's own; 2 toward the
-# main peak from a side peak. Above SIDE_PEAK the track is on a side peak.
+# A signal with a subcarrier has side peaks in its correlation, and the loops settle beside
+# one as well as on the main peak. A tap half a chip from prompt, projected on the prompt
+# over a C/N0 window (minus the sum of Re(tap conj(prompt)) over the sum of |prompt|^2),
+# reads the correlation there over the correlation at prompt with the sign turned. The noise
+# of the two taps is correlated by the replica's own correlation between them, so its part
+# is taken out of both sums with the noise tap's power, and the reading is the signal's at
+# any strength: 0.5 on the main peak of BOC(1,1), 1.7 to 2 toward the main peak from where
+# the loops stand beside a side peak. Above SIDE_PEAK the track is on a side peak. A window
+# whose own C/N0 is below the loss rule's is not judged: the difference of two noise sums
+# says nothing.
 SIDE_PEAK = 1.0
 
 # Relations the loop relies on: the stages make up the pull-in; the loss rule exempts only the
@@ -233,7 +237,8 @@ class TrackResult:
     t[k]: s from the source start, the first sample of epoch k's window (the code
         start rounded to the sample grid).
     corr[k]: complex64 prompt, early, late, noise correlator sums of epoch k.
-    code_offset[k]: s, the code-period start used for epoch k, reduced into
+    code_offset[k]: s, the start of epoch k's part of the code (a code period, or a
+        quarter of Galileo E1's), reduced into
         [0, CA_PERIOD). The exact start is t[k] + wrap(code_offset[k] - t[k]),
         within half a sample of t[k].
     doppler[k]: Hz, after epoch k's loop update (applies from epoch k+1 on).
@@ -275,9 +280,10 @@ class TrackResult:
         (a fade, in which the carrier phase can come back half a cycle or more away).
         False through the pull-in. A pilot channel gives the field the meaning below.
 
-    side_peak: True for a track ended because a tap at a side peak of the replica's
-        correlation outweighed the prompt over a C/N0 window (`SIDE_PEAK`): the loops stood
-        on a side peak. The track then ends before the window preceding that one.
+    side_peak: True for a track ended because a tap half a chip from prompt outweighed the
+        prompt over a C/N0 window, the noise taken out of both (`SIDE_PEAK`): the loops stood
+        beside a side peak of the replica's correlation. The track then ends before the
+        window preceding that one.
 
     A pilot signal's channel (`signal` names the signal) adds:
 
@@ -379,6 +385,12 @@ def track(
     if per_chip > 1 or spec.side_taps:
         taps = per_chip * np.concatenate([TAPS, spec.side_taps])
     n_side = len(spec.side_taps)
+    # what the noise alone puts into each side tap's projection, per unit of noise power: the
+    # replica's correlation with itself moved by the tap, sign turned (0.5 for BOC(1,1))
+    side_noise = np.array(
+        [-np.mean(code * np.roll(code, round(tap * per_chip)), dtype=np.float64) for tap in spec.side_taps]
+    )  # fmt: skip
+    side_floor = 10.0 ** (CN0_LOST / 10.0) * t  # signal over noise power of a window at CN0_LOST
     epoch_chips = spec.code_length // spec.epochs
     end_sample = source.n_samples
     if duration is not None:
@@ -552,8 +564,10 @@ def track(
             bad_windows = bad_windows + 1 if bad else 0
             lost = bad_windows >= LOST_WINDOWS
             if n_side:
-                side_peak = bool(sum_side.max() > SIDE_PEAK * sum_p)
-                lost = lost or side_peak
+                signal = sum_p - sum_n
+                if signal >= side_floor * sum_n:
+                    side_peak = bool((sum_side - side_noise * sum_n).max() > SIDE_PEAK * signal)
+                    lost = lost or side_peak
                 sum_side[:] = 0.0
             sum_p = sum_n = sum_d = sum_ps = 0.0
 
