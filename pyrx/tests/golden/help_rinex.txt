@@ -8,7 +8,8 @@ usage: pyrx-rinex [-h] --fs FS [--f-if F_IF] [--iq] [--prn PRN]
 Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and
 navigation files. With --l5, also track the GPS L5 pilots in a second
 recording of the same instants and write their observations beside L1's; with
---galileo, the Galileo E5a pilots in that recording too.
+--galileo, the Galileo E1 pilots in FILE and the Galileo E5a pilots in that
+recording too.
 
 positional arguments:
   file
@@ -33,6 +34,7 @@ options:
                         clock and rate, sample for sample alongside FILE: adds
                         the GPS L5 pilot observations C5Q L5Q D5Q S5Q
   --l5-f-if L5_F_IF     intermediate frequency of the --l5 file (Hz)
-  --galileo             with --l5: also track the Galileo E5a pilots in the
-                        --l5 recording and write their observations C5Q L5Q
+  --galileo             with --l5: also track the Galileo E1 pilots in FILE
+                        and the Galileo E5a pilots in the --l5 recording and
+                        write their observations C1C L1C D1C S1C and C5Q L5Q
                         D5Q S5Q, on the receiver's GPS time

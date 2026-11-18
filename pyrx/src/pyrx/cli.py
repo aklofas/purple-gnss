@@ -328,8 +328,8 @@ def _count(value: str) -> int:
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
     files. With --l5, also track the GPS L5 pilots in a second recording of the same
-    instants and write their observations beside L1's; with --galileo, the Galileo E5a
-    pilots in that recording too."""
+    instants and write their observations beside L1's; with --galileo, the Galileo E1
+    pilots in FILE and the Galileo E5a pilots in that recording too."""
     p = argparse.ArgumentParser(prog="pyrx-rinex", description=rinex_main.__doc__)
     _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
@@ -356,8 +356,9 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--galileo",
         action="store_true",
-        help="with --l5: also track the Galileo E5a pilots in the --l5 recording and write "
-        "their observations C5Q L5Q D5Q S5Q, on the receiver's GPS time",
+        help="with --l5: also track the Galileo E1 pilots in FILE and the Galileo E5a pilots "
+        "in the --l5 recording and write their observations C1C L1C D1C S1C and C5Q L5Q D5Q "
+        "S5Q, on the receiver's GPS time",
     )
     args = p.parse_args(argv)
     if args.galileo and args.l5 is None:
@@ -414,17 +415,23 @@ def rinex_main(argv: list[str] | None = None) -> int:
                 "that the file is the L5 band of the same capture",
                 file=sys.stderr,
             )
-        galileo = []
+        e1, e5a = [], []
         if args.galileo:
-            # a Galileo pilot times itself, so every satellite's is looked for
-            galileo = track_prns(
+            # a Galileo pilot times itself, so every satellite's is looked for, in each band
+            e1 = track_prns(
+                args.file, args.fs, args.iq, args.f_if, list(SIGNALS["E1"].prns),
+                t_start=args.t_start, duration=duration, signal="E1",
+            )  # fmt: skip
+            if not e1:
+                print(f"--galileo: no E1 pilot tracked in {args.file}", file=sys.stderr)
+            e5a = track_prns(
                 args.l5, args.fs, True, args.l5_f_if, list(SIGNALS["E5A"].prns),
                 t_start=args.t_start, duration=duration, signal="E5A",
             )  # fmt: skip
-            if not galileo:
+            if not e5a:
                 print(f"--galileo: no E5a pilot tracked in {args.l5}", file=sys.stderr)
-        names = ("L5", "E5A") if args.galileo else ("L5",)
-        joint = joint_observables(run, epochs, [*pilots, *galileo], names)
+        names = ("L5", "E1", "E5A") if args.galileo else ("L5",)
+        joint = joint_observables(run, epochs, [*pilots, *e1, *e5a], names)
         elapsed = time.perf_counter() - t0
 
         def rows_of(name):
@@ -441,7 +448,8 @@ def rinex_main(argv: list[str] | None = None) -> int:
 
         _print_segments(pilots, "G5Q ", rx0, rows_of("L5"))
         if args.galileo:
-            _print_segments(galileo, "E5Q ", rx0, rows_of("E5A"))
+            _print_segments(e1, "E1C ", rx0, rows_of("E1"))
+            _print_segments(e5a, "E5Q ", rx0, rows_of("E5A"))
         write_rinex_observations(args.obs, joint, args.marker, marker_type=args.marker_type)
     print(
         f"EPOCHS {len(epochs)}  from {gps_datetime(week, epochs[0].tow)} "
