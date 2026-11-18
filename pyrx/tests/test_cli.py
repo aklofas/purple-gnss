@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import json
 import re
 import sys
@@ -686,10 +687,22 @@ def _e5a_pilot(l1, prn, start=0, n=14000, sec_sync=1500):
     )  # fmt: skip
 
 
+def _e1_pilot(l1, prn, start=0, n=14000, sec_origin=0):
+    """A constructed Galileo E1 pilot segment on the same time as `_e5a_pilot`'s when
+    `sec_origin` is 0, each 4 of it a code period later."""
+    e5a = _e5a_pilot(l1, prn, start, n)
+    return dataclasses.replace(
+        e5a, signal="E1", doppler=np.full(n, -400.0), carrier_phase=-0.4 * np.arange(1, n + 1),
+        cn0=np.full(n, 40.0), sec_origin=sec_origin,
+    )  # fmt: skip
+
+
 def test_rinex_main_galileo_output(tmp_path, capsys, monkeypatch):
     # the whole output of a run with --l5 and --galileo on constructed pilots: an E5a pilot of
     # a satellite number GPS has too, one that begins later, and one that never found its
-    # secondary code
+    # secondary code; an E1 pilot of the first on the same time, one of the second a code
+    # period off (written only before the E5a pilot begins, and E5a only after it ends), and
+    # one of a satellite without E5a
     fs = 2.5e6
     seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
     n = int(fs * (len(seq) * 0.020 + 0.1))
@@ -709,6 +722,8 @@ def test_rinex_main_galileo_output(tmp_path, capsys, monkeypatch):
         if signal == "L5":
             return [_pilot_beside(walk.l1[0], 500, 14000, 30e-9)]
         (l1,) = walk.l1
+        if signal == "E1":
+            return [_e1_pilot(l1, 4), _e1_pilot(l1, 11, n=10000, sec_origin=4), _e1_pilot(l1, 25)]
         return [
             _e5a_pilot(l1, 4),
             _e5a_pilot(l1, 11, start=6000, n=8000),
@@ -720,19 +735,37 @@ def test_rinex_main_galileo_output(tmp_path, capsys, monkeypatch):
     args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs), "--l5", str(l5)]
     assert rinex_main([*args, "--l5-f-if", "1500", "--galileo"]) == 0
     out = capsys.readouterr().out
-    # the E5a pilots of every Galileo satellite are looked for in the --l5 file
+    # the E5a pilots of every Galileo satellite are looked for in the --l5 file, the E1
+    # pilots in the L1 file, read as that file is
     assert asked["E5A"] == (str(l5), 2.5e6, True, 1500.0, list(range(1, 37)))
+    assert asked["E1"] == (str(f), 2.5e6, True, 0.0, list(range(1, 37)))
     lines = out.splitlines()
     i = next(n for n, ln in enumerate(lines) if ln.startswith("E5Q PRN  4  epochs "))
-    assert lines[i - 1].startswith("G5Q PRN  4  epochs ")
     assert lines[i + 1].startswith("E5Q PRN 11  epochs ") and lines[i + 2] == "E5Q PRN 30  no time tag"
+    j = next(n for n, ln in enumerate(lines) if ln.startswith("E1C PRN  4  epochs "))
+    assert lines[j - 1].startswith("G5Q PRN  4  epochs ") and j + 3 == i
+    assert lines[j + 1].startswith("E1C PRN 11  epochs ") and lines[j + 2].startswith("E1C PRN 25  epochs ")
     text = obs.read_text()
     assert "M: MIXED" in text
-    assert "E    4 C5Q L5Q D5Q S5Q" in text and "G    8 C1C L1C D1C S1C C5Q L5Q D5Q S5Q" in text
-    assert "E L5Q  0.00000" in text and "G L5Q  0.00000" in text
+    assert "E    8 C1C L1C D1C S1C C5Q L5Q D5Q S5Q" in text
+    assert "G    8 C1C L1C D1C S1C C5Q L5Q D5Q S5Q" in text
+    assert "E L5Q  0.00000" in text and "G L5Q  0.00000" in text and "E L1C  0.00000" in text
     records = text.splitlines()
-    assert sum(ln.startswith("E04") for ln in records) == int(lines[i].split()[4])
-    assert sum(ln.startswith("E11") for ln in records) == int(lines[i + 1].split()[4]) > 3
+
+    def count(sat, band):
+        """Records of a satellite with a pseudorange in the E1 (0) or the E5a (1) columns."""
+        cells = [ln[3 + 64 * band : 17 + 64 * band] for ln in records if ln.startswith(sat)]
+        return sum(bool(c.strip()) for c in cells)
+
+    # E04: both bands in the same records; the summary lines count what was written
+    assert count("E04", 0) == int(lines[j].split()[4]) == count("E04", 1) == int(lines[i].split()[4])
+    # E11: the two pilots disagree by a code period, so E1 is written until E5a begins at
+    # 6 s plus its sync, neither while both are tracked, and E5a after E1 ends at 10 s
+    e11 = [ln for ln in records if ln.startswith("E11")]
+    assert all(bool(ln[3:17].strip()) != bool(ln[67:81].strip()) for ln in e11)
+    assert count("E11", 0) == int(lines[j + 1].split()[4]) > 3
+    assert count("E11", 1) == int(lines[i + 1].split()[4]) > 2
+    assert count("E25", 0) == int(lines[j + 2].split()[4]) > 10 and count("E25", 1) == 0
     assert not any(ln.startswith("E30") for ln in records)
     check_golden("cli_rinex_galileo.out", without_elapsed(out))
     check_golden("cli_rinex_galileo.obs", without_date(text))
@@ -743,6 +776,38 @@ def test_rinex_main_galileo_output(tmp_path, capsys, monkeypatch):
     assert [ln for ln in records if ln.startswith("G") and len(ln) > 60] == [
         ln for ln in gps if len(ln) > 60
     ]
+
+
+def test_rinex_main_galileo_says_which_band_has_no_pilot(tmp_path, capsys, monkeypatch):
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    f = tmp_path / "s.bin"
+    n = int(fs * (len(seq) * 0.020 + 0.1))
+    write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, n, 45.0, True, bits=seq), f)
+    l5 = tmp_path / "l5.bin"
+    l5.write_bytes(b"\0" * 64)
+    real = cli.track_prns
+
+    def walk(path, fs_, iq, f_if, prns, **kwargs):
+        signal = kwargs.get("signal", "L1CA")
+        if signal == "L1CA":
+            walk.l1 = real(path, fs_, iq, f_if, prns, **kwargs)
+            return walk.l1
+        if signal == "L5":
+            return [_pilot_beside(walk.l1[0], 500, 14000, 30e-9)]
+        if signal != walk.found:
+            return []
+        return [(_e5a_pilot if signal == "E5A" else _e1_pilot)(walk.l1[0], 4)]
+
+    monkeypatch.setattr(cli, "track_prns", walk)
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--l5", str(l5), "--galileo"]
+    for found, missing in (("E5A", "E1"), ("E1", "E5a")):
+        walk.found = found
+        obs = tmp_path / f"{found}.obs"
+        assert rinex_main([*args, "--obs", str(obs)]) == 0
+        err = capsys.readouterr().err
+        where = str(f) if missing == "E1" else str(l5)
+        assert err.strip() == f"--galileo: no {missing} pilot tracked in {where}"
 
 
 def test_rinex_main_galileo_needs_the_l5_recording(tmp_path, capsys):
