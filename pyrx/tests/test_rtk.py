@@ -1917,3 +1917,39 @@ def test_an_epoch_without_a_verdict_is_still_the_one_the_next_is_compared_with(m
     )  # fmt: skip
     assert _locks(pairs, ephs, change_limit=0.03) == [12, 12]
 
+
+def test_a_change_of_the_half_cycle_bit_keeps_a_phase_out_of_the_solution(monkeypatch):
+    # the bit comes up on one phase at 3 s and goes at 6 s: the engine reads either change as
+    # a slip, and the phase's changes into 3 s and into 6 s are not clean; with the bit
+    # standing, at 4 and 5 s, they are
+    import pyrx.rtk as rtk_module
+
+    calls = []
+    judge = rtk_module._moved
+    monkeypatch.setattr(rtk_module, "_moved", lambda *a: calls.append(a) or judge(*a))
+    ephs = _two_systems()
+    key = ("G05", "G1C")
+    pairs = _l1_run(
+        np.random.default_rng(101), ephs, 8, lli_at=lambda k: {key: 2} if 3 <= k < 6 else None,
+        signals=BOTH,
+    )  # fmt: skip
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    clean = {}
+    for k, pair in enumerate(pairs):
+        rtk.step(*pair)
+        if k:
+            clean[k] = dict(zip(rtk.residuals, calls[-1][4], strict=True))
+    assert [k for k in clean if not clean[k][key]] == [3, 6]
+    assert all(sum(flags.values()) == (23 if k in (3, 6) else 24) for k, flags in clean.items())
+    # and at the base alike: its bit up at 3 s only, a change into 3 s and one into 4 s
+    other = ("E12", "E5Q")
+    r, b = pairs[3]
+    lli = b.lli.copy()
+    lli[b.sats.index(other[0]), b.signals.index(other[1])] = 2
+    pairs[3] = (r, replace(b, lli=lli))
+    rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    seen = []
+    for pair in pairs[:6]:
+        rtk.step(*pair)
+        seen.append(dict(zip(rtk.residuals, calls[-1][4], strict=True))[other])
+    assert seen[2:] == [True, False, False, True]

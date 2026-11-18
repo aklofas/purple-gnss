@@ -183,7 +183,8 @@ def _moved(
     number per carrier frequency (`band`, an index; the term also holds the antenna's turn,
     one cycle a turn on every phase of a frequency), and by what the phase did on its own.
     The unknowns are fitted to the `clean` phases, those neither receiver flags at either
-    epoch, with the least sum of absolute residuals. A phase that moved still pulls on
+    epoch (the lost-lock bit, or a change of the half-cycle bit between the two), with the
+    least sum of absolute residuals. A phase that moved still pulls on
     such a solution when few phases are there, so one is formed without each satellite in
     turn (`sat`, an index), and the one that explains the most clean phases within
     CHANGE_FIT gives the verdict. There is none with fewer than CHANGE_MIN_PHASES clean
@@ -328,9 +329,9 @@ class Rtk:
         self.fresh: dict[tuple[str, str], tuple[float, bool]] = {}  # what a restart begins with
         self.gf_now: dict[tuple[str, str], float] = {}  # geometry-free values of this epoch
         # per phase of the previous epoch that came to the ambiguities: its single-differenced
-        # residual (m), the rover's line of sight, and whether no receiver flagged it; and
-        # that epoch's rover and base time
-        self.residuals: dict[tuple[str, str], tuple[float, np.ndarray, bool]] = {}
+        # residual (m), the rover's line of sight, whether no receiver's lost-lock bit was
+        # on it, and the two receivers' half-cycle bits; and that epoch's rover and base time
+        self.residuals: dict[tuple[str, str], tuple] = {}
         self.residuals_at = (0.0, 0.0)
         self.moved: set[tuple[str, str]] = set()  # phases the other satellites contradict now
         self.x = np.zeros(3)
@@ -678,8 +679,9 @@ class Rtk:
                 residual = yr[sat][0][j] - yb[sat][0][jb]
                 if isfinite(residual):
                     # a flag held from an epoch that ended early lies between the two epochs
-                    clean = not (int(yr[sat][4][j]) | int(yb[sat][4][jb])) & 1
-                    now[(sat, sig)] = (residual, yr[sat][2], clean and (sat, sig) not in self.held)
+                    lli = (int(yr[sat][4][j]), int(yb[sat][4][jb]))
+                    clean = not (lli[0] | lli[1]) & 1 and (sat, sig) not in self.held
+                    now[(sat, sig)] = (residual, yr[sat][2], clean, (lli[0] & 2, lli[1] & 2))
         at = (self.last_time, t_base)
         (before, before_at), self.residuals, self.residuals_at = (
             (self.residuals, self.residuals_at),
@@ -701,7 +703,8 @@ class Rtk:
             np.array([now[key][1] for key in keys]),
             np.array([lams.index(wavelength(sig)) for _, sig in keys]),
             np.array([sats.index(sat) for sat, _ in keys]),
-            np.array([now[key][2] and before[key][2] for key in keys]),
+            # clean: no lost-lock bit at either epoch, no change of a half-cycle bit between
+            np.array([now[k][2] and before[k][2] and now[k][3] == before[k][3] for k in keys]),
             self.opt.change_limit,
         )
         return (

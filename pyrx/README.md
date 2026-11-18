@@ -744,7 +744,7 @@ receiver flags at either epoch, with the least sum of absolute residuals, once w
 each satellite in turn (a phase that moved still pulls on such a solution when few phases
 are there), and takes the solution that explains the most of them within 1.5 cm
 (`CHANGE_FIT`). A phase that stands more than `change_limit` from it has moved, flagged
-(by the lost-lock bit) or not. The consequence is one: where a phase in question or the signal that would vouch for
+or not. The consequence is one: where a phase in question or the signal that would vouch for
 it has moved, neither vouches, and the phase in question goes to the test against the rest
 of the epoch. No phase restarts for having moved, an unflagged phase is not touched, and
 the 5 cm geometry-free test is as it was. There is no verdict, and the engine is as
