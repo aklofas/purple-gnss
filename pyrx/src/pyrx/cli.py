@@ -325,6 +325,14 @@ def _count(value: str) -> int:
     return n
 
 
+def _length(value: str) -> float:
+    """An argument type: a length in m, 0 or more."""
+    x = float(value)
+    if not x >= 0.0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more: {value}")
+    return x
+
+
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
     files. With --l5, also track the GPS L5 pilots in a second recording of the same
@@ -602,6 +610,12 @@ def rtk_main(argv: list[str] | None = None) -> int:
         help="satellites the integer search must span for a fix (default 5; RTKLIB 0)",
     )
     p.add_argument(
+        "--change-limit", type=_length, default=0.03, metavar="M",
+        help="with --slips check, a flagged phase is not taken for continuous on the word of "
+        "its satellite's other signal when either of the two changed by more than this (m) "
+        "against the other satellites since the previous epoch (default 0.03; 0: no limit)",
+    )  # fmt: skip
+    p.add_argument(
         "--backward", action="store_true", help="run the filter from the last epoch to the first"
     )
     _add_positioning_arguments(p)
@@ -631,7 +645,7 @@ def rtk_main(argv: list[str] | None = None) -> int:
         rover, base, ephs, station, np.asarray(rover_delta, dtype=float),
         RtkOptions(
             mode=args.mode, mask_deg=args.mask, slips=args.slips, min_lock=args.min_lock,
-            min_fix_sats=args.fix_sats, backward=args.backward,
+            min_fix_sats=args.fix_sats, backward=args.backward, change_limit=args.change_limit,
         ),
         iono,
     )  # fmt: skip

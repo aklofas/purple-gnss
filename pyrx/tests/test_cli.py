@@ -286,7 +286,7 @@ def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, cap
     write_rinex_observations(base, [p[1] for p in pairs], "BASE")
     write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
     args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C"]
-    command = ["--slips", "check", "--min-lock", "5", "--fix-sats", "5"]
+    command = ["--slips", "check", "--min-lock", "5", "--fix-sats", "5", "--change-limit", "0.03"]
     rtklib = ["--slips", "restart", "--min-lock", "0", "--fix-sats", "0"]
     rows = {}
     for name, flags in {"default": [], "command": command, "rtklib": rtklib, "back": ["--backward"]}.items():
@@ -309,7 +309,7 @@ def test_rtk_main_looks_at_flagged_phases_unless_asked_for_rtklibs(tmp_path, cap
             for f in fixes
         ]
 
-    ours = {"slips": "check", "min_lock": 5, "min_fix_sats": 5}
+    ours = {"slips": "check", "min_lock": 5, "min_fix_sats": 5, "change_limit": 0.03}
     assert rows["rtklib"] == library()
     assert rows["command"] == library(**ours)
     assert rows["back"] == library(**ours, backward=True) != rows["command"]
@@ -641,6 +641,37 @@ def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch)
     assert err.count("\n") == 1 and "--l5" in err and "no L5 pilot tracked" in err
     assert "2 detections failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
     assert "C5Q L5Q D5Q S5Q" in obs.read_text()
+
+
+@pytest.mark.parametrize(
+    "flags,limit",
+    [([], 0.03), (["--change-limit", "0"], 0.0), (["--change-limit", "0.05"], 0.05)],
+)
+def test_rtk_main_hands_the_change_limit_to_the_engine(tmp_path, monkeypatch, capsys, flags, limit):
+    from pyrx import cli
+
+    rng = np.random.default_rng(22)
+    ephs = constellation()
+    pairs = [synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, ("G1C",), AMB_R, AMB_B, rng) for k in range(2)]
+    rov, base, nav = (tmp_path / n for n in ("r.obs", "b.obs", "n.nav"))
+    write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
+    write_rinex_observations(base, [p[1] for p in pairs], "BASE")
+    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
+    seen = []
+    solve = cli.solve_rtk
+    monkeypatch.setattr(cli, "solve_rtk", lambda *a: seen.append(a[5]) or solve(*a))
+    args = [str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), "--signals", "G1C"]
+    assert rtk_main([*args, *flags]) == 0
+    capsys.readouterr()
+    assert seen[0].change_limit == limit and seen[0].slips == "check"
+
+
+@pytest.mark.parametrize("value", ["-0.01", "nan"])
+def test_rtk_main_turns_away_a_change_limit_that_is_no_length(value, capsys):
+    with pytest.raises(SystemExit) as e:
+        rtk_main(["rover.obs", "base.obs", "brdc.nav", "--change-limit", value])
+    assert e.value.code == 2
+    assert "0 or more" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("option", ["--min-lock", "--fix-sats"])
