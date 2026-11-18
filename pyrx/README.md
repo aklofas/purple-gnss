@@ -2,7 +2,7 @@
 
 An offline GNSS receiver in Python: acquisition, tracking, navigation-message
 decode and observables written as RINEX from recorded GPS L1 C/A IF samples,
-acquisition and tracking of the GPS L5 and Galileo E5a pilot signals with GPS L5
+acquisition and tracking of the GPS L5, Galileo E5a and Galileo E1 pilot signals with GPS L5
 observations beside L1 from a second recording of the same instants, and a
 standalone position fix and an RTK fix from RINEX files, our own or public ones
 (GPS L1/L2/L5 and Galileo E1/E5a/E5b). Each stage is checked against an external
@@ -43,7 +43,8 @@ may differ in the last printed digit.
 
 The reference tests compare acquisition and tracking with Pocket SDR's results on
 its sample recordings (`test_acquisition_reference.py`, `test_tracking_reference.py`;
-the L5 and E5a pilots in `test_tracking_pilot_reference.py`),
+the L5 and E5a pilots in `test_tracking_pilot_reference.py`, the Galileo E1 pilot in
+`test_tracking_e1_reference.py`, one of its two tests `slow`),
 the navigation decode with the day's broadcast ephemeris (`test_navdecode_reference.py`),
 the transmit times with Pocket SDR's C tracker and the fix RTKLIB computes from our
 RINEX with the one it computes from Pocket SDR's (`test_observables_reference.py`), the L5 observations with the L1 ones of the same
@@ -77,6 +78,7 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `pocketsdr-trk/L1_20211226_082401_24MHz_I.ctrk.log` | generated: Pocket SDR C tracker (`pocket_trk`, commit eda8301) log of the 2021-12-26 recording: `$CH` channel state every 0.1 s with the transmit time of week, `$OBS`, `$POS`; command below | `8fcf3d029769683bda4b1fa06c060c6bb61235ea94235d4795d38e07ac298dbf` |
 | `pocketsdr-trk/L1_20220114_004440_8MHz_I.ctrk.log` | the same for the 2022-01-14 recording (`$CH` only: no subframe 1 in the window, so Pocket SDR forms no observations) | `3308cc4bc7273ba09ac1a14879b9bce7dca9f696119c0718f48b1a2cb4c09e92` |
 | `pocketsdr-trk/L5_20211226_082401_24MHz_IQ.l5fix.ctrk.log` | generated: Pocket SDR C tracker log of the L5 recording, data and pilot channels of GPS L5 and Galileo E5a, from a build with the GPS L5 code generator corrected; command and correction below | `d6057fedb84fc3bfe56967a6efd85e620e2291fecf5858fa311ca3e60be8c3b1` |
+| `pocketsdr-trk/L1_20211226_082401_24MHz_I.e1.ctrk.log` | generated: Pocket SDR C tracker log of the 2021-12-26 L1 recording, the data and pilot channels of Galileo E1 (E1B, E1C); command below | `1fda441198441f290f1e33cc58ab8ebb5cb851f8e651c5d25136dae68b955e22` |
 | `igs/USUD00JPN_R_20213600000_01D_30S_MO.crx.gz` | https://igs.bkg.bund.de/root_ftp/IGS/obs/2021/360/, IGS station USUD (Usuda, Japan), 30 s observations of 2021-12-26, RINEX 3.04, Hatanaka-compressed; no Doppler logged | `b964f1f0a51ffca461712575c6dbfe915b7eac65cb0f1513c46c75e2dc78e1f2` |
 | `igs/USUD00JPN_R_20213600000_01D_GN.rnx.gz` | the station's GPS navigation file of that day from the same directory; the one with the `GPSA`/`GPSB` ionosphere lines, so it is the navigation input for the station and for the 2021-12-26 recording | `911fe136cd28a51ba5e0f81c5494af8c32b3cdf26bac7b68f6d34821a1105649` |
 | `igs/igs21900.sp3` | IGS final orbits and clocks of 2021-12-26, 15 min, https://igs.bkg.bund.de/root_ftp/IGS/products/orbits/2190/igs21900.sp3.Z decompressed | `fdb9aae343289d97eec2241af7ee4cac0c774f33fb0d445f1fb1b1c95ed75072` |
@@ -96,6 +98,7 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `sky/20261103_030551_carroof-static/ch1.bin` | project recording, not distributed: the same front end parked under open sky, GPS L1, 24 MHz real, 6 MHz IF, 300 s; a `slow` test forms L1 and L5 observations from its first 120 s | `f991e49f5f0fd9d3dcaa58a48f528fb59fdf23cfc03d8edb96e9d6469bf44d2b` |
 | `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; `slow` tests walk the pilots of its first 60 s and form joint observations from its first 120 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
+| `sky/20261103_030551_carroof-static/trk_e1b.log` | generated: Pocket SDR C tracker log of that capture's `ch1.bin`, Galileo E1B channels (`-sig E1B -prn 1-36`), the reference of the `slow` E1 test, which walks 60 s of the file from 80 s | `f7807b5c03f5995d16c2c2a49f07139bc3f55fbf853746e5d290ae75d9c2e635` |
 | `sky/20261103_031515_carroof-driving/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the drive (291 epochs at 1 s, GPS L1 and L5), the rover of the RTK tests on the car-roof captures | `9f95711a31e419a8b79bc7b21276b0d88d5e34eeafa90c8868f0919fd874df31` |
 | `sky/20261103_031515_carroof-driving/pyrx_l1l5.nav` | generated: the navigation file of the same run | `68867ed5a8552c7bc6683f6a84f79040147ee44122662153cdd1862af49a10ab` |
 | `sky/20261103_030551_carroof-static/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the parked capture (299 epochs), the rover of the RTK tests on the car-roof captures | `4a34b9a27606570dbe335055071c4c76dda14bfb7ece98affd141f5cf527e778` |
@@ -152,6 +155,17 @@ components read equal on every satellite, as the signal is specified. The comman
 pocket_trk ../L5_20211226_082401_24MHz_IQ.bin -fmt INT8X2 -f 24 -fo 1176.45 -sig L5I -prn 1-32 -sig L5Q -prn 1-32 -sig E5AI -prn 1-36 -sig E5AQ -prn 1-36 -ti 0 -log L5_20211226_082401_24MHz_IQ.l5fix.ctrk.log
 ```
 
+The E1 log of the 2021-12-26 recording comes from the unmodified build, whose hundred
+E1 codes equal the tables published with the Galileo ICD:
+
+```sh
+pocket_trk ../L1_20211226_082401_24MHz_I.bin -fmt INT8 -f 24 -fo 1569.42 -sig E1B -prn 1-36 -sig E1C -prn 1-36 -ti 0 -log L1_20211226_082401_24MHz_I.e1.ctrk.log
+```
+
+It starts its channels one after another and an E1C channel only after the satellite's
+E1B channel, so its E1C channels cover the last 6 to 9 s of the file and two of the five
+satellites have none.
+
 ## Sample format
 
 Signed 8-bit samples. Real recordings hold one byte per sample. I/Q recordings
@@ -167,8 +181,8 @@ pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--signal L1CA] [--prn 1-32] [--duration 
 By default the first 20 ms of the file are integrated (`--duration 0` for the whole
 file), and a PRN counts as detected when its peak reads 36 dB-Hz or more.
 
-`--signal` is `L1CA` (GPS L1 C/A, the default), `L5` (the GPS L5 pilot, Q5) or `E5A`
-(the Galileo E5a pilot, E5a-Q); without `--prn` every PRN of the signal is searched
+`--signal` is `L1CA` (GPS L1 C/A, the default), `L5` (the GPS L5 pilot, Q5), `E5A`
+(the Galileo E5a pilot, E5a-Q) or `E1` (the Galileo E1 pilot, E1-C); without `--prn` every PRN of the signal is searched
 (1 to 32, or 1 to 36 for Galileo). A pilot carries one chip of a secondary code on
 every code period, so its sign changes between periods, and a period that straddles a
 sign change cancels part of itself in a circular correlation over one period. The
@@ -176,6 +190,15 @@ pilots are therefore searched with two periods of samples against the code padde
 zeros to two periods, as Pocket SDR does: one whole period always correlates. On a
 recording the plain search read 2 to 3 dB low wherever the code period started in
 mid-block, and the code phase hardly moves within a file.
+
+The E1 code lasts 4 ms and is searched with its subcarrier on it (see "Pilot signals"),
+two periods, 8 ms, at a time: 20 ms hold four such sums where a 1 ms pilot has nineteen.
+The code offset printed is that of a code period's start, anywhere in the 4 ms. The
+correlation of this signal has a second peak half a chip either side of the main one, a
+quarter of its power; the search takes the largest. On the synthetic signal it detects
+the pilot from 36 dB-Hz with the offset within a tenth of a chip; on the 2021-12-26
+recording it finds the five satellites above 41 dB-Hz in the first 20 ms and not the two
+at 35 dB-Hz.
 
 Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so the
 two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
@@ -218,7 +241,8 @@ below). A pilot has no data bits, so its trial is passed when the secondary code
 found and the trial's last complete window is phase-locked. Each segment's line also
 says when the secondary code was found (`SYNC 1.5 s`, seconds into the segment, or
 `SYNC none`), and the CSV has one more column, `synced`, 1 from the epoch the
-secondary chip is removed.
+secondary chip is removed. `--signal E1` tracks the Galileo E1 pilot the same way; its
+trial also turns away a seed whose loops settled on a side peak of the correlation.
 
 ## Navigation message decode from the command line
 
@@ -1065,3 +1089,85 @@ measured: the indicator 0.98 or more in every window after the sync, the Doppler
 0.3 Hz and the mean C/N0 within 1 dB of its pilot channels, the code start within 12 ns of its data
 channels (its own code loop is still settling at the end of the file); the test's
 bounds are 0.9, 1 Hz, 2 dB and 15 ns.
+
+### Galileo E1
+
+Galileo E1 is tracked on its pilot E1-C through the same stages. Its description
+(`signalspec.py`) carries what differs.
+
+**A 4 ms code on 1 ms epochs.** The code is 4092 chips at 1.023 Mchip/s, one memory code
+per satellite and component, read from the two tables published with the Galileo Open
+Service ICD (`src/pyrx/data/C7_E1B.txt` and `C8_E1C.txt`, unmodified). The codes are the
+European Union's: the ICD's Annex H authorizes their use and storage royalty-free to each
+user, which no license can pass on, so those two files are not under this repository's
+license (`src/pyrx/data/NOTICE.txt`). The tracker keeps its 1 ms epochs and each one
+correlates a quarter of the code, so every loop schedule above stays as it is. The
+secondary code has 25 chips, one per code period (100 ms), and is held over the four
+epochs of a period. Held like that it matches itself at 0.76 one epoch off, against the
+sync rule's 0.8, so the match is looked for only at an epoch that ends a code period. The
+data component E1-B lies on the pilot's axis with the opposite sign and sends one symbol
+per code period.
+
+**A subcarrier.** Every chip is multiplied by one cycle of a square wave (BOC(1,1); the
+signal's small BOC(6,1) part is left out of the replica), which the replica carries as two
+entries per chip. The correlation then falls three times as steeply as a plain code's: it
+crosses zero a third of a chip from the peak and has a second peak, half the height and of
+the opposite sign, half a chip either side.
+
+With early and late a quarter chip from prompt, the code discriminator is nine times as
+steep as a plain code's and is divided by nine, so that the loop closes a small offset at
+the rate of its 0.25 Hz as on the other signals. It is linear only to a twelfth of a
+chip, where the late tap reaches the zero of the correlation; beyond that its reading
+shrinks as the offset grows. Measured on the synthetic signal at 45 dB-Hz
+(no front-end filter): a start 0.15 chip off is within 0.05 chip after 3.5 s, one 0.2 chip
+off after 5.6 s, one a quarter chip off after 8 s, the secondary code found at the usual
+time and C/N0 reading up to 7 dB low on the way; a start 0.30 to 0.33 chip off, at the zero
+of the correlation, is lost within 3 s; from 0.36 chip the loops settle on the side peak.
+An acquisition seed is given to the sample (0.04 chip at 24 Msps), so the slow range is
+met after a fade, not at a start. Nothing flags a channel while it creeps in.
+
+**The side peaks.** The loops lock on a side peak as readily as on the main one: the code
+is then half a chip, 147 m, off and C/N0 reads 6 dB low, which a weak satellite does too.
+Two more taps therefore stand half a chip either side of prompt, and over each 1 s window
+each is projected on the prompt: minus the sum of Re(tap times the conjugate of prompt)
+over the sum of the prompt's power. On the main peak that reads 0.5, and without signal
+it reads 0.5 as well, because the noise of two taps half a chip apart is correlated by the
+code's own minus a half, so an obstruction does not move it; from a side peak the tap
+toward the main peak reads 2. A window above 1 (`SIDE_PEAK`) ends the track
+(`TrackResult.side_peak`), and the track is cut a window further back, because a window
+shows a move to a side peak once two thirds of it are there and the move may lie in the
+window before. In the walk's trial such a seed is turned away, and the next probe
+searches again. The guard reads whole windows: a channel that goes to a side peak writes
+nothing, but it costs the satellite two seconds and the time to the next probe.
+
+Checked on the synthetic signal (`test_tracking_e1.py`: the two components and their
+correlation, the search, the epochs, the code loop, a start half a chip off either way at
+38 and 45 dB-Hz ended in its first window, a jump to a side peak in mid-track, the main
+peak never taken for one from 32 to 50 dB-Hz, an outage) and on recordings against Pocket
+SDR's C tracker (`test_tracking_e1_reference.py`). On the L1 recording of 2021-12-26 the
+five Galileo satellites from 41 to 47 dB-Hz find the secondary code at 1.5 to 1.6 s, with
+both polarities occurring, and hold for the file. As measured: the indicator 0.97 or more
+in every window after the sync; the Doppler within 0.7 Hz and the mean C/N0 within 0.5 dB
+of the reference's E1-B channels, the code start within 23 ns of them modulo the 4 ms
+(its code loop is still settling; half a chip is 489 ns); E1-B a quarter decibel above
+E1-C (+0.23 to +0.27 dB on every satellite of both recordings) with 0.96 or more of
+its power on the pilot's axis; the four epochs of a symbol adding up to 3.95 of 4 or
+more; and the uncoded ten-symbol sync pattern of the I/NAV page parts at the same symbol
+of every 250, with the sign it is sent with whichever polarity the pilot synced with,
+which checks the data component's sign and the symbol edges. The test's bounds are 0.9,
+1 Hz, 2 dB, 30 ns and 0.5 dB. The `slow` test walks 60 s of the parked car-roof capture:
+seven satellites, one segment each, nothing turned away; the same quantities against the
+reference's E1-B channels, and every satellite's code start the reference's within
+1.1 ns in the mean once the 175 ns that its log times stand from ours on that capture
+are removed (its L1 C/A channels stand 176 ns off the same way).
+
+In motion, on the two five-minute car-roof recordings (the one started while moving,
+then the drive), the walk's E1 pilots are phase-locked for 1859 s and 2124 s summed over
+the satellites, where the reference's E1-C channels are locked 1525 s and 1707 s. The guard ended no track and turned no seed away
+in either. Independently of the guard, each E1 channel's code timing was compared with
+the same satellite's E5a pilot, tracked in the other band's recording on the same sample
+clock: over the 3934 satellite seconds in which both are phase-locked, E1 minus E5a stays
+within 22 ns of one value (-104 ns on both recordings, the front end's delay between the
+bands), so no channel stood on a side peak or a tenth of a chip off. A weak satellite is
+found late or not at all: E19, at 32 and 35 dB-Hz, has 54 s and 71 s where the reference
+has 69 s and 217 s, since the search needs 36 dB-Hz in 20 ms.
