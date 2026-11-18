@@ -92,6 +92,11 @@ SECONDARY_TIME = 0.100
 # in eccentric orbits 57 to 106 ms: 39 to 107 ms by that clock. The window of 22 to 122 ms
 # leaves some 15 ms either side
 TRAVEL_TIME_MIN = 0.022
+# s two pilots of one satellite that each took their time from their own secondary code
+# may stand apart in transmit time at one instant: the bands' paths through a front end and
+# the ionosphere make a tenth of a microsecond, a secondary code found wrongly a millisecond
+# or more
+PILOT_AGREEMENT = 1e-6
 # epochs from the one completing a pilot's coasted sum to the one completing the next sum,
 # whose update is in the phases after it
 COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)
@@ -498,13 +503,14 @@ def make_joint_observables(
 ) -> list[Observations]:
     """The L1 C/A observations of `make_observables` with the pilot segments `pilots` of the
     same recording time beside them: signals `G1C` and those the pilots of `pilot_signals`
-    are reported as (`G5Q` for L5, `E5Q` for E5A), in that order.
+    are reported as (`G5Q` for L5, `E1C` for E1, `E5Q` for E5A), in that order.
 
     The epochs, the receiver clock and every L1 value are `make_observables`'. A pilot
     segment contributes from the epoch after its secondary code was found. An L5 pilot is on
     the time of its satellite's L1 channel, and one without a consistent anchor contributes
     nothing; a pilot with a secondary code of 100 ms takes its time from that code and the
-    receiver clock. Raises ValueError when the week is unknown (no subframe 1 decoded and
+    receiver clock, and where two such pilots of one satellite stand more than
+    PILOT_AGREEMENT apart in transmit time, neither is reported. Raises ValueError when the week is unknown (no subframe 1 decoded and
     none given), and for a track that is not a pilot of one of `pilot_signals`.
     """
     _check_pilots(pilots, pilot_signals)
@@ -535,7 +541,9 @@ def joint_observables(
     if epochs[0].week is None:
         raise ValueError("week unknown: no ephemeris decoded and none given")
     chans, rx0, weeks_on = run.chans, run.rx0, run.weeks_on
-    timed = []  # (segment, its code starts, transmit time of its epoch 0, its description)
+    # (segment, its code starts, transmit time of its epoch 0, its description, whether it
+    # took that time from its own secondary code)
+    timed = []
     for tr in pilots:
         if tr.sec_sync is None:
             continue
@@ -548,9 +556,9 @@ def joint_observables(
             l1 = [(tc, tt) for l1_tr, _, tc, tt in chans if l1_tr.prn == tr.prn]
             time0 = _pilot_time0(starts, l1)
         if time0 is not None:
-            timed.append((tr, starts, time0, spec))
+            timed.append((tr, starts, time0, spec, period >= SECONDARY_TIME))
     coasting = [_coasting(tr) for tr, *_ in timed]
-    segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, _, _ in timed]
+    segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, *_ in timed]
     signals = ("G1C", *(SIGNALS[name].rinex for name in pilot_signals))
     column = {name: 1 + j for j, name in enumerate(pilot_signals)}
     out = []
@@ -558,13 +566,21 @@ def joint_observables(
         t_rx = e.tow + weeks_on * WEEK_S
         t = t_rx - rx0
         rows = {f"G{o.prn:02d}": [o] + [None] * len(pilot_signals) for o in e.obs}
-        for c, (tr, _, time0, spec) in enumerate(timed):
+        sampled = [(c, segments[c].at(t)) for c in range(len(timed))]
+        sampled = [(c, at, timed[c][2] + (at.k + at.f) * CA_PERIOD) for c, at in sampled if at]
+        # the transmit times that the self-timed pilots of each satellite name at this instant
+        own: dict[str, list[float]] = {}
+        for c, _, t_tx in sampled:
+            tr, _, _, spec, self_timed = timed[c]
+            if self_timed:
+                own.setdefault(f"{spec.rinex[0]}{tr.prn:02d}", []).append(t_tx)
+        for c, at, t_tx in sampled:
+            tr, _, _, spec, self_timed = timed[c]
             seg = segments[c]
-            at = seg.at(t)
-            if at is None:
-                continue
+            sat = f"{spec.rinex[0]}{tr.prn:02d}"
+            if self_timed and max(own[sat]) - min(own[sat]) > PILOT_AGREEMENT:
+                continue  # nothing says which of them is wrong
             k = at.k
-            t_tx = time0 + (k + at.f) * CA_PERIOD
             lli = LLI_SLIP if at.slip or seg.since_phase(coasting[c], k) else 0
             half = 0.5 if tr.sec_polarity < 0 else 0.0
             phase = -(at.adr + half) + spec.phase_align if at.locked else np.nan
@@ -572,7 +588,6 @@ def joint_observables(
                 tr.prn, C_LIGHT * (t_rx - t_tx), float(phase), float(tr.doppler[k]),
                 float(tr.cn0[k]), lli,
             )  # fmt: skip
-            sat = f"{spec.rinex[0]}{tr.prn:02d}"
             rows.setdefault(sat, [None] * len(signals))[column[tr.signal]] = pilot_obs
             seg.observed(at)
         sats = tuple(sorted(rows))
