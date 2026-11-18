@@ -55,6 +55,13 @@ on an extrapolation and can return whole cycles away with its window indicator s
 high. It returns with the first sum it takes after the coasted ones, and that update
 is in the phases after the epoch that completes the sum, so every phase from a coasted
 sum to the first one that holds the return is flagged as a slip.
+
+A pilot whose secondary code lasts 100 ms (Galileo E5a, and Galileo E1, whose 4 ms code
+the tracker follows in 1 ms epochs) needs no other channel for its time: the code start
+that carries secondary chip 0 left the satellite at a multiple of 100 ms, and the receiver
+clock says which (`_secondary_time0`). Its phase is aligned as its signal description
+says. Two such pilots of one satellite, tracked independently, must name the same
+transmit time; where they stand more than `PILOT_AGREEMENT` apart neither is reported.
 """
 
 from dataclasses import dataclass
