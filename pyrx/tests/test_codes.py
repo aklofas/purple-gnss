@@ -262,7 +262,7 @@ def test_e1_code_files_are_the_interface_documents_attachments(name):
 )
 def test_e1_memory_codes(gen, prn, head, tail):
     # 4092 chips as 1023 hexadecimal digits, the first chip the most significant bit of the
-    # first digit (ICD 3.4.1.1), a chip value 1 as -1
+    # first digit (ICD issue 2.2, Annex C), a chip value 1 as -1
     code = gen(prn)
     assert code.shape == (4092,) and code.dtype == np.int8 and set(code.tolist()) == {1, -1}
     bits = "".join("1" if c < 0 else "0" for c in code)
@@ -282,7 +282,7 @@ def test_e1_memory_codes_are_fifty_different_balanced_codes():
 
 
 def test_e1_secondary_code():
-    # CS25, ICD Table 20: 380AD90 as 25 chips
+    # CS25, ICD issue 2.2 Table 22: 380AD90 as 25 chips
     assert GAL_CS25.tolist() == [1 - 2 * int(b) for b in "0011100000001010110110010"]
     assert not GAL_CS25.flags.writeable
 

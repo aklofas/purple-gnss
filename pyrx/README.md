@@ -195,10 +195,11 @@ The E1 code lasts 4 ms and is searched with its subcarrier on it (see "Pilot sig
 two periods, 8 ms, at a time: 20 ms hold four such sums where a 1 ms pilot has nineteen.
 The code offset printed is that of a code period's start, anywhere in the 4 ms. The
 correlation of this signal has a second peak half a chip either side of the main one, a
-quarter of its power; the search takes the largest. On the synthetic signal it detects
-the pilot from 36 dB-Hz with the offset within a tenth of a chip; on the 2021-12-26
-recording it finds the five satellites above 41 dB-Hz in the first 20 ms and not the two
-at 35 dB-Hz.
+quarter of its power; the search takes the largest. The threshold is on the reading, so a
+pilot at 36 dB-Hz is found about half the time: of 60 synthetic signals each, 25 at
+36 dB-Hz, 59 at 38 and all at 40, the largest peak on the main one in every run and the
+offset right to the sample. On the 2021-12-26 recording it finds the five satellites above
+41 dB-Hz in the first 20 ms and not the two at 35 dB-Hz.
 
 Prints one line per PRN in the same format as Pocket SDR's `pocket_acq.py`, so the
 two outputs can be diffed. With `--plot`, writes `cn0.png` and one search-grid
@@ -1116,34 +1117,53 @@ the opposite sign, half a chip either side.
 
 With early and late a quarter chip from prompt, the code discriminator is nine times as
 steep as a plain code's and is divided by nine, so that the loop closes a small offset at
-the rate of its 0.25 Hz as on the other signals. It is linear only to a twelfth of a
-chip, where the late tap reaches the zero of the correlation; beyond that its reading
-shrinks as the offset grows. Measured on the synthetic signal at 45 dB-Hz
-(no front-end filter): a start 0.15 chip off is within 0.05 chip after 3.5 s, one 0.2 chip
-off after 5.6 s, one a quarter chip off after 8 s, the secondary code found at the usual
-time and C/N0 reading up to 7 dB low on the way; a start 0.30 to 0.33 chip off, at the zero
-of the correlation, is lost within 3 s; from 0.36 chip the loops settle on the side peak.
-An acquisition seed is given to the sample (0.04 chip at 24 Msps), so the slow range is
-met after a fade, not at a start. Nothing flags a channel while it creeps in.
+the rate of its 0.25 Hz as on the other signals. That holds for a strong signal: early and
+late read a quarter of the prompt here, 12 dB down, and the normalized difference loses its
+slope in noise sooner than a plain code's. Measured on the synthetic signal, the share of a
+0.05 chip offset left after 3 s: 0.16 at 50 dB-Hz, 0.24 at 45, 0.46 at 40, 0.62 at 37, 0.79
+at 34, where E5a has 0.14 to 0.22 from 50 down to 37 dB-Hz. The discriminator is also
+linear only to a twelfth of a chip, where the late tap reaches the zero of the correlation;
+beyond that its reading shrinks as the offset grows. At 45 dB-Hz (no front-end filter): a
+start 0.15 chip off is within 0.05 chip after 3.5 s, one 0.2 chip off after 5.6 s, one a
+quarter chip off after 8 s, the secondary code found at the usual time and C/N0 reading up
+to 7 dB low on the way; a start 0.30 to 0.45 chip off is drawn to the zero of the
+correlation at a third of a chip and lost within seconds. An acquisition seed is given to
+the sample (0.04 chip at 24 Msps), so the slow range is met after a fade, not at a start.
+Nothing flags a channel while it creeps in from a quarter chip or less.
 
-**The side peaks.** The loops lock on a side peak as readily as on the main one: the code
-is then half a chip, 147 m, off and C/N0 reads 6 dB low, which a weak satellite does too.
+**The side peaks.** From half a chip or more off, the loops stay off the main peak for
+good. They do not rest on the second peak itself: with early and late a quarter chip out,
+their magnitudes balance 0.625 chip from the main peak, and the loop slides there.
+Measured with the guard switched off: on the synthetic signal at 45 dB-Hz a start half a
+chip off reads 6 dB low for ten seconds, then moves out to 0.624 chip, 183 m, within 40 s,
+8 dB low; on the 2021 recording, of six starts half a chip off, three move out to 0.61
+chip in 20 s and hold there 6.3 to 7.6 dB low, and three move inward and are lost after
+23 s. The secondary code is found there as on the main peak, and a satellite 7 dB low
+looks like a weaker satellite.
+
 Two more taps therefore stand half a chip either side of prompt, and over each 1 s window
 each is projected on the prompt: minus the sum of Re(tap times the conjugate of prompt)
-over the sum of the prompt's power. On the main peak that reads 0.5, and without signal
-it reads 0.5 as well, because the noise of two taps half a chip apart is correlated by the
-code's own minus a half, so an obstruction does not move it; from a side peak the tap
-toward the main peak reads 2. A window above 1 (`SIDE_PEAK`) ends the track
-(`TrackResult.side_peak`), and the track is cut a window further back, because a window
-shows a move to a side peak once two thirds of it are there and the move may lie in the
-window before. In the walk's trial such a seed is turned away, and the next probe
+over the sum of the prompt's power, with the noise taken out of both sums (the noise of two
+taps half a chip apart is correlated by the code's own minus a half, and the noise tap
+gives its power). The reading is then the correlation's own ratio at any signal strength:
+0.5 on the main peak (0.39 to 0.70 in every window measured, down to windows of
+22 dB-Hz), 2 at half a chip and 1.7 at 0.625 chip on the tap toward the main peak (1.55 or
+more in every window measured, down to a 31 dB-Hz pilot whose prompt reads 24 there). A
+window above 1 (`SIDE_PEAK`) ends the track (`TrackResult.side_peak`), and the track is
+cut a window further back, because a window shows a move to a side peak once two thirds of
+it are there and the move may lie in the window before. A window whose own C/N0 is below
+the loss rule's 25 dB-Hz is not judged, since the difference of two noise sums says
+nothing; the loss rule counts it. At a quarter chip off the main peak the tap away from it
+reads 1 too, so the guard also ends a channel that stands a quarter chip or more off
+through a window. In the walk's trial such a seed is turned away, and the next probe
 searches again. The guard reads whole windows: a channel that goes to a side peak writes
-nothing, but it costs the satellite two seconds and the time to the next probe.
+nothing of it, but it costs the satellite two seconds and the time to the next probe.
 
 Checked on the synthetic signal (`test_tracking_e1.py`: the two components and their
 correlation, the search, the epochs, the code loop, a start half a chip off either way at
-38 and 45 dB-Hz ended in its first window, a jump to a side peak in mid-track, the main
-peak never taken for one from 32 to 50 dB-Hz, an outage) and on recordings against Pocket
+38 and 45 dB-Hz ended in its first window, a jump to a side peak in mid-track at 45 and at
+33 dB-Hz, the main peak never taken for one from 26 to 50 dB-Hz, an outage) and on
+recordings against Pocket
 SDR's C tracker (`test_tracking_e1_reference.py`). On the L1 recording of 2021-12-26 the
 five Galileo satellites from 41 to 47 dB-Hz find the secondary code at 1.5 to 1.6 s, with
 both polarities occurring, and hold for the file. As measured: the indicator 0.97 or more
