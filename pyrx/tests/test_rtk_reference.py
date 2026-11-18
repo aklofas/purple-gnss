@@ -14,6 +14,7 @@ from pyrx.orbits import satellite_state, select_ephemeris, usable
 from pyrx.pvt import solve_epoch
 from pyrx.rinex import read_rinex_header, read_rinex_nav, read_rinex_observations
 from pyrx.rtk import RtkOptions, solve_rtk
+from pyrx.signals import wavelength
 
 NAV = "igs/BRDC00WRD_R_20213600000_01D_MN.rnx.gz"
 # base file, rover file, base marker, rover marker (EUREF combined SINEX, GPS week 2190)
@@ -346,12 +347,12 @@ def _galileo_ephemerides(captures):
     return _CACHE["galileo"]
 
 
-def _car_with_galileo(captures, capture, signals=WITH_E5A):
+def _car_with_galileo(captures, capture, signals=WITH_E5A, name="pyrx_gal.obs"):
     """As `_car`, from the capture's file with Galileo: the decoded GPS ephemerides with the
     public file's Galileo records added."""
-    key = (capture, signals, "galileo")
+    key = (capture, signals, name)
     if key not in _CACHE:
-        rover_file = capture_file(captures, f"{capture}/pyrx_gal.obs")
+        rover_file = capture_file(captures, f"{capture}/{name}")
         base_file = capture_file(captures, CAR_BASE_GALILEO)
         ephs, iono = read_rinex_nav(capture_file(captures, f"{capture}/pyrx_l1l5.nav"))
         hb = read_rinex_header(base_file)
@@ -458,6 +459,110 @@ def test_galileo_pilots_add_agreed_fixes_to_the_drive_and_the_parked_car(capture
     assert len(together) >= 288 and not apart
     # and where the parked car's GPS-only fix is (static mode, 132 epochs): the medians 3 mm
     # apart, every kinematic fix within 2 cm of its own median
+    rover, base, ephs, iono, station, delta, _ = _car(captures, STATIC, L1_L5)
+    options = RtkOptions(mode="static", **COMMAND)
+    gps = [f for f in solve_rtk(rover, base, ephs, station, delta, options, iono) if f.status == "fix"]
+    home = np.median([f.position for f in gps], axis=0)
+    fixes = [f.position for f in fwd.values() if f.status == "fix"]
+    assert np.linalg.norm(np.median(fixes, axis=0) - home) < 0.006
+    assert max(np.linalg.norm(p - np.median(fixes, axis=0)) for p in fixes) < 0.025
+
+
+BOTH_BANDS = ("G1C", "G5Q", "E1C", "E5Q")
+E1_E5A_FILE = "pyrx_e1e5a.obs"  # a whole run of pyrx-rinex --l5 --galileo on each capture
+
+
+@pytest.mark.parametrize("capture", [STATIC, DRIVING, COLD_START])
+def test_the_file_with_both_galileo_bands_holds_the_earlier_files(captures, capture):
+    # every GPS value of the GPS file and every E5a value of the file with E5a alone, formed
+    # again by a whole run with the E1 pilots beside them: the agreement rule of the two
+    # Galileo bands withheld nothing on these captures
+    for name, signals in (("pyrx_l1l5.obs", L1_L5), ("pyrx_gal.obs", WITH_E5A)):
+        old = read_rinex_observations(capture_file(captures, f"{capture}/{name}"), signals)
+        new = read_rinex_observations(capture_file(captures, f"{capture}/{E1_E5A_FILE}"), signals)
+        assert len(old) == len(new) > 280
+        for a, b in zip(old, new, strict=True):
+            assert (a.week, a.tow) == (b.week, b.tow)
+            for i, sat in enumerate(a.sats):
+                j = b.sats.index(sat)
+                for field in ("pseudorange", "carrier_phase", "doppler", "cn0", "lli"):
+                    np.testing.assert_array_equal(getattr(a, field)[i], getattr(b, field)[j])
+
+
+def _galileo_pairs(captures, capture):
+    """Per Galileo satellite: (tow, C1C, C5Q, L1C, L5Q, flagged) where both bands have a
+    pseudorange."""
+    path = capture_file(captures, f"{capture}/{E1_E5A_FILE}")
+    rows: dict[str, list] = {}
+    for e in read_rinex_observations(path, ("E1C", "E5Q")):
+        for i, sat in enumerate(e.sats):
+            if np.isfinite(e.pseudorange[i]).all():
+                rows.setdefault(sat, []).append(
+                    (e.tow, *e.pseudorange[i], *e.carrier_phase[i], e.lli[i].any())
+                )
+    return {sat: np.array(r) for sat, r in rows.items()}
+
+
+@pytest.mark.parametrize("capture,satellites", [(STATIC, 7), (DRIVING, 10), (COLD_START, 8)])
+def test_e1_and_e5a_pseudoranges_differ_by_one_value_on_every_satellite(captures, capture, satellites):
+    # The two bands of a satellite are tracked in two recordings by channels that share
+    # nothing but the sample clock, and each takes its time from its own secondary code.
+    # E1C minus E5Q is the front end's delay between its bands, 31 m, with meters of
+    # ionosphere and code noise: every epoch of every satellite within 7 m of it on the
+    # three captures. An E1 channel on a side peak of its correlation would stand 147 m
+    # off, one a quarter chip off 73 m, a wrong millisecond 300 km.
+    pairs = _galileo_pairs(captures, capture)
+    assert len(pairs) == satellites
+    common = np.median(np.concatenate([r[:, 1] - r[:, 2] for r in pairs.values()]))
+    assert 25.0 < common < 37.0, common
+    for sat, r in pairs.items():
+        assert len(r) > 50, sat
+        assert np.max(np.abs(r[:, 1] - r[:, 2] - common)) < 30.0, sat
+
+
+def test_e1_and_e5a_phases_of_the_parked_car_follow_a_line_together(captures):
+    # the geometry-free combination of the two phases changes only with the ionosphere: over
+    # the five minutes of the parked capture a line, with 1.4 to 2.9 mm of scatter about it
+    # and 11 mm at most, on each of the seven satellites that have both bands, and no flag
+    # after the first second (in motion the antenna's turning is in that combination too)
+    pairs = _galileo_pairs(captures, STATIC)
+    for sat, r in pairs.items():
+        assert len(r) == 299 and np.isfinite(r[:, 3:5]).all() and not r[2:, 5].any(), sat
+        x = r[:, 0] - r[0, 0]
+        gf = wavelength("E1C") * r[:, 3] - wavelength("E5Q") * r[:, 4]
+        residual = gf - np.polyval(np.polyfit(x, gf, 1), x)
+        assert residual.std() < 0.005 and np.abs(residual).max() < 0.02, (sat, residual.std())
+
+
+def test_both_galileo_bands_give_the_cold_start_more_fixes_both_directions_agree_on(captures):
+    # Measured with the command's settings, forward fixed / backward fixed / together / apart:
+    # with the E5a pilots alone 104 / 177 / 54 / 0, with E1 beside them 206 / 190 / 132 / 0.
+    # Six Galileo satellites take part on both bands (two more are not at the base), four GPS
+    # satellites on L1 and L5 and three on L1. No truth for it. Left out one satellite at a
+    # time, 77 to 145 epochs stay together and none to three stand apart, and of the forward
+    # fixes that remain 149 to 179 lie where they lay with every satellite, two at most not.
+    data = _car_with_galileo(captures, COLD_START, BOTH_BANDS, E1_E5A_FILE)
+    fwd, bwd, together, apart = _both_ways(data, **COMMAND)
+    assert len(together) >= 125 and len(apart) <= 1, (len(together), len(apart))
+    fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
+    assert fixed[0] >= 196 and fixed[1] >= 180, fixed
+    # RTKLIB's rules: 37 / 51 / 11 / 0
+    assert len(_both_ways(data)[2]) <= 20
+
+
+def test_both_galileo_bands_on_the_drive_and_the_parked_car(captures):
+    # Measured with the command's settings: the drive 245 / 249 / 216 / 3 where GPS alone has
+    # 202 / 178 / 144 / 1 and E5a beside it 242 / 255 / 227 / 4. The three apart are 5.4 to
+    # 5.6 cm horizontal, at 53, 66 and 67 s, in the twenty seconds of a turn in which G24
+    # and G11 are 10 dB down with their L1 phases flagged at every epoch; without G24 none
+    # stands apart (210 together). The parked car in kinematic mode 294 / 299 / 294 / 0.
+    data = _car_with_galileo(captures, DRIVING, BOTH_BANDS, E1_E5A_FILE)
+    _, _, together, apart = _both_ways(data, **COMMAND)
+    assert len(together) >= 208 and len(apart) <= 4, (len(together), len(apart))
+    data = _car_with_galileo(captures, STATIC, BOTH_BANDS, E1_E5A_FILE)
+    fwd, _, together, apart = _both_ways(data, **COMMAND)
+    assert len(together) >= 288 and not apart
+    # where the parked car's GPS-only fix is (static mode): the medians 2 mm apart
     rover, base, ephs, iono, station, delta, _ = _car(captures, STATIC, L1_L5)
     options = RtkOptions(mode="static", **COMMAND)
     gps = [f for f in solve_rtk(rover, base, ephs, station, delta, options, iono) if f.status == "fix"]

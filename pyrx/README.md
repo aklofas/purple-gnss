@@ -3,7 +3,7 @@
 An offline GNSS receiver in Python: acquisition, tracking, navigation-message
 decode and observables written as RINEX from recorded GPS L1 C/A IF samples,
 acquisition and tracking of the GPS L5, Galileo E5a and Galileo E1 pilot signals with GPS L5
-observations beside L1 from a second recording of the same instants, and a
+and Galileo E1 and E5a observations beside L1 from a second recording of the same instants, and a
 standalone position fix and an RTK fix from RINEX files, our own or public ones
 (GPS L1/L2/L5 and Galileo E1/E5a/E5b). Each stage is checked against an external
 reference: Pocket SDR for acquisition, tracking and observables, broadcast
@@ -56,8 +56,8 @@ standalone fix with RTKLIB on the recordings and on a day of an IGS station
 (`test_pvt_reference.py`), and the RTK fix with RTKLIB and the EUREF marker
 coordinates on two station pairs, the backward pass and the lock count with RTKLIB on
 the car-roof drive, that drive's fix by the agreement of both filter directions, and the
-car-roof captures with Galileo E5a (the pseudoranges against the broadcast orbits, the
-agreed fixes) (`test_rtk_reference.py`). They need the
+car-roof captures with Galileo E5a and with both Galileo bands (the pseudoranges against
+the broadcast orbits, E1 against E5a, the agreed fixes) (`test_rtk_reference.py`). They need the
 environment variable `PYRX_CAPTURES` pointing at a directory holding these files,
 and skip when it is unset; the observables, joint-observables, positioning and RTK
 tests also skip when `rnx2rtkp` is not on the path, and the RTK tests take a few
@@ -109,6 +109,9 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `sky/20261103_030551_carroof-static/pyrx_gal.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: its GPS rows with the Galileo E5a pilots' beside them | `45c87bc9fe1840cb4ed23b977fcba9c3b0d9d51bfbc959c8c9d5beea5fb3aa41` |
 | `sky/20261103_031515_carroof-driving/pyrx_gal.obs` | generated: the same on the drive | `1a183ccd397fa3adf66b8ca561f383b166500af44228c1614850d2bd17e004ec` |
 | `sky/20261103_032110_carroof-coldstart/pyrx_gal.obs` | generated: the same on the capture started while moving | `dcbb91a3989023f96918482147270e1c6d3edfe5c12ee3658f1de3b5f6ebbead` |
+| `sky/20261103_030551_carroof-static/pyrx_e1e5a.obs` | generated: a whole run of `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: the GPS rows, and the Galileo satellites on E1C and E5Q | `20f69833adeb61c5fcaf57771b4ddc453600fae56feefe5075f8a05d35271a8e` |
+| `sky/20261103_031515_carroof-driving/pyrx_e1e5a.obs` | generated: the same on the drive | `4e9993b577bbd48864c3d8fe196b116fa70fcc7a081a8b1f1bf198a7fbfa724b` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_e1e5a.obs` | generated: the same on the capture started while moving | `a21fdf49912f10d81a725d40e928dce5d67c6a70aef63acf62e9eac2328cea46` |
 | `cors/base_20261103_0300_0330.rnx` | project file, not distributed: the same half hour of the same station with its Galileo satellites beside the GPS ones (`C1 L1 S1` as `E1C`, `C5 L5 S5` as `E5Q`: RINEX 2.11 names no tracked component), the base of the RTK tests with Galileo | `c1690f6daf6acc7803e3c0644a9b232c8207bffffc273aac4aef692ca212f0d9` |
 | `brdc/BRDC00IGS_R_20263070000_01D_MN.rnx` | ftp://gssc.esa.int/gnss/data/daily/2026/brdc/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2026-11-03: the Galileo ephemerides of the car-roof captures | `9b8475997b50d2adb98058298ee892e701c0d2965b5fd744e4089e21e9257879` |
 
@@ -291,12 +294,14 @@ sample rate gives, a line on stderr says so and the file is written with empty L
 columns; pilots tracked in a file that does not line up with `FILE` sample for sample
 find no place on the L1 time and print `no time tag`.
 
-With `--galileo` as well, the Galileo E5a pilots in `L5FILE` are tracked too, every
-satellite number from 1 to 36, and written as `C5Q L5Q D5Q S5Q` rows of the Galileo
-satellites in a mixed file; each segment prints `E5Q PRN nn  epochs ...`. A Galileo pilot
-takes its time from its own secondary code and the receiver's GPS clock (see "Galileo
-observations" below), so it needs no GPS channel of its own but the run needs GPS L1 for
-that clock. The navigation file stays GPS only: nothing Galileo is decoded.
+With `--galileo` as well, the Galileo pilots are tracked too, every satellite number from
+1 to 36: E1 in `FILE` and E5a in `L5FILE`, written as `C1C L1C D1C S1C C5Q L5Q D5Q S5Q`
+rows of the Galileo satellites in a mixed file; each segment prints `E1C PRN nn  epochs
+...` or `E5Q PRN nn  epochs ...`, and a band in which no pilot was tracked is named on
+stderr. A Galileo pilot takes its time from its own secondary code and the receiver's GPS
+clock (see "Galileo observations" below), so it needs no GPS channel of its own but the
+run needs GPS L1 for that clock. The navigation file stays GPS only: nothing Galileo is
+decoded.
 
 For the 2021-12-26 pair, both files of `L1L5_20211226_082401_24MHz.zip`:
 
@@ -655,6 +660,46 @@ satellites it is not usable: it fixes 8 and 4 epochs of the capture started whil
 26 and 8 of the drive, none of the parked car, and no epoch in both directions. That check
 waits for Galileo's second signal, E1.
 
+With E1 beside E5a (signals `G1C,G5Q,E1C,E5Q`, the files of a whole run of the command):
+
+| Capture | GPS L1 + L5 | with Galileo E5a | with Galileo E1 and E5a |
+|---|---|---|---|
+| started while driving | 1, 39, 0, 0 | 104, 177, 54, 0 | 206, 190, 132, 0 |
+| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 | 245, 249, 216, 3 |
+| parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 | 294, 299, 294, 0 |
+
+The capture started while driving goes from 54 agreed epochs to 132, none apart, ten
+satellites or more in each. Six Galileo satellites take part on both bands (two more are
+tracked but not at the base), four GPS satellites on L1 and L5 and three on L1. It is
+firmer than with E5a alone, still without a truth: leaving out one satellite at a time
+(seven tried), 77 to 145 epochs stay agreed and none to three stand apart, and the forward
+fixes that both runs have lie 3 to 11 mm from each other in the median, 3 to 17 of some 160
+more than 3 cm, single ones up to a meter. RTKLIB's rules on the same file agree at 11
+epochs.
+
+The drive is not better for E1: 216 agreed and three apart, at 53, 66 and 67 s, 5.4 to
+5.6 cm horizontally where the bound is 5. They lie in the twenty seconds of a turn in which
+two GPS satellites with a pilot, G24 and G11, are 10 dB down with their L1 phases flagged at
+every epoch, and the two directions stand up to 7 cm apart through all of it; each
+direction by itself stays within 2.5 cm when E1 is taken away, at every epoch but one. Without G24 no
+epoch stands apart (210 agreed), without G11 one. No setting of the lock count or the floor
+removes them (floor 6 or 7: three; lock count 10: four); restarting every flagged phase
+leaves one but takes the other capture down to 36 agreed epochs. The parked car is as with
+E5a: every kinematic fix within 15 mm of their median, which lies 2 mm from the GPS-only
+static solution.
+
+**GPS alone against Galileo alone** was to be the check that shares no satellite. With both
+bands Galileo alone still does not fix: no epoch of the parked car in kinematic or static
+mode (six satellites, the ratio below 2 throughout), one of the capture started while
+driving, 2 forward and 14 backward of the drive. On the parked car its float solution in
+static mode ends 7 cm (forward) and 12 cm (backward) from the GPS-only fix. On the drive
+its 16 fixes all lie where the solution with every satellite lies; of the 8 that fall on
+epochs the GPS-only run fixes, 6 agree with it and 2 stand 36 cm away, at 78 and 79 s,
+where the GPS-only forward fix has seven satellites and the solution with every satellite
+sides with Galileo. So the comparison of two fixed solutions is not available on these
+recordings; what stands in for it is the whole-cycle check at the GPS-only position in
+"Galileo observations" below, on the parked car only.
+
 ## Standalone positioning
 
 Satellite position, velocity and clock come from the broadcast ephemeris
@@ -966,6 +1011,33 @@ pseudoranges Pocket SDR forms from the same recordings, differenced between sate
 they agree within 0.25 m in the mean on every satellite with a minute of common epochs. The GPS rows of a file with Galileo are those of
 the file without. What the Galileo observations do for the fix is in "Flagged phases, the lock
 count and the backward pass" above.
+
+The E1 pilot is timed by the same rule: its secondary code has 25 chips of one 4 ms code
+period each, 100 ms again, and the tracker holds it as one entry per 1 ms epoch. Its
+observations are `C1C L1C D1C S1C` under the L5 pilot's rules, the phase with the half
+cycle that Table A23 puts between L1C and the band's reference signal L1B, and 0.00000 in
+the header. The two pilots of a satellite are tracked in two recordings by channels that
+share only the sample clock, and each finds its secondary code on its own, so their
+transmit times at one instant check each other: where they stand more than a microsecond
+apart (`PILOT_AGREEMENT`; a secondary code found wrongly is a millisecond or more, the
+front end and the ionosphere a tenth of a microsecond) neither is written, since nothing
+says which is wrong; each is written where it is tracked alone, and a stretch withheld is
+not a loss of lock. That rule sees a wrong millisecond, not a side peak of the E1
+correlation, which is half a microsecond; against that stands the tracker's guard ("Galileo
+E1" below).
+
+Checked on the car-roof captures, in files formed by a whole run of the command
+(`pyrx_e1e5a.obs`, `test_rtk_reference.py`): the GPS values and the E5a values are those of
+the earlier files in every field, so the agreement rule withheld nothing; `C1C` minus `C5Q`
+is one value, 31 m, the front end's delay between its bands, on every satellite at every
+epoch within 7 m (7, 10 and 8 satellites; the test allows 30 m; a side peak would stand
+147 m off); on the parked car the geometry-free combination of the two phases is a line
+over the five minutes, with 1.4 to 2.9 mm of scatter and 11 mm at most (the test allows 5
+and 20 mm), on each of the seven satellites. Outside the tests: at the position that the
+GPS observations alone give the parked car, the double-differenced E1 and E5a phases
+against the base are whole cycles on every pair, within 0.02 to 0.06 cycle RMS over the
+299 epochs, one integer each. That is the check of Galileo against GPS at the level of the
+observations; the Galileo half cycles and time tags are right.
 
 ## Navigation message decode
 
