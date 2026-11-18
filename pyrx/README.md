@@ -338,7 +338,7 @@ clock drift in s/s, `nan` without Doppler). It returns 2 when no epoch solves.
 ## RTK from the command line
 
 ```sh
-pyrx-rtk ROVER BASE NAV [--nav-add FILE] --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 5] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
+pyrx-rtk ROVER BASE NAV [--nav-add FILE] --base-xyz X Y Z [--base-delta E N U] [--rover-delta E N U] [--signals G1C,G2W] [--mode kinematic|static] [--slips check|restart] [--min-lock 5] [--fix-sats 5] [--change-limit 0.03] [--backward] [--mask 15] [--ts "YYYY-MM-DD HH:MM:SS"] [--te ...] [-o fix.txt] [-v]
 ```
 
 Solves the baseline from a base station of known position to the rover, epoch by
@@ -356,7 +356,10 @@ so a GPS signal must be listed). With `--slips check`, the default, a phase the 
 flags as a possible slip is looked at before its ambiguity is given up; `--min-lock` is
 the number of updates a new ambiguity waits before the integer search (RTKLIB's
 `pos2-arlockcnt`), and `--fix-sats` the number of satellites that search must span for a
-fix.
+fix. `--change-limit` (m, with `--slips check`; 0 turns it off) is how far a flagged phase
+or its satellite's other signal may change against the other satellites from one epoch to
+the next before the other signal's word that the flagged one is continuous is no longer
+taken.
 `--slips restart --min-lock 0 --fix-sats 0` is RTKLIB's behavior, which is also what the
 library's `RtkOptions` default to (see RTK below). `--backward` runs the filter from the
 last epoch to the first; the output stays in time order. The
@@ -521,9 +524,11 @@ fixes 721 of 721.
 A receiver that flags every phase that may have slipped flags many that did not: on the
 car-roof captures pyrx's own L1 fade rule (Observables, below) puts the flag on 11 % and
 35 % of the L1 phases, and nearly all of those are continuous. RTKLIB restarts the
-ambiguity at every flag, and so does this engine with its default options. Four more
+ambiguity at every flag, and so does this engine with its default options. Five more
 options, all off by default so that the comparisons with RTKLIB stand, change that; the
-`pyrx-rtk` command turns the first three on.
+`pyrx-rtk` command turns on the first three and `change_limit`, which belongs to the first
+and is described at the end of this section ("Two signals that move together"; the
+measurements before that part were made without it).
 
 `slips="check"` looks at a flagged phase first. A phase is in question when only the
 rover flags it (the lost-lock bit, or a change of the half-cycle bit), both receivers
@@ -708,6 +713,116 @@ where the GPS-only forward fix has seven satellites and the solution with every 
 sides with Galileo. So the comparison of two fixed solutions is not available on these
 recordings; what stands in for it is the whole-cycle check at the GPS-only position in
 "Galileo observations" below, on the parked car only.
+
+**Two signals that move together.** The other signal's word is worth less than it looks.
+Whether a phase moved can be judged without its satellite's other signal, against the other
+satellites (next paragraph). Judged so, from the rover's observations with broadcast
+orbits, the phases of the parked car never change by more than 1.2 cm from one second to
+the next beyond what the others explain, down to 30 dB-Hz. On the two moving captures the
+pilot phases (GPS L5, Galileo E1 and E5a) do so by more than 4 cm, without a flag, 73 and
+118 times. Two of those are slips of a whole cycle, each through a fade of 40 to 160 ms
+in which the signal's own phase went around once and the loop followed it ("Galileo
+observations" below). In many of the others both signals of the satellite move together,
+the difference of the two under half the move (19 of 22 such events with both Galileo
+pilots unflagged on the drive, 26 of 48 on the capture started while driving), often out
+and back at consecutive seconds, and the one GPS case looked at shows the same on the L1
+C/A phase and the L5 pilot. Most fall in a second in which the signal faded (61 of the 73
+and 109 of the 118).
+What they are physically is not established here; a path around the edge of an obstruction
+is longer by the same length on both frequencies. The geometry-free difference shows none
+of it. So a flagged phase beside an unflagged one was taken for continuous while both
+stood centimeters from where the other satellites put them: on the drive, in the turn that
+holds the three epochs apart, one GPS satellite's L1 phase is flagged at 21 of 25 epochs
+and both its phases move by 6 to 21 cm against the others at three of them.
+
+`change_limit` (m) withdraws that word. Between two epochs the single-differenced residual
+of a phase changes by the change of the position error along its line of sight, by a
+receiver clock term that is one number per carrier frequency (it also holds the antenna's
+turn, one cycle a turn on every phase of a frequency), and by what the phase did on its
+own. The engine fits the change of position and the clocks to the phases that neither
+receiver flags at either epoch, with the least sum of absolute residuals, once without
+each satellite in turn (a phase that moved still pulls on such a solution when few phases
+are there), and takes the solution that explains the most of them within 1.5 cm
+(`CHANGE_FIT`). A phase that stands more than `change_limit` from it has moved, flagged
+(by the lost-lock bit) or not. The consequence is one: where a phase in question or the signal that would vouch for
+it has moved, neither vouches, and the phase in question goes to the test against the rest
+of the epoch. No phase restarts for having moved, an unflagged phase is not touched, and
+the 5 cm geometry-free test is as it was. There is no verdict, and the engine is as
+without the option, with fewer than twelve unflagged phases (`CHANGE_MIN_PHASES`), or
+when the phases the solution explains, less one per unknown, do not outnumber the
+unflagged phases it leaves out: those could be the receiver's motion. The phases of a
+frequency are judged only when the solution explains three or more on it
+(`CHANGE_MIN_BAND`): a clock fitted to one or two phases explains them whatever they did.
+And no verdict is given across more than 5 s (`CHANGE_MAX_STEP`) or where the base epoch
+changed by another step than the rover's. The change of a residual also holds the turn of
+the line of sight times the error of the position the residual was formed at, in
+kinematic mode the epoch's single-point seed: a millimeter over a second, centimeters over
+half a minute; and under a base at a lower rate the base's own residuals over its step.
+With `slips="restart"` the option does nothing.
+
+How well the verdict holds was tried on synthetic epochs: twelve satellites on two
+frequencies at random above 15 degrees, some of the 24 phases flagged, among them one
+signal of a satellite whose two phases move together, 300 epochs a case. With sixteen
+unflagged phases and 2 mm of noise on a change (a strong pair of phases) a move of 6 cm is
+found in 99 % of the epochs and one of 4 cm in 96 %, and no other phase is blamed; with
+5 mm (the few phases of the parked car at 30 to 34 dB-Hz show 4) 99 % and 82 %, another
+phase blamed in 1 epoch of 300. With twelve unflagged phases, the least for a verdict,
+94 % and 89 % at 2 mm with another phase blamed in 2 to 3 % of the epochs, 94 % and 74 % at
+5 mm with 3 to 5 %. When nothing moved, a phase is called moved in none of the 300 epochs
+at 2 mm and in 3 at most at 5 mm. At 8 mm, more than any phase here that still holds lock
+shows, the verdict degrades: a phase is called moved when nothing moved in 4 to 14 % of the
+epochs with twelve to twenty unflagged phases. A blamed phase costs little: a flagged phase is tested against the rest of the
+epoch where its other signal would have vouched.
+
+Measured with the command's options, without the limit and with 0.03 m (fixed forward and
+backward, agreed, apart):
+
+| Capture, signals | without | `change_limit=0.03` |
+|---|---|---|
+| started while driving, GPS and Galileo E1 and E5a | 206, 190, 132, 0 | 222, 194, 148, 0 |
+| the drive, the same | 245, 249, 216, 3 | 247, 249, 221, 0 |
+| parked, kinematic, the same | 294, 299, 294, 0 | 294, 299, 294, 0 |
+| the drive, GPS and Galileo E5a | 242, 255, 227, 4 | 242, 255, 226, 5 |
+| started while driving, GPS and Galileo E5a | 104, 177, 54, 0 | 104, 177, 54, 0 |
+| the three captures, GPS L1 and L5 | 1, 39, 0, 0; 202, 178, 144, 1; 14, 0, 0, 0 | the same |
+
+With GPS alone the counts do not move because there is little to judge: on the capture
+started while driving no epoch has twelve unflagged phases. On the two station pairs with a
+known marker the option cannot act at all: no phase is ever in question there, and at
+their 30 s there is no verdict. The command's options fix the same epochs as before (714
+and 721 of 721 on L1+L2, 709 and 696 on L1), every fix within 2.4 cm; that says the option
+does no harm there, not that it is right. With Galileo E5a alone beside GPS the drive is
+not better for it: the L1 frequency then has the GPS phases only, at times too few
+unflagged ones for a verdict on them.
+
+What that is worth. The drive has no epoch apart any more, but by a small margin: the three
+that stood 5.4 to 5.6 cm apart stand 4.2 cm apart, under a bound of 5. Through the turn
+(51 to 72 s) the two directions still differ by 0.8 to 4.2 cm wherever both fix, and over
+the whole drive the epochs on which they differ by more than 3 cm go from 12 to 8. Which
+direction is right in the turn is as unknown as before. The limit itself matters little
+on the drive (221 to 223 agreed and none apart from 0.02 to 0.05 m) and more on the capture
+started while driving (148 agreed at 0.02 to 0.03 m, 134 at 0.035 and 0.04, 131 at 0.05,
+none apart at any). That capture's gain is thin. Run forward, it follows from one event: at
+182 s a flagged L1 phase of a satellite that itself did not move is kept, because a phase of
+another satellite that changed by 3 to 3.5 cm is in question beside it and out of the trial
+solution; with that ambiguity kept, three epochs from 187 to 189 s fix clearly (ratios of
+5.5 to 6.3 against 2.2 to 2.8) and thirteen from 213 to 225 s pass the ratio test at 3.0 to
+3.5 where without the limit, or with 0.035 m, they fail it at 2.9 to 3.0. The three
+restarts the limit itself adds there bring no fix. Left out one satellite at a
+time, the drive keeps 210 to 236 agreed
+epochs and has none apart in 15 cases of 19 (three without either of two Galileo
+satellites, six without a third, one without a GPS satellite; without the limit 205 to
+231 agreed and none apart in 2 cases of 19). The capture started while driving is no
+firmer for it: 78 to 151 agreed and none to three apart with one satellite left out (77
+to 145 and none to three without the limit), on the same epochs, and single forward fixes
+still lie up to a meter from where they lay with every satellite. The rule also leaves the
+unflagged signal that moved with the flagged one where it was: its error goes into the
+solution as before. A move that is back at the next epoch, the common kind, costs the
+flagged phase its ambiguity where it fails the test: it begins again on the displaced
+phase and waits out the lock count. A move spread over several flagged epochs in steps
+under the limit passes, since the change is taken from one epoch to the next. The run takes
+about half again as long with the option (a fit per satellite at every epoch). And the
+rule was found on these two captures.
 
 ## Standalone positioning
 
@@ -1051,12 +1166,24 @@ inverted (both polarities occur on both bands there). The half cycle that aligns
 L1B is the same on every E1C phase and cancels between satellites, like E5a's quarter
 cycle, so no measurement here checks it.
 
-In motion the Galileo pilots slip without a flag now and then. The geometry-free
+In motion the pilots' phases move without a flag now and then. The geometry-free
 combination of a satellite's two phases steps by more than 4 cm from one second to the
 next, neither phase flagged, 23 times on the capture started while driving (the largest
 29 cm, more than a cycle of either band), 4 times on the drive (7 cm at most) and never on
 the parked car (8 mm at most); on GPS L1 and L5 of the two moving captures the same count
-is none and one. Which band slipped is not known for any of them.
+is none and two. Which band moved shows against the other satellites, without the other
+band (the judgment "Two signals that move together" above describes): in 17 of the 29
+steps one band alone, E1 in 8 and E5a in 9, in 5 both, and 7 are not settled (a band
+between 1.5 and 2 cm, or no solution at that second). Two are slips of a whole cycle: an
+E5a cycle on one satellite, an E1 cycle on another. Neither is the loop
+losing a signal that was there. In the first the power of the 20 ms sums fell to an
+eighth for 160 ms, their coherence to 0.21 and 0.24, just above the 0.20 at which the loop
+coasts and the phase is flagged, and the sum's phase against the loop went to 0.46 cycle
+and came back without wrapping; in the second the fade was 40 ms long with a coherence of
+0.36. The signal's own phase went around once in the null of the fade, and the loop
+followed. The other steps are 4 to 10 cm on one band and gone a second or two later. Far
+more often both bands move together, which this combination cannot show; what the RTK
+engine does about that is in "Two signals that move together".
 
 ## Navigation message decode
 

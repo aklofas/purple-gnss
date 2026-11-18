@@ -258,7 +258,9 @@ def test_lock_count_matches_rtklib_on_a_station_pair(captures, tmp_path, signals
 
 
 STATIC = "sky/20261103_030551_carroof-static"  # the same car parked there ten minutes earlier
-COMMAND = {"slips": "check", "min_lock": 5, "min_fix_sats": 5}  # what pyrx-rtk turns on
+# what pyrx-rtk turns on
+COMMAND = {"slips": "check", "min_lock": 5, "min_fix_sats": 5, "change_limit": 0.03}
+NO_LIMIT = {**COMMAND, "change_limit": 0.0}
 L1_L5 = ("G1C", "G5Q")
 
 
@@ -298,6 +300,10 @@ def test_a_drive_fixes_more_where_both_directions_agree(captures):
     assert fixed[0] >= 185 and fixed[1] >= 165, fixed
     six = _both_ways(data, **{**COMMAND, "min_fix_sats": 6})
     assert len(six[2]) >= 130 and not six[3]
+    # without the change limit the counts are the same, 202 and 178, 144 and one: nine
+    # satellites, five of them on two frequencies, seldom leave it a phase to judge
+    plain = _both_ways(data, **NO_LIMIT)
+    assert len(plain[2]) >= 130 and len(plain[3]) <= 1
 
 
 def test_the_parked_start_of_the_drive_fixes_where_the_parked_capture_did(captures):
@@ -448,10 +454,11 @@ def test_galileo_pilots_give_the_cold_start_fixes_both_directions_agree_on(captu
 
 
 def test_galileo_pilots_add_agreed_fixes_to_the_drive_and_the_parked_car(captures):
-    # Measured with the command's settings: the drive 242 / 255 / 227 / 4 where GPS alone has
-    # 202 / 178 / 144 / 1 (the four apart are 5.5 to 5.9 cm horizontal at 53, 68 and 69 s and
-    # 10.1 cm vertical at 58 s, just past the bounds); the parked car in kinematic mode 294 /
-    # 299 / 294 / 0 where GPS alone fixes 14 epochs forward and none backward.
+    # Measured with the command's settings: the drive 242 / 255 / 226 / 5 where GPS alone has
+    # 202 / 178 / 144 / 1 (the five apart are 5.1 to 6.9 cm horizontal at 64, 65, 68 and 69 s and
+    # 10.1 cm vertical at 58 s, just past the bounds; without the change limit 242 / 255 /
+    # 227 / 4). The parked car in kinematic mode 294 / 299 / 294 / 0 where GPS alone fixes 14
+    # epochs forward and none backward.
     _, _, together, apart = _both_ways(_car_with_galileo(captures, DRIVING), **COMMAND)
     assert len(together) >= 220 and len(apart) <= 5, (len(together), len(apart))
     data = _car_with_galileo(captures, STATIC)
@@ -536,30 +543,39 @@ def test_e1_and_e5a_phases_of_the_parked_car_follow_a_line_together(captures):
 
 def test_both_galileo_bands_give_the_cold_start_more_fixes_both_directions_agree_on(captures):
     # Measured with the command's settings, forward fixed / backward fixed / together / apart:
-    # with the E5a pilots alone 104 / 177 / 54 / 0, with E1 beside them 206 / 190 / 132 / 0.
-    # Six Galileo satellites take part on both bands (two more are not at the base), four GPS
-    # satellites on L1 and L5 and three on L1. No truth for it. Left out one satellite at a
-    # time, 77 to 145 epochs stay together and none to three stand apart, and of the forward
-    # fixes that remain 149 to 179 lie where they lay with every satellite, two at most not.
+    # with the E5a pilots alone 104 / 177 / 54 / 0, with E1 beside them 222 / 194 / 148 / 0
+    # (206 / 190 / 132 / 0 without the change limit). Six Galileo satellites take part on
+    # both bands (two more are not at the base), four GPS satellites on L1 and L5 and three
+    # on L1. No truth for it, and the gain is thin: forward it follows from one ambiguity
+    # that is kept at 182 s, after which thirteen epochs pass the ratio test at 3.0 to 3.5
+    # where they fail it at 2.9 to 3.0. Left out one satellite at a time, 78 to 151 epochs
+    # stay together and none to three stand apart, and single forward fixes lie up to a
+    # meter from where they lay with every satellite.
     data = _car_with_galileo(captures, COLD_START, BOTH_BANDS, E1_E5A_FILE)
     fwd, bwd, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 125 and len(apart) <= 1, (len(together), len(apart))
+    assert len(together) >= 132 and not apart, (len(together), len(apart))
     fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
     assert fixed[0] >= 196 and fixed[1] >= 180, fixed
+    _, _, together, apart = _both_ways(data, **NO_LIMIT)
+    assert 125 <= len(together) <= 140 and not apart, (len(together), len(apart))
     # RTKLIB's rules: 37 / 51 / 11 / 0
     assert len(_both_ways(data)[2]) <= 20
 
 
 def test_both_galileo_bands_on_the_drive_and_the_parked_car(captures):
-    # Measured with the command's settings: the drive 245 / 249 / 216 / 3 where GPS alone has
-    # 202 / 178 / 144 / 1 and E5a beside it 242 / 255 / 227 / 4. The three apart are 5.4 to
-    # 5.6 cm horizontal, at 53, 66 and 67 s, in twenty seconds of a turn in which G24 is 5
-    # to 13 dB down with its L1 phase flagged at every epoch; without G24 none stands apart
-    # (210 together), without G11 or E27 one, without E13 seven. The parked car in kinematic
-    # mode 294 / 299 / 294 / 0.
+    # Measured with the command's settings: the drive 247 / 249 / 221 / 0 where GPS alone has
+    # 202 / 178 / 144 / 1 and E5a beside it 242 / 255 / 226 / 5. Without the change limit 245
+    # / 249 / 216 / 3, the three apart 5.4 to 5.6 cm horizontal at 53, 66 and 67 s, in twenty
+    # seconds of a turn in which G24 is 5 to 13 dB down with its L1 phase flagged at every
+    # epoch and both its phases moving by centimeters against the other satellites. With the
+    # limit those three are 4.2 cm apart, under the bound of 5: the directions do not agree
+    # there, they disagree a little less. The parked car in kinematic mode 294 / 299 / 294 /
+    # 0 either way.
     data = _car_with_galileo(captures, DRIVING, BOTH_BANDS, E1_E5A_FILE)
     _, _, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 208 and len(apart) <= 4, (len(together), len(apart))
+    assert len(together) >= 216 and len(apart) <= 1, (len(together), len(apart))
+    _, _, together, apart = _both_ways(data, **NO_LIMIT)
+    assert len(together) >= 208 and 2 <= len(apart) <= 4, (len(together), len(apart))
     data = _car_with_galileo(captures, STATIC, BOTH_BANDS, E1_E5A_FILE)
     fwd, _, together, apart = _both_ways(data, **COMMAND)
     assert len(together) >= 288 and not apart
