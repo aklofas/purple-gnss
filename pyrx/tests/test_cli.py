@@ -772,7 +772,7 @@ def test_rtk_main_turns_away_a_change_limit_that_is_no_length(value, capsys):
 
 
 @pytest.mark.parametrize("option", ["--ts", "--te"])
-@pytest.mark.parametrize("value", ["2021-13-26 09:00:00", "noon"])
+@pytest.mark.parametrize("value", ["2021-13-26 09:00:00", "noon", "2021-12-26T09:00:00+00:00"])
 def test_positioning_mains_turn_away_a_time_that_is_none(option, value, capsys):
     rtk = ["r.obs", "b.obs", "n.nav", "--base-xyz", "1", "2", "3"]
     for main, args in ((pvt_main, ["o.obs", "n.nav"]), (rtk_main, rtk)):
@@ -780,10 +780,11 @@ def test_positioning_mains_turn_away_a_time_that_is_none(option, value, capsys):
             main([*args, option, value])
         assert e.value.code == 2
         err = capsys.readouterr().err
-        assert f"argument {option}" in err and "YYYY-MM-DD" in err and "Traceback" not in err
+        assert f"argument {option}" in err and "Traceback" not in err
+        assert "YYYY-MM-DD" in err or "time zone" in err
 
 
-@pytest.mark.parametrize("signals", ["G1C,E6C", "G1C,G2", "G1C,,G5Q", "L1"])
+@pytest.mark.parametrize("signals", ["G1C,E6C", "G1C,G2", "G1C,,G5Q", "L1", "E1C,E5Q"])
 def test_rtk_main_turns_away_a_signal_of_no_band_in_use(signals, capsys):
     with pytest.raises(SystemExit) as e:
         rtk_main(["r.obs", "b.obs", "n.nav", "--base-xyz", "1", "2", "3", "--signals", signals])
