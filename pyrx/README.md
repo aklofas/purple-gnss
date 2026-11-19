@@ -543,7 +543,9 @@ which neither phase was in question (or of the last restart of either), so a sli
 over several flagged epochs is measured whole; and where there is no step, a phase in
 question beside an unflagged one is continuous. A step still restarts both, whichever
 carries the flag: a fade hits both signals, and on the drive below restarting only the
-flagged one was worse than no check at all.
+flagged one was worse than no check at all. With three signals of a system the first
+signal's word for the second does not outlast a step of the first against the third: the
+second is in question again, in whichever order the signals are listed.
 
 The rest of the epoch. The phases still in question are left out of a trial update on a
 copy of the filter, which takes every code and every other phase and so places the rover

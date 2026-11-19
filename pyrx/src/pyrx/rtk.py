@@ -529,7 +529,9 @@ class Rtk:
         two is then compared with its value at the last epoch neither was in question (or
         at the last restart of either), so a slip spread over flagged epochs is measured
         whole: a step restarts both, as always; without one, a phase in question beside an
-        unflagged one is continuous. With `change_limit` that last holds only while
+        unflagged one is continuous. The first signal's word for another holds only while
+        no signal of the satellite steps against the first: when one does, the phases it
+        settled are in question again. With `change_limit` the word of either holds only while
         neither of the two changed against the other satellites since the previous epoch
         (`_judge_changes`): two signals that move together leave their difference where it
         was, and the phase in question then stays one.
@@ -559,6 +561,7 @@ class Rtk:
             ref_asked = ref_clear = False  # the first signal: in question, unflagged
             restarted = []
             waiting = []  # in question beside a first signal that was in question too
+            vouched = []  # settled on the first signal's word, which a later signal may refute
             for j, sig in enumerate(signals):
                 jb = cols[j]
                 if jb is None:
@@ -601,6 +604,8 @@ class Rtk:
                             slip, asked, ref_asked, question = True, False, False, False
                             ref_clear = False  # which of the two stepped is not known
                             self.asked.discard((sat, ref_sig))
+                            self.asked.update(vouched)  # nor whether those are continuous
+                            vouched.clear()
                             if (sat, ref_sig) in self.biases:
                                 self._remove((sat, ref_sig))
                                 restarted.append(ref_sig)
@@ -613,6 +618,7 @@ class Rtk:
                             self.asked.discard((sat, ref_sig))
                         elif prev is not None and asked and ref_clear:
                             asked = False
+                            vouched.append(key)
                         elif prev is not None and asked and ref_asked:
                             waiting.append(key)
                         # the reference waits while a phase of the pair is in question; a
