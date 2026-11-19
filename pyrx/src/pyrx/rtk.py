@@ -528,7 +528,7 @@ class Rtk:
         Removes slipped and flags half-cycle states, adds process noise, aligns the
         existing states of each signal to the current single-differenced clock and
         creates the missing ones. Returns the single differences (phase m, code m) by
-        (satellite, signal).
+        (satellite, signal); the code is None where an existing state has a phase alone.
 
         With `slips="check"` a phase only the rover flags, on an ambiguity updated at the
         previous epoch, is in question instead: left in `asked` for `_test_asked` unless
@@ -640,7 +640,9 @@ class Rtk:
                     restarted.append(sig)
                 if asked:
                     self.asked.add(key)
-                if phase is not None and code is not None:
+                # a phase without its code keeps the row of the state it has (RTKLIB's
+                # validobs asks a phase row for the phases alone); none begins without
+                if phase is not None and (code is not None or key in self.biases):
                     sd[key] = (phase, code)
                     if key in self.biases:
                         i = self._index(key)
@@ -654,7 +656,9 @@ class Rtk:
         self.fresh = {}
         for sig in signals:
             lam = wavelength(sig)
-            news = {k: (v[0] - v[1]) / lam for k, v in sd.items() if k[1] == sig}
+            news = {
+                k: (v[0] - v[1]) / lam for k, v in sd.items() if k[1] == sig and v[1] is not None
+            }
             existing = [k for k in news if k in self.biases]
             # a phase in question may have slipped: it follows the others, it does not lead.
             # With every one in question there is nothing to align to: `_test_asked` finds
@@ -666,15 +670,15 @@ class Rtk:
                 for k in self.keys:
                     if k[1] == sig:
                         self.x[self._index(k)] += offset
-            for k, v in news.items():
+            for k in [k for k in sd if k[1] == sig]:
                 created = k not in self.biases
                 if created:
-                    self._add(k, v, opt.bias_sigma**2)
+                    self._add(k, news[k], opt.bias_sigma**2)
                 # a phase that continues through a flag keeps an established half cycle
                 established = check and not created and not self.biases[k].half
                 self.biases[k].half = halves[k] and not established
                 if k in self.asked:
-                    self.fresh[k] = (v, halves[k])
+                    self.fresh[k] = (news[k], halves[k])
         return sd
 
     def _judge_changes(self, signals, cols, common, yr, yb, t_base) -> set[tuple[str, str]]:
@@ -808,6 +812,8 @@ class Rtk:
                     valid = [sat for sat in common if sat[0] == system and (sat, sig) in sd]
                     if kind == "phase" and without:
                         valid = [sat for sat in valid if (sat, sig) not in without]
+                    if kind == "code":
+                        valid = [sat for sat in valid if sd[(sat, sig)][1] is not None]
                     if len(valid) < 2:
                         continue
                     ref = max(valid, key=lambda sat: yr[sat][3])

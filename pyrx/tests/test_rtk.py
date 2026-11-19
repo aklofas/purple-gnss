@@ -655,6 +655,35 @@ def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone
     assert rtk.biases[key].lock == 3 and fixes[-1].status == "fix"
 
 
+def test_a_phase_without_its_code_keeps_the_row_of_its_ambiguity():
+    # RTKLIB asks a phase row for the two phases alone. From the seventh epoch one rover
+    # code is missing: the ambiguity it has stays in the update and in the search, where it
+    # once went unused and was dropped after max_outage epochs for good. Only a new
+    # ambiguity needs the code, to begin on phase minus code
+    ephs = constellation()
+    key = ("G03", "G2W")
+
+    def run(first):
+        pairs = _l1_run(np.random.default_rng(30), ephs, 14, signals=SIGNALS)
+        for k in range(first, 14):
+            r, b = pairs[k]
+            code = r.pseudorange.copy()
+            code[r.sats.index(key[0]), r.signals.index(key[1])] = np.nan
+            pairs[k] = (replace(r, pseudorange=code), b)
+        rtk = _rtk(ephs)
+        fixes = [rtk.step(*pair) for pair in pairs]
+        for f in fixes:
+            if f.status == "fix":
+                np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+        assert fixes[-1].status == "fix"
+        return rtk, [f.nb for f in fixes]
+
+    rtk, nb = run(6)
+    assert nb == [10] * 14 and rtk.biases[key].lock == 14
+    rtk, nb = run(0)
+    assert nb == [9] * 14 and key not in rtk.biases
+
+
 def _truth(a):
     """The double-differenced integer ambiguity of a record: reference minus satellite."""
     return (AMB_R[(a.ref, a.signal)] - AMB_B[(a.ref, a.signal)]) - (
