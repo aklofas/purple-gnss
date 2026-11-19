@@ -54,7 +54,14 @@ Table A23) is applied here, as a receiver does. The pilot's loop coasts through 
 on an extrapolation and can return whole cycles away with its window indicator still
 high. It returns with the first sum it takes after the coasted ones, and that update
 is in the phases after the epoch that completes the sum, so every phase from a coasted
-sum to the first one that holds the return is flagged as a slip.
+sum to the first one that holds the return is flagged as a slip. A pilot can also slip a
+whole cycle with its sums coherent enough to be taken. In a fade null the received phase
+can turn a whole cycle within a few sums, the loop following a third of a cycle or more
+behind; or it runs past half a cycle from the loop, where the four-quadrant phase of a sum
+wraps, and the loop pulls the other way. Either way a sum stands far from the loop's own
+phase, so a phase after a sum the loop took at `NEAR_WRAP` or more is flagged as a slip
+too. A slip the loop follows with a small phase error (a reflection that outweighs the
+direct path for a moment) shows in neither rule.
 
 A pilot whose secondary code lasts 100 ms (Galileo E5a, and Galileo E1, whose 4 ms code
 the tracker follows in 1 ms epochs) needs no other channel for its time: the code start
@@ -107,6 +114,11 @@ PILOT_AGREEMENT = 1e-6
 # epochs from the one completing a pilot's coasted sum to the one completing the next sum,
 # whose update is in the phases after it
 COAST_RETURN = round(T_PILOT_COH / CA_PERIOD)
+# cycles: a pilot's coherent sum whose phase against the NCO is this large or larger is near
+# the wrap of the four-quadrant discriminator at half a cycle, 0.15 cycle from it at most.
+# The whole-cycle slips of the car-roof captures passed sums of 0.41 to 0.46 cycle; a steady
+# signal has none over 0.35 down to 24 dB-Hz
+NEAR_WRAP = 0.35
 
 
 def code_starts(track: TrackResult) -> np.ndarray:
@@ -225,6 +237,17 @@ def _coasting(tr: TrackResult) -> np.ndarray | None:
     count = np.cumsum(tr.held)
     count[COAST_RETURN + 1 :] -= count[: -COAST_RETURN - 1].copy()
     return count > 0
+
+
+def _near_wrap(tr: TrackResult) -> np.ndarray:
+    """Per epoch of a pilot, whether it completes a coherent sum the loop took whose phase
+    against the NCO is NEAR_WRAP or more in size. Up to the epoch of the secondary sync the
+    record holds other discriminators, and a sum the loop coasted on has no phase."""
+    marks = np.zeros(len(tr.t), dtype=bool)
+    if tr.sec_sync is not None:
+        sums = tr.carrier_error[tr.sec_sync + 1 :]
+        marks[tr.sec_sync + 1 :] = np.abs(sums) >= NEAR_WRAP
+    return marks
 
 
 def _fades(tr: TrackResult) -> list[tuple[int, int, int]]:
@@ -392,9 +415,10 @@ class _Segment:
         return _Sampled(k, f, adr, locked, bool(slip))
 
     def since_phase(self, marks: np.ndarray | None, k: int) -> bool:
-        """Whether a per-epoch mark (a fade, a coasted sum) is set between the previous
-        observation with a phase and epoch k: an event at an epoch is the business of the
-        phases after it, the phase of epoch k being the loop's state before its update."""
+        """Whether a per-epoch mark (a fade, a coasted sum, a sum near the wrap) is set
+        between the previous observation with a phase and epoch k: an event at an epoch is
+        the business of the phases after it, the phase of epoch k being the loop's state
+        before its update."""
         return marks is not None and bool(marks[max(self.last_phase_k, 0) : k].any())
 
     def observed(self, s: _Sampled) -> None:
@@ -565,6 +589,7 @@ def joint_observables(
         if time0 is not None:
             timed.append((tr, starts, time0, spec, period >= SECONDARY_TIME))
     coasting = [_coasting(tr) for tr, *_ in timed]
+    near_wrap = [_near_wrap(tr) for tr, *_ in timed]
     segments = [_Segment(tr, tc, tr.sec_sync + 1) for tr, tc, *_ in timed]
     signals = ("G1C", *(SIGNALS[name].rinex for name in pilot_signals))
     column = {name: 1 + j for j, name in enumerate(pilot_signals)}
@@ -588,7 +613,8 @@ def joint_observables(
             if self_timed and max(own[sat]) - min(own[sat]) > PILOT_AGREEMENT:
                 continue  # nothing says which of them is wrong
             k = at.k
-            lli = LLI_SLIP if at.slip or seg.since_phase(coasting[c], k) else 0
+            slip = at.slip or seg.since_phase(coasting[c], k) or seg.since_phase(near_wrap[c], k)
+            lli = LLI_SLIP if slip else 0
             half = 0.5 if tr.sec_polarity < 0 else 0.0
             phase = -(at.adr + half) + spec.phase_align if at.locked else np.nan
             pilot_obs = Observation(
