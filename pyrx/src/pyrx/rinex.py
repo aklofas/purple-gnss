@@ -519,8 +519,10 @@ def _uniform_galileo(path) -> io.StringIO:
     """
     with _open_text(path) as f:
         lines = f.read().split("\n")
+    # the records begin after the header, whose free text may look like one
+    body = next((i + 1 for i, line in enumerate(lines) if line[60:73] == "END OF HEADER"), 0)
     for i, line in enumerate(lines):
-        if _GALILEO_RECORD.match(line) and i + 7 < len(lines):
+        if i >= body and _GALILEO_RECORD.match(line) and i + 7 < len(lines):
             lines[i + 5] = lines[i + 5][: 4 + 3 * _FIELD].rstrip()
             lines[i + 7] = lines[i + 7][: 4 + _FIELD].rstrip()
     return io.StringIO("\n".join(lines))
