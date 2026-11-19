@@ -639,7 +639,14 @@ def test_every_galileo_satellite_of_the_base_has_a_usable_ephemeris(captures):
 
 @pytest.mark.parametrize("runner", [rnx2rtkp_rtk, rnx2rtkp_ttff])
 def test_reference_runners_turn_away_a_frequency_rtklib_would_ignore(runner, tmp_path):
-    # this build of RTKLIB reads l1, l1+2, l1+2+3 and runs its default on anything else
+    # RTKLIB says "invalid option value" on standard error and runs its default, with exit
+    # status 0: a misspelled value would compare pyrx with another configuration
     args = ("r.obs", "b.obs", "n.nav", tmp_path, (0.0, 0.0, 0.0), 0.0, 0.0, "kinematic", "l1+l2")
     with pytest.raises(ValueError, match=r"l1\+l2"):
         runner(*args, 1, [], 0) if runner is rnx2rtkp_ttff else runner(*args)
+
+
+def test_the_reference_runner_turns_away_a_direction_rtklib_would_ignore(tmp_path):
+    args = ("r.obs", "b.obs", "n.nav", tmp_path, (0.0, 0.0, 0.0), 0.0, 0.0)
+    with pytest.raises(ValueError, match="pos1-soltype=backwards"):
+        rnx2rtkp_rtk(*args, soltype="backwards")
