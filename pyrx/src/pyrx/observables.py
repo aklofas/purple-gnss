@@ -318,7 +318,7 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
         if last and between:
             is_open[between[0][0] + 1 :] = True
         elif not last and flipped[j + 1] == flipped[j] and between:
-            is_open[between[0][0] + 1 : between[-1][2] + 1] = True
+            is_open[between[0][0] + 1 : max(f[2] for f in between) + 1] = True
     return is_open
 
 

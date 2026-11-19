@@ -582,6 +582,12 @@ def test_a_window_without_phase_lock_leaves_the_half_cycle_open_as_a_fade_does()
     # and a window under subframes decoded back to back opens nothing
     epochs, base, ks = _unlocked_channel(SFS, (10000, 11000))
     assert _half_cycle(epochs, base, ks) == []
+    # a window inside a long fade does not end the fade's stretch early: the held epochs
+    # after it can hold the second slip
+    epochs, base, ks = _unlocked_channel(GAP, (10000, 11000), (9000, 12500))
+    end = 12500 + round(FADE_SPAN / CA_PERIOD) - 50
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if 9000 < k <= end]
+    assert [k for k in ks if 11000 <= k <= end] != []
 
 
 def test_a_held_epoch_counts_for_the_phases_after_it():
