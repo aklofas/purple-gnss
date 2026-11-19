@@ -141,7 +141,24 @@ def test_header_numbers_filling_their_fields_are_read_by_column(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "fields", ["  4628684.7755   119996.7157", "  4628684.7755     x.xxxx     4372109.7032"]
+    "fields,values",
+    [
+        ("  4628684.7755   119996.7157", [4628684.7755, 119996.7157, 0.0]),
+        ("        0.4410", [0.441, 0.0, 0.0]),
+        ("                             -0.0830", [0.0, 0.0, -0.083]),
+    ],
+)
+@pytest.mark.parametrize("label", ["APPROX POSITION XYZ", "ANTENNA: DELTA H/E/N"])
+def test_a_blank_field_of_a_header_record_reads_as_zero(tmp_path, label, fields, values):
+    # an item that is not known may be left blank (RINEX 3.05, 6.5), and RTKLIB reads each
+    # field on its own: a height alone is an antenna offset
+    h = read_rinex_header(_with_record(tmp_path, label, fields))
+    got = h.position if label == "APPROX POSITION XYZ" else h.delta_enu[[2, 0, 1]]
+    np.testing.assert_array_equal(got, values)
+
+
+@pytest.mark.parametrize(
+    "fields", ["  4628684.7755     x.xxxx     4372109.7032", "1.0 2.0", "  4628684.7755   n/a"]
 )
 def test_a_malformed_header_record_is_refused(tmp_path, fields):
     with pytest.raises(ValueError, match="malformed APPROX POSITION XYZ"):

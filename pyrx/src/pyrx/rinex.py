@@ -199,15 +199,14 @@ class RinexHeader:
 
 
 def _three_numbers(text: str) -> np.ndarray:
-    """The three F14.4 numbers of a header record; zeros for a blank record, which is how a
-    file says it has none (the position of a moving receiver). Numbers that fill their
-    fields touch, so a record that does not split into three is read by column."""
-    if not text.strip():
-        return np.zeros(3)
+    """The three F14.4 numbers of a header record. A blank field is zero, which is how a
+    file says it does not know the item (RINEX 3.05, 6.5; the position of a moving
+    receiver is a blank record). Numbers that fill their fields touch, so a record that
+    does not split into three is read by column."""
     fields = text.split()
     if len(fields) != 3:
         fields = [text[i : i + 14] for i in (0, 14, 28)]
-    return np.array([float(v) for v in fields])
+    return np.array([float(v) if v.strip() else 0.0 for v in fields])
 
 
 def read_rinex_header(path) -> RinexHeader:
