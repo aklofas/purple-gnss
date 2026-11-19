@@ -283,9 +283,9 @@ def _unlocked(tr: TrackResult) -> tuple[list[tuple[int, int, int]], np.ndarray]:
     return [(int(a), int(b), int(b)) for a, b in zip(edges[::2], edges[1::2] - 1, strict=True)], off
 
 
-def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
+def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray:
     """Per epoch, whether fades and windows without phase lock leave the half cycle of its
-    phase open; None for a track without the hold record.
+    phase open. A track without the hold record has no fades; its windows count.
 
     A slip of half a cycle in a fade shows as a subframe of the other polarity, which
     `_carrier_state` reads. Two such slips between two decoded subframes do not: the
@@ -301,8 +301,6 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
     its phases are withheld, and the first one after it is half a cycle either way from
     the last one before.
     """
-    if tr.held is None:
-        return None
     starts, flipped = polarity
     is_open = np.zeros(len(tr.t), dtype=bool)
     runs, off = _unlocked(tr)
@@ -474,7 +472,7 @@ def l1_observables(run: Run, week: int | None = None) -> list[Epoch]:
             inverted, lli = _carrier_state(ln, polarity[c], k, seg.last_k)
             if at.slip or seg.since_phase(faded[c], k):
                 lli |= LLI_SLIP
-            if half_open[c] is not None and half_open[c][k]:
+            if half_open[c][k]:
                 lli |= LLI_HALF_CYCLE
             phase = -(at.adr + (0.5 if inverted else 0.0)) if at.locked else np.nan
             obs.append(
