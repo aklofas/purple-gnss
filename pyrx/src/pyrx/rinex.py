@@ -309,7 +309,9 @@ def read_rinex_observations(
     A satellite is kept at an epoch when it has a pseudorange or carrier phase on
     any requested signal; epochs without satellites are dropped. Epochs come out
     in time order; a repeated epoch or satellite keeps its first record and an
-    epoch the file ends inside is dropped, as RTKLIB does. Files outside the
+    epoch the file ends inside is dropped, as RTKLIB does; an epoch damaged inside the
+    file (its count runs into the next epoch, or a record is cut with another after it)
+    raises ValueError. Files outside the
     implemented profile raise ValueError (see `_check_observation_header`); so
     does a change of the observation types inside the file.
     """
@@ -349,8 +351,15 @@ def read_rinex_observations(
             if any(r[60:].strip() == "SYS / # / OBS TYPES" for r in records):
                 raise ValueError(f"line {i + 1}: observation types change inside the file")
             continue
-        if sum(r[:1].isalpha() for r in records) < count or (records and _cut_short(records[-1])):
-            if i < len(lines) - 1:
+        short = sum(r[:1].isalpha() for r in records) < count
+        cut = [n for n, r in enumerate(records) if _cut_short(r)]
+        if short or cut:
+            # the file may end inside its last epoch, on a missing or a cut record. A count
+            # that runs into the next epoch's line, or a cut record with another after it,
+            # is damage inside the file
+            inside = any(r.startswith(">") for r in records)
+            inside = inside or any(n != len(records) - 1 for n in cut)
+            if i < len(lines) - 1 or inside:
                 raise ValueError(f"line {i + 1}: truncated observation record")
             break  # the file ends inside this epoch
         if tlim is not None and not (tlim[0] <= t <= tlim[1]):
