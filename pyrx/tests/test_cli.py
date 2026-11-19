@@ -683,6 +683,43 @@ def test_rtk_main_turns_away_a_change_limit_that_is_no_length(value, capsys):
     assert "0 or more" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("option", ["--ts", "--te"])
+@pytest.mark.parametrize("value", ["2021-13-26 09:00:00", "noon"])
+def test_positioning_mains_turn_away_a_time_that_is_none(option, value, capsys):
+    rtk = ["r.obs", "b.obs", "n.nav", "--base-xyz", "1", "2", "3"]
+    for main, args in ((pvt_main, ["o.obs", "n.nav"]), (rtk_main, rtk)):
+        with pytest.raises(SystemExit) as e:
+            main([*args, option, value])
+        assert e.value.code == 2
+        err = capsys.readouterr().err
+        assert f"argument {option}" in err and "YYYY-MM-DD" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("signals", ["G1C,E6C", "G1C,G2", "G1C,,G5Q", "L1"])
+def test_rtk_main_turns_away_a_signal_of_no_band_in_use(signals, capsys):
+    with pytest.raises(SystemExit) as e:
+        rtk_main(["r.obs", "b.obs", "n.nav", "--base-xyz", "1", "2", "3", "--signals", signals])
+    assert e.value.code == 2
+    assert "argument --signals" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+def test_rinex_main_turns_away_an_interval_that_is_no_step(value, capsys):
+    with pytest.raises(SystemExit) as e:
+        rinex_main(["s.bin", "--fs", "2.5e6", "--obs", "o.obs", "--interval", value])
+    assert e.value.code == 2
+    assert "argument --interval: must be more than 0" in capsys.readouterr().err
+
+
+def test_acq_main_with_a_file_shorter_than_its_window_exits_2(tmp_path, capsys):
+    f = _l5_file(tmp_path, 0.02)
+    args = [str(f), "--fs", "6e6", "--iq", "--signal", "L5", "--prn", "6"]
+    for window in (["--duration", "0.03"], ["--t-start", "0.01"]):
+        assert acq_main([*args, *window]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and captured.err.count("\n") == 1
+
+
 @pytest.mark.parametrize("option", ["--min-lock", "--fix-sats"])
 def test_rtk_main_turns_away_a_negative_count(option, capsys):
     with pytest.raises(SystemExit) as e:
