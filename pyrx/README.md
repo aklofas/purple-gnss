@@ -1112,8 +1112,9 @@ clean signal, 0.05 on noise, 0.28 at 25 dB-Hz), and takes it into the loop only 
 or above. On any other sum the loop coasts: the discriminator reads zero, which takes
 the last error's proportional term back out of the Doppler, and the Doppler rate keeps
 steering. One noise sum in seventy still reaches the threshold, so the first sum taken
-after a coasted one moves the Doppler by its proportional term only; the integrated
-terms take a sum's error when the sum before it was taken too. The integrator hold (see "Tracking loops") stays in
+after a coasted one moves the Doppler by its proportional term, with the rate the loop
+carries, and not by the terms that integrate its error; those
+take a sum's error when the sum before it was taken too. The integrator hold (see "Tracking loops") stays in
 force beside the gate: behind an obstruction the signal is more often attenuated and
 flickering than gone, its weak sums pass the gate with a noisy phase, and the hold keeps
 them out of the rate estimate the loop then coasts on. In synthetic outages of 0.4 to

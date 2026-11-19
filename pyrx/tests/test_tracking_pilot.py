@@ -345,7 +345,7 @@ def test_coherent_loop_is_rebuilt_from_the_prompts(depth_db, sec_index, on_close
     # sum is good when its coherence reaches COAST_COHERENCE; a sum that is not is coasted
     # (the last error's proportional term taken back, the integrated term still steering);
     # the first good sum after a coasted one moves the Doppler by its proportional term
-    # only; a good sum completed while the fade window holds the integrator does not move
+    # and the carried rate, not by the terms that integrate its error; a good sum completed while the fade window holds the integrator does not move
     # the integrated term. The signal is gone for 0.4 s, or 10 dB down for as long, or 4 dB
     # down with the sync falling so that every sum ends on the epoch that closes a fade
     # window: there the window is closed first and the sum reads the new flag. All three
