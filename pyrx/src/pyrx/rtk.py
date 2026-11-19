@@ -27,7 +27,9 @@ at every rover epoch it is paired with (RTKLIB reads a base observation's indica
 once and admits the ambiguity at the later ones); and `Fix.ns`, with the four
 satellites an epoch needs, counts each system's satellites on the first signal listed
 for it (RTKLIB on its first frequency, L1 or E1, whatever the list), so a list without
-L1 or E1 still has a count.
+L1 or E1 still has a count; and of a broadcast issue transmitted more than once the
+record last transmitted by the epoch is used (`orbits.select_ephemeris`), where RTKLIB
+uses the one transmitted last in the file.
 
 Not RTKLIB's, and outside the comparison: the single-point seed is solved on one GPS
 signal (`_seed_signal`) and needs four GPS satellites whatever other systems the

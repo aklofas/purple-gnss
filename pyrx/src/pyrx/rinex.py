@@ -470,8 +470,8 @@ def _read_iono(path) -> Ionosphere | None:
 
 
 def _transmitted(r) -> float | None:
-    """The record's transmission time, None where the file has none (blank, or the
-    0.9999E9 a writer puts for unknown)."""
+    """The record's transmission time, None for the 0.9999E9 a writer puts where it does
+    not know it."""
     ttr = float(r["TransTime"].values)
     return ttr if abs(ttr) < 0.9999e9 else None
 
