@@ -567,8 +567,12 @@ over several flagged epochs is measured whole; and where there is no step, a pha
 question beside an unflagged one is continuous. A step still restarts both, whichever
 carries the flag: a fade hits both signals, and on the drive below restarting only the
 flagged one was worse than no check at all. With three signals of a system the first
-signal's word for the second does not outlast a step of the first against the third: the
-second is in question again, in whichever order the signals are listed.
+signal's word for the second does not outlast a step of the first against the third at
+the same epoch: the second is in question again, in whichever order the signals are
+listed. A step that shows an epoch later, because the third signal had no phase when the
+first slipped, takes no word back: the second keeps its ambiguity, wrong if it slipped
+with the first (in a synthetic run, float for the rest of it and meters off). The change
+limit below catches that case where it has a verdict.
 
 The rest of the epoch. The phases still in question are left out of a trial update on a
 copy of the filter, which takes every code and every other phase and so places the rover
@@ -781,7 +785,13 @@ not keep a phase out), with the least sum of absolute residuals, once without
 each satellite in turn (a phase that moved still pulls on such a solution when few phases
 are there), and takes the solution that explains the most of them within 1.5 cm
 (`CHANGE_FIT`). A solution is formed only where the phases left determine it: three
-satellites, or several at one elevation, cannot tell a change of position from the clocks. A phase that stands more than `change_limit` from it has moved, flagged
+satellites, or several at one elevation, cannot tell a change of position from the clocks.
+That test is exact. Unflagged satellites within a few degrees of one elevation pass it
+and determine the height poorly. In a synthetic case of five such satellites on three
+frequencies and a flagged one at the zenith, with 2 mm of noise, the one at the zenith is
+called moved when it did not move in 258 of 300 epochs with a degree either side of that
+elevation, in 175 with three degrees, 7 with ten and none with twenty-five; and when it
+moved by 10 cm it passes as unmoved in 42, 27, none and none. A phase that stands more than `change_limit` from it has moved, flagged
 or not. The consequence is one: where a phase in question or the signal that would vouch for
 it has moved, neither vouches, and the phase in question goes to the test against the rest
 of the epoch. No phase restarts for having moved, an unflagged phase is not touched, and

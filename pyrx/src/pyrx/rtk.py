@@ -210,7 +210,8 @@ def _moved(
     turn (`sat`, an index), and the one that explains the most clean phases within
     CHANGE_FIT gives the verdict. A solution is formed only where the phases left
     determine the unknowns: three satellites, or several at one elevation, cannot tell a
-    change of position from the clocks. There is no verdict with fewer than
+    change of position from the clocks (the test is of rank: satellites a few degrees
+    from one elevation pass it and still determine the height poorly). There is no verdict with fewer than
     CHANGE_MIN_PHASES clean phases, or when the phases the best solution explains, less
     one per unknown (any solution explains that many for nothing), do not outnumber the
     clean phases it leaves out: those may be the receiver's motion and the others the
@@ -568,8 +569,9 @@ class Rtk:
         at the last restart of either), so a slip spread over flagged epochs is measured
         whole: a step restarts both, as always; without one, a phase in question beside an
         unflagged one is continuous. The first signal's word for another holds only while
-        no signal of the satellite steps against the first: when one does, the phases it
-        settled are in question again. With `change_limit` the word of either holds only while
+        no signal of the satellite steps against the first at this epoch: when one does,
+        the phases it settled are in question again. (A step that shows at a later epoch,
+        the other signal having had no phase at this one, takes nothing back.) With `change_limit` the word of either holds only while
         neither of the two changed against the other satellites since the previous epoch
         (`_judge_changes`): two signals that move together leave their difference where it
         was, and the phase in question then stays one.
