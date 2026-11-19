@@ -18,7 +18,7 @@ A receiver that starts cold knows nothing: which satellites are overhead, where 
 
 **Which satellite.** Each satellite has its own code, identified by its PRN number, so the receiver tries each code in turn. For GPS L1 there are 32 to try.
 
-**Code phase.** The received code is a pattern that repeats every 1 ms. Its code phase is where in that pattern the signal is at a given sample. The receiver's copy has to line up with it to within about half a chip, roughly 500 nanoseconds, for a match to stand out; one chip away the match fades to nothing. A period holds 1023 chips, so testing two positions per chip means about 2000 alignments.
+**Code phase.** For L1 C/A, the received code is a pattern that repeats every 1 ms; Galileo E1's primary code repeats every 4 ms, so acquisition searches a longer period. Its code phase is where in that pattern the signal is at a given sample. The receiver's copy has to line up with it to within about half a chip, roughly 500 nanoseconds, for a match to stand out; one chip away the match fades to nothing. A period holds 1023 chips, so testing two positions per chip means about 2000 alignments.
 
 **Doppler.** The satellites move at nearly 4 km/s. The part of that motion along the line of sight shifts the received frequency by up to about 5 kHz for a user standing still, the Doppler shift, and the receiver's own oscillator error adds a few kHz more. The search has to get the frequency roughly right too, for a reason the next section makes clear.
 
@@ -59,6 +59,8 @@ A software receiver does exactly this, and as a bonus it tests every sample shif
 ## Making the decision
 
 The result of the search is a grid of correlation powers. If the satellite is present, one cell stands well above the rest. The receiver turns that into a detection by comparing the peak with a threshold, usually through the ratio of the highest peak to the mean of the grid, or to the second-highest peak away from the main one. The same ratio gives an estimate of the carrier-to-noise density ratio, C/N0, the standard measure of signal strength. The threshold sets the trade between missing a weak satellite and reporting a false alarm, a peak that is only noise; it is set above the highest peak that noise alone produces across the grid. The 6 percent off-peak value of the C/A codes also matters, because a strong satellite's code can raise a false peak about 24 dB below its own. The position of the peak gives the code phase to within half a chip and the Doppler to within half a bin.
+
+With BOC, a nearby side peak is another match to the same signal, and noise can make the search choose it. Detecting the signal therefore does not by itself prove that acquisition chose the main peak.
 
 Two things make a peak weaker than it should be. If a 1 ms L1 C/A window straddles a data-bit transition, the sign flips partway through the sum and it partly cancels; trying the next 1 ms window avoids that transition. A pilot signal carries no navigation bits, but its known secondary-code sign changes must still be accounted for. And the peak only has full height when the Doppler bin is exactly right, since the correlation falls off smoothly with frequency error, so the true value is estimated from the neighboring bins too.
 

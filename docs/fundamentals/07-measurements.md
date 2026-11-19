@@ -28,6 +28,8 @@ $$
 
 The transmit time $t_{\rm tx}$ comes from the previous page. For a chosen receiver epoch, the receiver finds, for each satellite, the point in the code it was receiving at that instant, and knows from the decoded time of week when, by the satellite's clock, it transmitted that point (the next page corrects that clock to GPS time). The receive time $t_{\rm rx}$ is the receiver's own clock, which is the problem. Its clock is wrong by an unknown amount, so every pseudorange is wrong by the same unknown amount, and the travel time of 65 to 85 milliseconds comes out as something like 65 to 85 milliseconds plus or minus the receiver's error. A clock error of one microsecond is already 300 m. That shared error is why it is called a pseudo-range, and the next page solves for it.
 
+A known secondary code can also identify a pilot's transmit time modulo its repetition, 100 ms for Galileo E1 and E5a. A coarse reception time and a physically possible travel time then select which repetition arrived, so a pilot can supply a pseudorange without carrying a decoded navigation message of its own.
+
 Collecting everything that goes into it, the pseudorange is modeled as
 
 $$
