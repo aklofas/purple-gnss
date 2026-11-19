@@ -1,6 +1,7 @@
 """Our RTK fix against RTKLIB's and the EUREF coordinates on two IGS station pairs."""
 
 import dataclasses
+from collections import Counter
 from datetime import datetime
 
 import numpy as np
@@ -626,6 +627,30 @@ def test_both_galileo_bands_on_the_drive_and_the_parked_car(captures):
     fixes = [f.position for f in fwd.values() if f.status == "fix"]
     assert np.linalg.norm(np.median(fixes, axis=0) - home) < 0.006
     assert max(np.linalg.norm(p - np.median(fixes, axis=0)) for p in fixes) < 0.025
+
+
+def test_rtklib_reads_the_galileo_and_l5_observations_of_the_parked_car(captures, tmp_path):
+    # RTKLIB 2.4.3 on the file pyrx-rinex wrote with both Galileo bands, GPS and Galileo on
+    # its frequency slots 1 and 3 (L1 C/A and E1C, L5Q and E5Q): its status file lists
+    # valid phases of both systems on both slots. Whether RTKLIB reads these columns at
+    # all is what is checked; its slip rules are its own and no position is compared
+    rover = capture_file(captures, f"{STATIC}/pyrx_e1e5a.obs")
+    base = capture_file(captures, CAR_BASE_GALILEO)
+    hb = read_rinex_header(base)
+    ref = rnx2rtkp_rtk(
+        rover, base, capture_file(captures, PUBLIC_NAV), tmp_path / "rtk", hb.position,
+        hb.delta_enu[2], 0.0, "kinematic", "l1+2+3", 9,
+    )  # fmt: skip
+    assert len(ref) > 280
+    status = (tmp_path / "rtk" / "fix.pos.stat").read_text().splitlines()
+    rows = [line.split(",") for line in status if line.startswith("$SAT")]
+    valid = Counter((row[3][0], row[4]) for row in rows if row[9] == "1")  # system, slot
+    assert set(valid) == {("G", "1"), ("G", "3"), ("E", "1"), ("E", "3")}, valid
+    # measured: eight GPS satellites on L1 and four on L5, six Galileo satellites on both
+    # bands, each at all 299 epochs
+    assert min(valid.values()) > 1000, valid
+    galileo = {row[3] for row in rows if row[3][0] == "E" and row[9] == "1"}
+    assert len(galileo) >= 5, galileo
 
 
 def test_every_galileo_satellite_of_the_base_has_a_usable_ephemeris(captures):
