@@ -100,25 +100,26 @@ cannot pass by skipping them (the `fpga` tests on the recording fail the same wa
 | `sky/20261103_030551_carroof-static/ch2.bin` | the L5/E5a band of the same capture on the same sample clock, 24 MHz I/Q, LO 1176.45 MHz; `slow` tests walk the pilots of its first 60 s and form joint observations from its first 120 s | `2a353935ef7ce19eede08c47d6dd68b62e9c8783f319986ca0e2e7205e2b4115` |
 | `sky/20261103_030551_carroof-static/trk_l5_l5fix.log` | generated: the corrected Pocket SDR C tracker's log of that file, as for the L5 recording above | `f711e9169bdd012ac1310f15fd7240632e173c4a1759199e3b4de4d8b58a9993` |
 | `sky/20261103_030551_carroof-static/trk_e1b.log` | generated: Pocket SDR C tracker log of that capture's `ch1.bin`, Galileo E1B channels (`-sig E1B -prn 1-36`), the reference of the `slow` E1 test, which walks 60 s of the file from 80 s | `f7807b5c03f5995d16c2c2a49f07139bc3f55fbf853746e5d290ae75d9c2e635` |
-| `sky/20261103_031515_carroof-driving/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the drive (291 epochs at 1 s, GPS L1 and L5), the rover of the RTK tests on the car-roof captures | `9f95711a31e419a8b79bc7b21276b0d88d5e34eeafa90c8868f0919fd874df31` |
+| `sky/20261103_031515_carroof-driving/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the drive (291 epochs at 1 s, GPS L1 and L5), the rover of the RTK tests on the car-roof captures | `05ac943f685def9f7ce3d3c9c18f244af654a955ae616eb29560b99ccdefca24` |
 | `sky/20261103_031515_carroof-driving/pyrx_l1l5.nav` | generated: the navigation file of the same run | `68867ed5a8552c7bc6683f6a84f79040147ee44122662153cdd1862af49a10ab` |
 | `sky/20261103_030551_carroof-static/pyrx_l1l5.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin` on the parked capture (299 epochs), the rover of the RTK tests on the car-roof captures | `4a34b9a27606570dbe335055071c4c76dda14bfb7ece98affd141f5cf527e778` |
 | `sky/20261103_030551_carroof-static/pyrx_l1l5.nav` | generated: the navigation file of the same run | `cb485486a91a6ceec246d3b981bb097d813f14e78bb3fd034d4f0111a96c357c` |
 | `cors/base_20261103_0300_0330_gps.rnx` | project file, not distributed: half an hour of 1 s GPS L1 and L5 observations of a public reference station 15 km from the car-roof captures, converted from its RINEX 2.11 file to RINEX 3 (`C1 L1 S1` as `1C`, `C5 L5 S5` as `5Q`), with the station's antenna reference point in `APPROX POSITION XYZ`; the base of those RTK tests | `ebc81edce9e29c37588ab7761b59c4cee74209f9ceb741f0ab0dee50e5fa06d7` |
-| `sky/20261103_032110_carroof-coldstart/pyrx_l1l5.obs` | generated: the same command on the capture started while moving (289 epochs) | `292ece824076c902fb7167c19e2a7308f75a35d3cecbf9e671a818399d174674` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_l1l5.obs` | generated: the same command on the capture started while moving (289 epochs) | `7439b566dc8bbda2e38134d480e58cbc4c0ab0db00e5136f7e6c9329b0332a41` |
 | `sky/20261103_032110_carroof-coldstart/pyrx_l1l5.nav` | generated: the navigation file of the same run | `613c6fb7e289c517ed4811e2163e578a92ba657455830a001c71004f069542e6` |
-| `sky/20261103_030551_carroof-static/pyrx_gal.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: its GPS rows with the Galileo E5a pilots' beside them | `45c87bc9fe1840cb4ed23b977fcba9c3b0d9d51bfbc959c8c9d5beea5fb3aa41` |
-| `sky/20261103_031515_carroof-driving/pyrx_gal.obs` | generated: the same on the drive | `1a183ccd397fa3adf66b8ca561f383b166500af44228c1614850d2bd17e004ec` |
-| `sky/20261103_032110_carroof-coldstart/pyrx_gal.obs` | generated: the same on the capture started while moving | `dcbb91a3989023f96918482147270e1c6d3edfe5c12ee3658f1de3b5f6ebbead` |
-| `sky/20261103_030551_carroof-static/pyrx_e1e5a.obs` | generated: a whole run of `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: the GPS rows, and the Galileo satellites on E1C and E5Q | `20f69833adeb61c5fcaf57771b4ddc453600fae56feefe5075f8a05d35271a8e` |
-| `sky/20261103_031515_carroof-driving/pyrx_e1e5a.obs` | generated: the same on the drive | `4e9993b577bbd48864c3d8fe196b116fa70fcc7a081a8b1f1bf198a7fbfa724b` |
-| `sky/20261103_032110_carroof-coldstart/pyrx_e1e5a.obs` | generated: the same on the capture started while moving | `a21fdf49912f10d81a725d40e928dce5d67c6a70aef63acf62e9eac2328cea46` |
+| `sky/20261103_030551_carroof-static/pyrx_gal.obs` | generated: `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture when that option tracked Galileo E5a alone: its GPS rows with the Galileo E5a pilots' beside them, no E1 | `45c87bc9fe1840cb4ed23b977fcba9c3b0d9d51bfbc959c8c9d5beea5fb3aa41` |
+| `sky/20261103_031515_carroof-driving/pyrx_gal.obs` | generated: the same on the drive, its lost-lock bits since brought to those of the drive's `pyrx_e1e5a.obs`, every other value as it was | `841041a70816aded708c211acc9c05d53ef78f1dfef24fe9440429b460faacf7` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_gal.obs` | generated: the same on the capture started while moving, its lost-lock bits since brought to those of its `pyrx_e1e5a.obs`, every other value as it was | `079add3786589055e19884449df69b5f461ddaa555e2ff25828d5c5b1c947a8d` |
+| `sky/20261103_030551_carroof-static/pyrx_e1e5a.obs` | generated: a whole run of `pyrx-rinex ch1.bin --fs 24e6 --f-if 6e6 --l5 ch2.bin --galileo` on the parked capture: the GPS rows, and the Galileo satellites on E1C and E5Q | `96b0287ba2e7dafac333bfaca1c16ff5168fed66ec1d0581912c3dc69fa8282c` |
+| `sky/20261103_031515_carroof-driving/pyrx_e1e5a.obs` | generated: the same on the drive | `c22a66469a3d1d65fc802abf8e45e386c0a5f2a248e79af6612b649068ae0e58` |
+| `sky/20261103_032110_carroof-coldstart/pyrx_e1e5a.obs` | generated: the same on the capture started while moving | `d3796ceac8579c3aaacd1ac94c4a790a32bf1a62235dcd3fd9cb6025e75e0288` |
 | `cors/base_20261103_0300_0330.rnx` | project file, not distributed: the same half hour of the same station with its Galileo satellites beside the GPS ones (`C1 L1 S1` as `E1C`, `C5 L5 S5` as `E5Q`: RINEX 2.11 names no tracked component), the base of the RTK tests with Galileo | `c1690f6daf6acc7803e3c0644a9b232c8207bffffc273aac4aef692ca212f0d9` |
 | `brdc/BRDC00IGS_R_20263070000_01D_MN.rnx` | ftp://gssc.esa.int/gnss/data/daily/2026/brdc/ (gzip member), IGS combined multi-GNSS broadcast file, RINEX 3.04, 2026-11-03: the Galileo ephemerides of the car-roof captures | `9b8475997b50d2adb98058298ee892e701c0d2965b5fd744e4089e21e9257879` |
 
 The 100 ms 24 MHz recording has sample gaps near 40 ms and 90 ms; the acquisition
 tests use its first 10 ms, which is also what Pocket SDR integrates by default.
-The rows marked generated were produced here with the commands below and are kept
+The rows marked generated were produced here with the commands below (the `pyrx_gal.obs`
+files by the command as it was before it tracked E1) and are kept
 in the same directory as the recordings, with every file's checksum in its
 `SHA256SUMS`; the downloaded rows and the project recordings carry the checksum of the
 file as stored.
@@ -1283,7 +1284,9 @@ stands the tracker's guard ("Galileo E1" below).
 
 Checked on the car-roof captures, in files formed by a whole run of the command
 (`pyrx_e1e5a.obs`, `test_rtk_reference.py`): the GPS values and the E5a values are those of
-the earlier files in every field, so the agreement rule withheld nothing; `C1C` minus `C5Q`
+the earlier files in every field (on the moving captures the earlier E5a file's lost-lock
+bits were brought to the new file's, so there the bits are no second check), so the
+agreement rule withheld nothing; `C1C` minus `C5Q`
 is one value, 31 m, the front end's delay between its bands, on every satellite at every
 epoch within 7 m (7, 10 and 8 satellites; the test allows 30 m; a channel beside a side
 peak would stand 147 to 183 m off); on the parked car the geometry-free combination of the two phases is a line
