@@ -145,13 +145,14 @@ class Fix:
 
 
 class _Bias:
-    __slots__ = ("half", "lock", "outc", "used")
+    __slots__ = ("half", "lock", "outc", "used", "used_before")
 
     def __init__(self):
         self.lock = 0
         self.outc = 0
         self.half = False
         self.used = False
+        self.used_before = False  # in the update of the previous epoch that had one
 
 
 def _time(obs: Observations) -> float:
@@ -403,7 +404,7 @@ class Rtk:
         for key in list(self.keys):
             b = self.biases[key]
             b.outc += 1
-            b.used = False
+            b.used_before, b.used = b.used, False
             if b.outc > self.opt.max_outage:
                 self._remove(key)
 
@@ -597,9 +598,10 @@ class Rtk:
                     # ambiguity begun on a phase is searched or not by that phase's bit)
                     halves[key] = bool((before if late else now) & 2)
                     clear = not slip
-                    # in question: its ambiguity was updated at the previous epoch
+                    # in question: its ambiguity was updated at the previous epoch (one
+                    # begun there that no row used has nothing to continue)
                     asked = asked and code is not None and key in self.biases
-                    asked = asked and self.biases[key].outc == 1
+                    asked = asked and self.biases[key].used_before
                     slip = slip and not asked
                     if sig == ref_sig:
                         ref_phase, ref_asked, ref_clear = phase, asked, clear

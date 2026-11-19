@@ -1340,6 +1340,30 @@ def test_only_an_early_unflagged_first_ambiguity_skips_the_lock_count():
     assert [_searched(rtk.step(*pair), "G03") for pair in pairs] == [True] * 2 + [False] * 3 + [True] * 3
 
 
+def test_an_ambiguity_no_update_has_used_is_not_looked_at():
+    # at the first epoch one satellite alone has the second signal at the base: its
+    # ambiguity begins and no double difference uses it. Flagged at the next epoch, it was
+    # not "updated at the previous epoch": it restarts and waits the lock count, where the
+    # first signal once vouched for it and it kept counting from its first epoch
+    ephs = constellation()
+    second = ("G03", "G2W")
+    alone = {(f"G{n:02d}", "G2W") for n in (1, 2, 4, 5, 6)}
+
+    def locks(**options):
+        pairs = _l1_run(
+            np.random.default_rng(81), ephs, 4, signals=SIGNALS,
+            lli_at=lambda k: {second: 1} if k == 1 else None, drop_at=lambda k: alone if k == 0 else (),
+        )  # fmt: skip
+        rtk = _rtk(ephs, min_lock=3, **options)
+        out = []
+        for pair in pairs:
+            rtk.step(*pair)
+            out.append(rtk.biases[second].lock)
+        return out
+
+    assert locks(slips="check") == locks() == [0, -2, -1, 0]
+
+
 def test_a_slip_held_from_an_unsolved_epoch_leaves_no_reference_to_vouch_with():
     # the second signal slips 7 cycles, flagged at an epoch that gets no solution; the first
     # slips 9 at the next. The two steps cancel in the geometry-free difference to 3 mm, and
