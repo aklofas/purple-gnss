@@ -149,11 +149,13 @@ def test_rtk_multi_gnss_matches_rtklib(captures, tmp_path):
     fixed = [f for f in fixes if f.status == "fix"]
     ref_fixed = {k: v for k, v in ref.items() if v["q"] == 1}
     assert np.mean([f.ns for f in fixed]) >= 10  # GPS and Galileo both in the solution
-    assert len(fixed) >= len(ref_fixed) - 0.01 * len(rover), (len(fixed), len(ref_fixed))
+    # within 1 % of RTKLIB's count either way; an epoch only one of the two fixes is in
+    # neither comparison below but counts here
+    assert abs(len(fixed) - len(ref_fixed)) <= 0.01 * len(rover), (len(fixed), len(ref_fixed))
     err = np.array([np.linalg.norm(f.position - rover_xyz) for f in fixed])
     assert err.mean() <= 0.01 and np.percentile(err, 95) <= 0.02 and err.max() <= 0.02
     common = [(f, ref_fixed[_key(f)]) for f in fixed if _key(f) in ref_fixed]
-    assert len(common) >= len(ref_fixed) - 0.01 * len(rover)
+    assert len(common) >= max(len(fixed), len(ref_fixed)) - 0.01 * len(rover)
     # against RTKLIB's fixed positions: 1.1 mm at the 95th percentile and 7.0 mm worst
     # measured (its Galileo models and reference choice differ from ours in detail)
     d = np.array([np.linalg.norm(f.position - r["xyz"]) for f, r in common])
@@ -223,7 +225,7 @@ def test_backward_pass_matches_rtklib_on_a_drive(captures, tmp_path):
 
 @pytest.mark.parametrize("soltype", ["forward", "backward"])
 def test_lock_count_matches_rtklib_on_a_drive(captures, tmp_path, soltype):
-    # the file restarts an L1 ambiguity 270 times; with RTKLIB's pos2-arlockcnt the same
+    # the file restarts an L1 ambiguity 273 times; with RTKLIB's pos2-arlockcnt the same
     # epochs fix, at the same positions, in both directions
     rover, base, ephs, iono, station, delta, files = _car(captures, DRIVING, ("G1C",))
     options = RtkOptions(min_lock=5, backward=soltype == "backward")
