@@ -150,6 +150,13 @@ def test_satellite_state_uses_galileo_constants():
     assert 0.5 < np.linalg.norm(dg - de) < 5.0
 
 
+@pytest.mark.parametrize(("ura", "ok"), [(0, True), (9, True), (10, False), (15, False)])
+@pytest.mark.parametrize("system", ["G", "E"])
+def test_a_record_of_poor_or_no_stated_accuracy_is_not_usable(ura, ok, system):
+    # RTKLIB's limit of (300 m)^2 on the variance: URA index 9 is 192 m, 10 is 384 m
+    assert usable(replace(ephemeris(), ura=ura, system=system)) is ok
+
+
 @pytest.mark.parametrize(
     ("e", "ok"), [(0.0, True), (0.02, True), (1.0, False), (1.1, False), (-0.01, False)]
 )

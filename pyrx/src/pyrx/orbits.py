@@ -24,6 +24,10 @@ OMEGA_E = 7.2921151467e-5  # rad/s, WGS 84 Earth rotation rate
 F_REL = -4.442807633e-10  # s/sqrt(m), relativistic clock constant
 MAX_TOE_AGE = 7201.0  # s, a GPS record is used this far from its toe, as RTKLIB
 MAX_TOE_AGE_GAL = 14400.0  # s, a Galileo record this long after its toe
+# RTKLIB leaves out a record whose accuracy has a variance over (300 m)^2: a GPS URA
+# index from 10 (384 m), and a Galileo record without an accuracy prediction or with an
+# SISA over 6 m (500 m to RTKLIB; read as index 15 here)
+MAX_URA = 9
 _DT = 0.5e-3  # s, half the central-difference step
 
 
@@ -46,11 +50,12 @@ def sat_id(eph: Ephemeris) -> str:
 
 
 def usable(eph: Ephemeris) -> bool:
-    """A healthy record whose orbit can be evaluated (finite fields, a positive semi-major axis,
-    an eccentricity of an ellipse)."""
+    """A healthy record of stated accuracy (`MAX_URA`) whose orbit can be evaluated (finite
+    fields, a positive semi-major axis, an eccentricity of an ellipse)."""
     fields = [v for v in vars(eph).values() if isinstance(v, (int, float))]
     return (
         eph.health == 0
+        and eph.ura <= MAX_URA
         and eph.sqrt_a > 0.0
         and 0.0 <= eph.e < 1.0
         and all(isfinite(v) for v in fields)

@@ -897,7 +897,9 @@ its `toe` and for 4 h, the nearest one behind when a nearer one lies ahead; of t
 same distance the one transmitted last; and an issue broadcast again, as Galileo does
 when a health word or a group delay changes, as it was last transmitted by the epoch (a
 file's records without a transmission time count in file order). A satellite with no
-such record or with a health flag set is left out. Times of week are reduced into half a week either way
+such record, with a health flag set, or with a stated accuracy RTKLIB excludes (a GPS URA
+index of 10 or more, a Galileo record without an accuracy prediction or with an SISA over
+6 m) is left out, of the single-point solution and of RTK alike. Times of week are reduced into half a week either way
 before any difference with an ephemeris time, so a file crossing the week boundary
 is handled. Galileo navigation records are read with their calendar epochs taken as
 GPS time, as RTKLIB does; the GST to GPST offset is tens of nanoseconds, far below
