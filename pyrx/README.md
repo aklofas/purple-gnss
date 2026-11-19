@@ -1334,7 +1334,8 @@ of the decoder's field table.
 
 ## Tracking loops
 
-Each channel integrates 1 ms (one code period of each signal) with early and late taps at
+Each channel integrates 1 ms (one code period of L1 C/A, L5 and E5a, a quarter of E1's
+4 ms code) with early and late taps at
 ±0.25 chip and a noise tap 10 chips away. A frequency-locked loop pulls in for
 the first second, its discriminator on coherent sums of the prompt: 2 ms sums at
 5 Hz bandwidth for 0.3 s (pull-in range ±125 Hz, since a weak satellite's acquisition

@@ -1,7 +1,8 @@
 """Code and carrier tracking of one channel.
 
-Each 1 ms epoch correlates one code period at prompt, early, late and noise taps,
-then updates the carrier (FLL during pull-in, its discriminator on coherent sums of
+Each 1 ms epoch correlates 1 ms of code (a code period of GPS L1 C/A, L5 and Galileo
+E5a, a quarter of Galileo E1's 4 ms code) at prompt, early, late and noise taps, then
+updates the carrier (FLL during pull-in, its discriminator on coherent sums of
 2 then 5 epochs, `FLL_STAGES`, so that a weak channel hands over within a hertz;
 third-order Costas PLL after, so that a moving antenna's Doppler rate leaves no
 phase lag, its integrator held while the prompt power is down so that an obstruction's
@@ -114,7 +115,8 @@ if not (
 class CarrierLoop:
     """The third-order Costas loop with its integrator hold, from the FLL handover on.
 
-    One instance per channel, updated once per epoch. Every receiver built on these loops
+    One instance per channel, updated once per epoch, or once per coherent sum of a pilot
+    whose secondary code is known. Every receiver built on these loops
     (the offline tracker here, the model of the hardware channel's loop) calls this update,
     so their carrier loops are the same arithmetic.
     """
@@ -572,8 +574,8 @@ def track(
                 sum_side[:] = 0.0
             sum_p = sum_n = sum_d = sum_ps = 0.0
 
-        # advance one code period with carrier aiding; the epoch spacing is the
-        # Doppler-scaled code period, and the carrier phase integrates over it
+        # advance one epoch, 1 ms of code, with carrier aiding; the epoch spacing is that
+        # length scaled by the Doppler, and the carrier phase integrates over it
         dt = t * (1.0 - fd / spec.carrier)
         adr += (fc - f_if) * dt  # the Doppler the NCO ran with during this epoch
         t_code_next = t_code + dt
@@ -600,8 +602,9 @@ def track(
             side_peak = bool((sum_side - side_noise * sum_n).max() > SIDE_PEAK * signal)
     if side_peak:
         # the window that showed the side peak is not part of the track, nor the one before:
-        # a window shows it once two thirds of it are on the side peak, so the move can lie
-        # in the window before
+        # a window shows it once most of it is on the side peak (two thirds for a track half
+        # a chip off, 16/19 where the loops rest 0.625 chip off), so the move can lie in the
+        # window before
         k = max((k - 1) // n_cn0 * n_cn0 - n_cn0, 0)
         lost_at = float(out_t[k])
         if sec_sync is not None and sec_sync >= k:
