@@ -596,9 +596,11 @@ filter run the other way contradicts by up to a meter.
 `backward` runs the filter from the last epoch to the first over the same pairs of
 epochs (`solve_rtk` returns the fixes in time order either way). A lost-lock flag sits on
 the first phase after a discontinuity, so the backward filter reads that bit from the
-indicator it read before and restarts at the earlier phase, as RTKLIB does; like RTKLIB
-it takes the half-cycle bit from those indicators too, which follows a change of the bit
-one epoch late. RTKLIB pairs a rover epoch with the next base epoch when it runs
+indicator it read before and restarts at the earlier phase, as RTKLIB does. With
+`slips="restart"` it takes the half-cycle bit from those indicators too, like RTKLIB,
+which follows a change of the bit one epoch late; with `slips="check"`, the command's
+default, an ambiguity is searched or not by the half-cycle bit of the phase it stands
+on, in both directions. RTKLIB pairs a rover epoch with the next base epoch when it runs
 backward, this engine with the previous one as it does forward; at equal rates that is
 the same epoch.
 
