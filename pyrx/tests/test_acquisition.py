@@ -132,3 +132,22 @@ def test_acquire_signal_l1ca_is_acquire_l1ca():
 def test_two_period_search_needs_two_periods():
     with pytest.raises(ValueError, match="two code periods"):
         acquire_signal(np.zeros(PILOT_N + 5, dtype=np.complex64), PILOT_FS, 0.0, L5, 6)
+
+
+def test_acquisition_transforms_on_one_thread(monkeypatch):
+    # a transform split over threads sums in another order: at the 192,000 points of an E1
+    # search at 12 Msps the last bits of the result, and the Doppler seed with them, followed
+    # the host's core count
+    from pyrx import acquisition
+
+    asked = []
+    for name in ("fft", "ifft"):
+        transform = getattr(acquisition.fft, name)
+
+        def spy(x, *args, _transform=transform, **kwargs):
+            asked.append(kwargs.get("workers"))
+            return _transform(x, *args, **kwargs)
+
+        monkeypatch.setattr(acquisition.fft, name, spy)
+    r = acquire_l1ca(_sig(), FS, 0.0, 7)
+    assert r.detected and len(asked) > 2 and set(asked) <= {None, 1}

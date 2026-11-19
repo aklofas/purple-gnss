@@ -72,7 +72,9 @@ def acquire(
         carrier = np.exp(-2j * np.pi * (f_if + fd) / fs * k).astype(np.complex64)
         for b in range(n_blocks):
             x = samples[b * n : b * n + span] * carrier
-            corr = fft.ifft(fft.fft(x, workers=-1) * code_fft, workers=-1)[:n]
+            # one thread: a transform split over threads sums in another order, and the
+            # result's last bits would follow the host's core count
+            corr = fft.ifft(fft.fft(x) * code_fft)[:n]
             grid[i] += np.abs(corr).astype(np.float32) ** 2
     bin_idx, col = np.unravel_index(np.argmax(grid), grid.shape)
     p_max = grid[bin_idx, col]
