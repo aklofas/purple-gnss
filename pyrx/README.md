@@ -482,7 +482,9 @@ listed in `rtk.py` and do not change the default-configuration comparisons. One 
 flags are read only for satellites both receivers contribute at an epoch, so a slip
 flagged by one receiver while the other lacks the satellite goes unseen if the satellite
 is common again within five epochs (a second signal's geometry-free test can still catch
-it). Double differences are formed per system against
+it). Contributed means observed by both and above the elevation mask at the base: a
+satellite under the mask at the rover alone keeps its flags read and its ambiguity looked
+after, and only its rows stay out of the update. Double differences are formed per system against
 the highest satellite, carrier phase and code, with RTKLIB's single-difference
 variance `2 (a² + b² / sin² el)` (3 mm for phase, 100 times that for code) plus a
 receiver-clock-stability term in the age of the base epoch, and the block
