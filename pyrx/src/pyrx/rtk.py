@@ -3,10 +3,10 @@
 State: rover antenna position and one single-differenced (rover minus base)
 carrier-phase ambiguity in cycles per satellite and signal. Measurements:
 double-differenced carrier phase and code against the highest satellite of each
-system. The seed, the residual model, the weights, the slip and outage rules, the
-filter and the ratio test are those of RTKLIB's single-baseline kinematic and
-static modes with its default options, so the two solvers compare number for
-number on the same files.
+system. The residual model, the weights, the slip and outage rules, the filter and
+the ratio test are those of RTKLIB's single-baseline kinematic and static modes with
+its default options, and so is the seed on GPS, so the two solvers compare number
+for number on the same files.
 
 Deliberate differences from RTKLIB, kept because they are at least as sound and
 do not change the default-configuration comparisons: the phase-minus-code offset
@@ -28,6 +28,15 @@ once and admits the ambiguity at the later ones); and `Fix.ns`, with the four
 satellites an epoch needs, counts each system's satellites on the first signal listed
 for it (RTKLIB on its first frequency, L1 or E1, whatever the list), so a list without
 L1 or E1 still has a count.
+
+Not RTKLIB's, and outside the comparison: the single-point seed is solved on one GPS
+signal (`_seed_signal`) and needs four GPS satellites whatever other systems the
+signals hold, where RTKLIB seeds on every system with an offset between them, so an
+epoch with fewer GPS satellites has no solution here; the ratio reported on a float
+epoch with a single double-differenced ambiguity, or after the search failed on an
+ill-conditioned covariance, is 0 (RTKLIB reports the value of a search it does not
+use); and two integer candidates of exactly equal norm come back in the other order
+(the ratio is then 1 in both, never a fix).
 
 Kept as in RTKLIB: the loss-of-lock indicators are read only for the satellites
 both receivers contribute at an epoch (observed, with an ephemeris, above the
