@@ -526,9 +526,10 @@ def track(
             match = float(np.dot(last, sec)) / len(sec)
             recent = out_corr[epoch - SEC_SYNC_LOCK_EPOCHS : epoch, 0].astype(np.complex128)
             coherent = float(np.sum(recent.real**2 - recent.imag**2))
-            # an epoch without signal (a zero prompt) leaves its chip unread, and the ratio
-            # holds trivially on the few prompts that are left: no sync on such a window
-            whole = bool(np.all(out_corr[epoch - len(sec) : epoch, 0] != 0))
+            # an epoch without signal (a zero in-phase prompt, which is all the ratio reads)
+            # leaves its chip unread, and the ratio holds trivially on the few prompts that
+            # are left: no sync on such a window
+            whole = bool(np.all(last != 0))
             if whole and abs(match) >= SEC_SYNC_RATIO * float(np.mean(np.abs(last))) and (
                 coherent >= SEC_SYNC_LOCK * float(np.sum(np.abs(recent) ** 2))
             ):

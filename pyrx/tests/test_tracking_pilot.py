@@ -242,6 +242,32 @@ def test_a_window_without_signal_is_not_a_sync():
     assert r.locked
 
 
+def test_a_window_without_in_phase_prompts_is_not_a_sync(monkeypatch):
+    # the ratio reads the in-phase part of the prompts alone: twenty prompts with a
+    # quadrature part and an in-phase part of exactly zero are no correlation against no
+    # size as well, and must not fix an origin and a polarity
+    from pyrx import tracking
+
+    x = _signal(L5, 6, 2.5, 45.0, seed=1, sec_index=7)
+    seed = (700 / FS, 0.0, 45.0)
+    clean = _track(x, L5, 6, seed=seed)
+    first = round(T_SEC_SYNC / CA_PERIOD)
+    correlate, calls = tracking.correlate, [0]
+
+    def quadrature_only(*args):
+        c = correlate(*args)
+        calls[0] += 1
+        if first - 20 < calls[0] <= first:
+            c[0] = 1e-3j * abs(c[0])
+        return c
+
+    monkeypatch.setattr(tracking, "correlate", quadrature_only)
+    r = _track(x, L5, 6, seed=seed)
+    assert r.sec_sync is not None and r.sec_sync >= first + 19
+    assert (r.sec_origin - clean.sec_origin) % 20 == 0 and r.sec_polarity == clean.sec_polarity
+    assert r.locked
+
+
 def test_incoherent_sum_coasts():
     # a sum whose prompts do not add up carries no signal: the loop takes nothing from it,
     # gives back the proportional term of the last error and runs on at its Doppler rate
