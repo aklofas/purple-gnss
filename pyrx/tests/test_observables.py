@@ -1413,7 +1413,7 @@ def test_pilot_observations_in_the_first_two_seconds_are_flagged():
 
 def test_observation_builders_refuse_a_track_of_the_wrong_signal():
     # an L5 pilot has no data bits to time it and an L1 track no secondary code; an E5a
-    # pilot would be written as G5Q
+    # pilot is taken only where Galileo is asked for
     track, ln = _still_channel(SFS)
     pilot = _still_pilot()
     with pytest.raises(ValueError, match="L5 is not an L1 C/A track"):
