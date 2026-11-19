@@ -314,7 +314,9 @@ def read_rinex_observations(
     in time order; a repeated epoch or satellite keeps its first record and an
     epoch the file ends inside is dropped, as RTKLIB does; an epoch damaged inside the
     file (its count runs into the next epoch, or a record is cut with another after it)
-    raises ValueError. Files outside the
+    raises ValueError. An epoch with flag 1 (a power failure since the previous epoch) is
+    read as an ordinary one, as RTKLIB reads it: the receiver's own indicators on the
+    phases it took up again are what says they slipped. Files outside the
     implemented profile raise ValueError (see `_check_observation_header`); so
     does a change of the observation types, or a scale factor, inside the file.
     """

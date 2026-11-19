@@ -232,6 +232,25 @@ def test_reader_rejects_an_in_file_change_of_observation_types(tmp_path):
         read_rinex_observations(tmp_path / "e.obs", ("G1C",))
 
 
+def test_an_epoch_after_a_power_failure_is_read_as_any_other(tmp_path):
+    # epoch flag 1: RTKLIB reads the epoch and leaves the slips to the indicators on its
+    # phases, and so does this reader. The values and the indicators are those of flag 0
+    plain = read_rinex_observations(_with_body(tmp_path, RINEX[len(HEADER) :]), ("G1C", "G2W"))
+    flagged = RINEX[len(HEADER) :].replace("30.0000000  0  1", "30.0000000  1  1")
+    assert flagged != RINEX[len(HEADER) :]
+    after = read_rinex_observations(_with_body(tmp_path, flagged), ("G1C", "G2W"))
+    assert [e.tow for e in after] == [0.0, 30.0]
+    for a, b in zip(after, plain, strict=True):
+        np.testing.assert_array_equal(a.carrier_phase, b.carrier_phase)
+        np.testing.assert_array_equal(a.lli, b.lli)
+    assert after[1].lli.tolist() == [[0, 0]]
+
+
+def _with_body(tmp_path, body):
+    (tmp_path / "b.obs").write_text(HEADER + body)
+    return tmp_path / "b.obs"
+
+
 def test_reader_rejects_a_scale_factor_given_inside_the_file(tmp_path):
     # the header records an event may carry are checked as the header's own are: values
     # after a factor of 10 would be read ten times too large
