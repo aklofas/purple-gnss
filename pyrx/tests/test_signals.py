@@ -256,6 +256,27 @@ def test_reader_drops_a_final_epoch_short_of_records(tmp_path):
     assert a.tow == 0.0
 
 
+def test_reader_refuses_an_epoch_damaged_inside_the_file(tmp_path):
+    # a file may end inside its last epoch; an epoch whose count runs past the next epoch's
+    # line, or a record cut inside a field with another record after it, is damage, and
+    # once read as an early end of the file (the later epochs gone without a word) and as a
+    # shortened value
+    body = RINEX[len(HEADER) :]
+    (tmp_path / "t.obs").write_text(HEADER + body.replace("0.0000000  0  3", "0.0000000  0 99", 1))
+    with pytest.raises(ValueError, match="truncated observation record"):
+        read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    start = body.index("G04")
+    cut = body[: start + 10] + body[body.index("\n", start) :]  # 2223545 of 22235454.255
+    (tmp_path / "t.obs").write_text(HEADER + cut)
+    with pytest.raises(ValueError, match="truncated observation record"):
+        read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+    # in the last epoch too, when a record follows the cut one
+    last = body.rindex("G04")
+    (tmp_path / "t.obs").write_text(HEADER + body[: last + 10] + "\n" + _rec("G16", 2.0e7, 1.0e8))
+    with pytest.raises(ValueError, match="truncated observation record"):
+        read_rinex_observations(tmp_path / "t.obs", ("G1C",))
+
+
 def test_reader_ignores_a_scale_factor_of_a_system_it_does_not_read(tmp_path):
     glonass = "R   10  1 L1C".ljust(60) + "SYS / SCALE FACTOR\n"
     (tmp_path / "t.obs").write_text(RINEX.replace(END_OF_HEADER, glonass + END_OF_HEADER, 1))
