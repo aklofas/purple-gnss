@@ -83,13 +83,62 @@ def test_satellite_state_wraps_week():
 
 def test_select_ephemeris_by_system():
     g = ephemeris(prn=4, toe=1000.0)
-    e = replace(ephemeris(prn=4, toe=12000.0), system="E")
+    e = replace(ephemeris(prn=4, toe=1000.0), system="E")
     assert select_ephemeris([g, e], 4, 1500.0) is g
-    assert (
-        select_ephemeris([g, e], 4, 1500.0, system="E") is e
-    )  # 10500 s old: within Galileo's limit
+    assert select_ephemeris([g, e], 4, 1500.0, system="E") is e
     assert select_ephemeris([g], 4, 1500.0, system="E") is None
     assert sat_id(e) == "E04" and sat_id(g) == "G04"
+
+
+def test_the_age_limits_are_those_of_rtklib():
+    g = ephemeris(prn=4, toe=20000.0)
+    e = replace(g, system="E")
+    # GPS: 7201 s either side of toe
+    for t, found in ((12799.0, True), (12798.5, False), (27201.0, True), (27201.5, False)):
+        assert (select_ephemeris([g], 4, t) is g) == found, t
+    # Galileo: after toe alone, for 14400 s
+    for t, found in ((19000.0, False), (20000.0, False), (20000.5, True), (34400.0, True)):
+        assert (select_ephemeris([e], 4, t, system="E") is e) == found, t
+    assert select_ephemeris([e], 4, 34400.5, system="E") is None
+
+
+def test_a_galileo_record_is_not_selected_before_its_toe():
+    # the nearest toe may lie ahead: RTKLIB then takes the nearest one behind, and a
+    # receiver at that time has no other
+    old = replace(ephemeris(prn=4, toe=600.0, iode=1), system="E")
+    new = replace(ephemeris(prn=4, toe=1200.0, iode=2), system="E")
+    for ephs in ([old, new], [new, old]):
+        assert select_ephemeris(ephs, 4, 1100.0, system="E") is old
+        assert select_ephemeris(ephs, 4, 1200.0, system="E") is old
+        assert select_ephemeris(ephs, 4, 1200.5, system="E") is new
+        assert select_ephemeris(ephs, 4, 600.0, system="E") is None
+
+
+def test_of_two_records_at_the_same_distance_the_one_transmitted_last_is_selected():
+    # exactly between two toes RTKLIB takes the last of its records, which it has sorted
+    # by transmission time; without transmission times the list's order stands for it
+    a, b = ephemeris(prn=4, toe=0.0, iode=1), ephemeris(prn=4, toe=7200.0, iode=2)
+    assert select_ephemeris([a, b], 4, 3600.0) is b and select_ephemeris([b, a], 4, 3600.0) is a
+    a, b = replace(a, ttr=-7170.0), replace(b, ttr=30.0)
+    assert select_ephemeris([a, b], 4, 3600.0) is b and select_ephemeris([b, a], 4, 3600.0) is b
+    assert select_ephemeris([a, b], 4, 3599.0) is a and select_ephemeris([a, b], 4, 3601.0) is b
+
+
+def test_an_issue_broadcast_again_is_taken_as_last_transmitted_by_the_time():
+    # the health and group delays of an I/NAV record have no issue of data: the same issue
+    # comes again with its health changed. Before the change the first stands, after it the
+    # second, in whichever order the file lists them
+    first = replace(ephemeris(prn=1, toe=600.0, iode=1), system="E", ttr=1775.0)
+    again = replace(first, ttr=2375.0, health=2)
+    for ephs in ([first, again], [again, first]):
+        assert select_ephemeris(ephs, 1, 1000.0, system="E") is first  # before either was sent
+        assert select_ephemeris(ephs, 1, 2374.0, system="E") is first
+        assert select_ephemeris(ephs, 1, 2375.0, system="E") is again
+        assert select_ephemeris(ephs, 1, 9000.0, system="E") is again
+        assert not usable(select_ephemeris(ephs, 1, 9000.0, system="E"))
+    # without transmission times the later in the list stands
+    first, again = replace(first, ttr=None), replace(again, ttr=None)
+    assert select_ephemeris([first, again], 1, 2000.0, system="E") is again
 
 
 def test_satellite_state_uses_galileo_constants():

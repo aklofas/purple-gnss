@@ -69,6 +69,9 @@ class Ephemeris:
     idot: float
     system: str = "G"  # "G" GPS, "E" Galileo (same Kepler set; `tgd` is then BGD E5a/E1)
     tgd2: float = 0.0  # s, Galileo BGD E5b/E1
+    # s of week the record was transmitted at, in the week of `toe` (so it may be negative
+    # or past the week's end); None when not known
+    ttr: float | None = None
 
 
 @dataclass(frozen=True)
