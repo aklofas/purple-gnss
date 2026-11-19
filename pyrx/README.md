@@ -1488,6 +1488,12 @@ reads 1 too, so the guard also ends a channel that stands a quarter chip or more
 through a window. In the walk's trial such a seed is turned away, and the next probe
 searches again. The guard reads whole windows: a channel that goes to a side peak writes
 nothing of it, but it costs the satellite two seconds and the time to the next probe.
+Where the data end inside a window, what there is of it is judged the same way once it
+holds the signal energy of a whole window at 25 dB-Hz (10 ms at 45 dB-Hz, a third of a
+second at 30), and the cut is the same. One case is left: a channel that moves to a side
+peak within the last window of the data, or with less than that of the data left after
+it, ends as a good track, with up to two seconds of code a side peak off (147 to 183 m);
+its carrier phase is not affected.
 
 Checked on the synthetic signal (`test_tracking_e1.py`: the two components and their
 correlation, the search, the epochs, the code loop, a start half a chip off either way at

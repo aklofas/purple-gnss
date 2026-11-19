@@ -589,11 +589,19 @@ def track(
             lost_at = start / fs
             break
 
+    if n_side and not lost and k % n_cn0:
+        # the data ended inside a window: what there is of it is judged as a whole one is,
+        # or a track that moved to a side peak a window earlier would end as a good one.
+        # The floor asks of the part what it asks of a whole window at CN0_LOST, the same
+        # signal energy against the noise: a few epochs of a good signal read anything
+        signal = sum_p - sum_n
+        if signal >= side_floor * sum_n * (n_cn0 / (k % n_cn0)):
+            side_peak = bool((sum_side - side_noise * sum_n).max() > SIDE_PEAK * signal)
     if side_peak:
         # the window that showed the side peak is not part of the track, nor the one before:
         # a window shows it once two thirds of it are on the side peak, so the move can lie
         # in the window before
-        k = max(k - 2 * n_cn0, 0)
+        k = max((k - 1) // n_cn0 * n_cn0 - n_cn0, 0)
         lost_at = float(out_t[k])
         if sec_sync is not None and sec_sync >= k:
             sec_sync, sec_origin, sec_polarity = None, 0, 0

@@ -120,17 +120,40 @@ def test_a_start_on_a_side_peak_is_ended(shift, cn0):
     assert r.symbols is None and r.data_prompt.shape == (0,)
 
 
-def test_a_track_that_moves_to_a_side_peak_ends_a_window_before_the_one_that_shows_it():
+@pytest.mark.parametrize("duration", [None, 4.95, 4.5])
+def test_a_track_that_moves_to_a_side_peak_ends_a_window_before_the_one_that_shows_it(duration):
     # the signal's code jumps half a chip 3.4 s in and the loops are on a side peak from
     # there. A window reads it once two thirds of it are on the side peak, here the one from
-    # 4 to 5 s, so the track ends before the window in which the jump may lie
+    # 4 to 5 s, so the track ends before the window in which the jump may lie. Where the
+    # data end inside that window, what there is of it shows the side peak as well
     x = _signal(6.2, 45.0, seed=8)
     jump = int(3.4 * FS)
     x[jump:] = _signal(6.2, 45.0, code_offset=700 + round(0.5 * CHIP), seed=8)[jump:]
-    r = _track(x)
-    assert r.side_peak and len(r.t) == 3000 and r.sec_sync is not None
+    r = _track(x, duration=duration)
+    assert r.side_peak and not r.locked and len(r.t) == 3000 and r.sec_sync is not None
     assert r.lost_at == pytest.approx(3.0 + 700 / FS, abs=1e-3)
     assert r.symbols is not None and len(r.held) == 3000
+
+
+def test_a_move_to_a_side_peak_in_the_last_window_of_the_data_is_not_seen():
+    # the limit of the rule: the data end with the window the jump lies in, 3 to 4 s, of
+    # which less than two thirds are on the side peak, and no later window reads it
+    x = _signal(6.2, 45.0, seed=8)
+    jump = int(3.4 * FS)
+    x[jump:] = _signal(6.2, 45.0, code_offset=700 + round(0.5 * CHIP), seed=8)[jump:]
+    r = _track(x, duration=4.0 + 700 / FS + 0.0005)
+    assert r.locked and not r.side_peak and len(r.t) == 4000
+
+
+@pytest.mark.parametrize("epochs", [2001, 3002])
+def test_a_few_epochs_at_the_end_of_the_data_do_not_trip_the_guard(epochs):
+    # the data end one or two epochs into a window. On so few epochs the reading of a signal
+    # on its main peak is anything (here, at 36 dB-Hz, above the threshold), so the part of
+    # a window is judged only when it holds the signal energy a whole window has at the loss
+    # threshold
+    x = _signal(6.2, 36.0, seed=7)[: 700 + round(FS * 1e-3) * epochs + 300]
+    r = _track(x, cn0=36.0)
+    assert r.locked and not r.side_peak and len(r.t) == epochs
 
 
 @pytest.mark.parametrize("cn0", [32.0, 36.0, 40.0, 50.0])
