@@ -88,7 +88,7 @@ def test_synthetic_recording_is_cached_and_sized(tmp_path):
 
 
 def test_reference_runner_turns_away_a_frequency_rtklib_would_ignore(tmp_path):
-    # this build of RTKLIB reads l1, l1+2, l1+2+3 and runs its default on anything else
+    # RTKLIB runs its default on a value it does not know, with a line on standard error
     try:
         nbsupport.rnx2rtkp_rtk(
             "r.obs", "b.obs", "a.nav", tmp_path, np.zeros(3), 0.0, 0.0, nbsupport.RTK_SPAN, "l1+l2"

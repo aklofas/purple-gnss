@@ -219,11 +219,20 @@ def _rtk_run(rover, base, nav, out_dir, conf, name, ts, te) -> dict[tuple[int, f
 
 
 def _frequencies(freq: str) -> str:
-    """`freq` if this build of RTKLIB reads it: it runs its default (two frequencies) on any
-    other value of `pos1-frequency` without a word."""
+    """`freq` if it is one the runners accept. RTKLIB's own values go on to `l1+2+3+4+5`;
+    on any other it says `invalid option value` on standard error, which the runners do
+    not read, and runs its default (two frequencies) with exit status 0."""
     if freq not in ("l1", "l1+2", "l1+2+3"):
-        raise ValueError(f"pos1-frequency={freq}: RTKLIB reads l1, l1+2 or l1+2+3")
+        raise ValueError(f"pos1-frequency={freq}: the runners accept l1, l1+2 or l1+2+3")
     return freq
+
+
+def _direction(soltype: str) -> str:
+    """`soltype` if it is a direction the runners accept: RTKLIB runs forward on a value
+    it does not know, as it runs its default on an unknown frequency value."""
+    if soltype not in ("forward", "backward"):
+        raise ValueError(f"pos1-soltype={soltype}: the runners accept forward or backward")
+    return soltype
 
 
 def rnx2rtkp_rtk(
@@ -237,7 +246,7 @@ def rnx2rtkp_rtk(
     (RTKLIB's frequency slots: the second is L2 and E5b, the third L5 and E5a)."""
     conf = RTK_CONF.format(
         mode=mode, freq=_frequencies(freq), navsys=navsys, rover_up=rover_up, base_up=base_up,
-        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype=soltype,
+        base_x=base_xyz[0], base_y=base_xyz[1], base_z=base_xyz[2], soltype=_direction(soltype),
         arlockcnt=arlockcnt,
     )  # fmt: skip
     return _rtk_run(rover, base, nav, out_dir, conf, "fix", ts, te)
