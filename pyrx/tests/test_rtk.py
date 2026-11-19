@@ -749,6 +749,27 @@ def test_a_phase_without_its_code_keeps_the_row_of_its_ambiguity():
     assert nb == [9] * 14 and key not in rtk.biases
 
 
+@pytest.mark.parametrize("slips", ["restart", "check"])
+def test_a_phase_without_its_code_goes_with_the_ambiguity_a_step_takes_away(slips):
+    # the first signal's code is missing at the epoch at which the second signal steps
+    # five cycles without a flag: the geometry-free step ends both ambiguities, and the
+    # first signal's phase, which rested on the one it had, has no code to begin another on
+    ephs = constellation()
+    first, second = ("G03", "G1C"), ("G03", "G2W")
+    pairs = _l1_run(np.random.default_rng(30), ephs, 10, amb_at=_offset(second, 5.0, 6), signals=SIGNALS)
+    r, b = pairs[6]
+    code = r.pseudorange.copy()
+    code[r.sats.index("G03"), r.signals.index("G1C")] = np.nan
+    pairs[6] = (replace(r, pseudorange=code), b)
+    rtk = _six(ephs, slips=slips)
+    for k, pair in enumerate(pairs):
+        fix = rtk.step(*pair)
+        assert (first in rtk.biases) == (k != 6)
+        if fix.status == "fix":
+            np.testing.assert_allclose(fix.position, ROVER, atol=0.01, rtol=0)
+    assert (rtk.biases[first].lock, rtk.biases[second].lock) == (3, 4) and fix.status == "fix"
+
+
 def _truth(a):
     """The double-differenced integer ambiguity of a record: reference minus satellite."""
     return (AMB_R[(a.ref, a.signal)] - AMB_B[(a.ref, a.signal)]) - (
