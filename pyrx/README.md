@@ -489,6 +489,8 @@ receiver-clock-stability term in the age of the base epoch, and the block
 covariance of a shared reference; a double difference beyond 30 m is dropped. One
 Kalman update per epoch, linearized at the seed; the update stands but the epoch
 reports no solution when fewer than four satellites of the first signal were used.
+A satellite is used on a signal through a phase double difference that was kept, as in
+RTKLIB: its code alone does not count it, raise its lock count or end its outage.
 
 Integer ambiguities are searched with LAMBDA (decorrelation and a depth-first
 search keeping the two best candidates) over the double differences of the

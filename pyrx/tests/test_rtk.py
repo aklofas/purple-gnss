@@ -584,6 +584,34 @@ def test_zero_innovation_limit_means_no_limit():
     assert fix is not None and fix.nb == 10
 
 
+@pytest.mark.parametrize("sat", ["G01", "G03"])
+def test_a_dropped_phase_row_is_no_use_of_its_ambiguity(sat):
+    # RTKLIB's vsat: the lock, outage and satellite counts follow the phase rows that pass
+    # the innovation limit. One L1 phase jumps 200 cycles (38 m) without a flag, its code
+    # stays: the satellite's phase rows are dropped, its ambiguity ages out after
+    # max_outage epochs and begins again on the phase as it is. On the highest satellite,
+    # the reference of every double difference, no phase row is left and the epochs have
+    # no solution; the code rows alone once kept every count up and the epochs fixed,
+    # decimeters to meters off
+    ephs = constellation()
+    key = (sat, "G1C")
+    pairs = _l1_run(np.random.default_rng(5), ephs, 14, amb_at=_offset(key, 200.0, 6))
+    rtk = _rtk(ephs)
+    fixes, locks = [], []
+    for pair in pairs:
+        fixes.append(rtk.step(*pair))
+        locks.append(rtk.biases[key].lock)
+    reference = sat == "G01"
+    assert [f is None for f in fixes] == [False] * 6 + [reference] * 5 + [False] * 3
+    assert locks == [1, 2, 3, 4, 5, 6] + [6] * 5 + [1, 2, 3]
+    for f in fixes[6:11]:
+        assert reference or (f.ns == 5 and f.nb == 4 and not _searched(f, sat))
+    for f in fixes:
+        if f is not None and f.status == "fix":
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+    assert (fixes[-1].status, fixes[-1].ns, fixes[-1].nb) == ("fix", 6, 5)
+
+
 def _truth(a):
     """The double-differenced integer ambiguity of a record: reference minus satellite."""
     return (AMB_R[(a.ref, a.signal)] - AMB_B[(a.ref, a.signal)]) - (
