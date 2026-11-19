@@ -1,9 +1,10 @@
 """Pseudorange, carrier-phase, Doppler and C/N0 observables at receiver epochs.
 
-Transmit time: every tracking epoch integrates exactly one code period, so once a
-subframe has tagged one epoch with its GPS time, the code start of epoch k was
-transmitted at `tow_s + (k - sf.epoch) * CA_PERIOD` for every k. All subframes of
-a channel must agree on that mapping.
+Transmit time of GPS L1 C/A: every tracking epoch of such a channel integrates exactly
+one code period, so once a subframe has tagged one epoch with its GPS time, the code
+start of epoch k was transmitted at `tow_s + (k - sf.epoch) * CA_PERIOD` for every k.
+All subframes of a channel must agree on that mapping. The pilots take their time
+otherwise (below).
 
 Receiver time: one clock for the whole recording. Sample 0 is assigned the GPS
 time `rx_time0`, the latest transmit time seen at sample 0 plus a nominal travel
@@ -518,7 +519,8 @@ def _secondary_time0(tr: TrackResult, starts: np.ndarray, rx0: float, period: fl
     """Transmit time of a pilot segment's epoch 0 from its own secondary code of `period` s.
 
     The code start that carries secondary chip 0 was transmitted at a multiple of the
-    period, so epoch 0's code start left `sec_origin` code periods before one. Which multiple
+    period, so epoch 0's code start left `sec_origin` epochs of 1 ms before one (an epoch
+    is a code period of E5a and a quarter of E1's). Which multiple
     follows from the receiver time `rx0 + starts[0]` at which it arrived: the one that puts
     the travel time in [TRAVEL_TIME_MIN, TRAVEL_TIME_MIN + period).
     """

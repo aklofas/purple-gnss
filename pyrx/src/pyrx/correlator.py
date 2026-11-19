@@ -25,9 +25,11 @@ def correlate(
     """Correlator outputs (complex64, one per tap) for one block of samples.
 
     The replica carrier is exp(-2*pi*j*(carrier_freq*k/fs + carrier_phase)), with
-    `carrier_phase` in cycles at the block's first sample. Tap `d` (chips) uses the
-    code resampled with phase `code_phase + d`, so a positive tap is early (replica
-    advanced) and a negative tap is late. Outputs are plain sums, not normalized.
+    `carrier_phase` in cycles at the block's first sample. Tap `d` uses the code
+    resampled with phase `code_phase + d`, so a positive tap is early (replica advanced)
+    and a negative tap is late. Taps, `code_phase` and `chip_rate` count entries of
+    `code`: chips, or the parts of a chip of a replica with a subcarrier. Outputs are plain
+    sums, not normalized.
     With `prompt_code` (a second code of the same length on the same carrier and
     timing) one more output follows the taps: that code's sum at tap 0.
     """

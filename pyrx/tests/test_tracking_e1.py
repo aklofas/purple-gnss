@@ -123,8 +123,9 @@ def test_a_start_on_a_side_peak_is_ended(shift, cn0):
 @pytest.mark.parametrize("duration", [None, 4.95, 4.5])
 def test_a_track_that_moves_to_a_side_peak_ends_a_window_before_the_one_that_shows_it(duration):
     # the signal's code jumps half a chip 3.4 s in and the loops are on a side peak from
-    # there. A window reads it once two thirds of it are on the side peak, here the one from
-    # 4 to 5 s, so the track ends before the window in which the jump may lie. Where the
+    # there. A window reads a track half a chip off once two thirds of it are on the side
+    # peak, here the one from 4 to 5 s, so the track ends before the window in which the
+    # jump may lie. Where the
     # data end inside that window, what there is of it shows the side peak as well
     x = _signal(6.2, 45.0, seed=8)
     jump = int(3.4 * FS)
