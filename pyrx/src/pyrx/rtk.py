@@ -25,9 +25,12 @@ indicators, and the ambiguity survives the slip).
 
 Kept as in RTKLIB: the loss-of-lock indicators are read only for the satellites
 both receivers contribute at an epoch (observed, with an ephemeris, above the
-mask). A slip one receiver flags while the other lacks the satellite is therefore
-not seen, and the ambiguity survives it when the satellite is common again within
-`max_outage` epochs; only the geometry-free test can still catch the jump.
+mask at the base: RTKLIB's selsat). A slip one receiver flags while the other
+lacks the satellite is therefore not seen, and the ambiguity survives it when the
+satellite is common again within `max_outage` epochs; only the geometry-free test
+can still catch the jump. The rover's own mask does not select: a satellite below
+it at the rover alone keeps its indicators read and its ambiguity looked after,
+and only its rows stay out of the update.
 
 Beyond RTKLIB's defaults, all off unless asked for: `slips="check"` looks at a phase
 only the rover flags before its ambiguity restarts, against the satellite's other
@@ -436,7 +439,7 @@ class Rtk:
         for sat, entry in sats.items():
             s = entry[which]
             _, el = azimuth_elevation(xyz, s.position, llh)
-            if el < mask:
+            if mask is not None and el < mask:
                 continue
             rho, e = geometric_range(xyz, s.position)
             corr = rho - C_LIGHT * s.clock + zhd * nmf_dry(lat, h, el, doy)
@@ -474,9 +477,13 @@ class Rtk:
         doy = gps_datetime(rover.week, rover.tow).timetuple().tm_yday
         mask = radians(opt.mask_deg)
         yb = self._residuals(base, self.base_arp, sats, 2, doy, mask)
-        yr = self._residuals(rover, self.x[:3], sats, 1, doy, mask)
-        common = sorted(set(yr) & set(yb))
-        if not common:
+        yr = self._residuals(rover, self.x[:3], sats, 1, doy, None)
+        # RTKLIB's selsat takes the satellites above the mask at the base, and its slip
+        # and ambiguity bookkeeping runs on all of them; the rover's mask acts on the
+        # rows of the update alone (zdres)
+        selected = sorted(set(yr) & set(yb))
+        common = [sat for sat in selected if yr[sat][3] >= mask]
+        if not selected:
             self._hold_slips(rover, base)
             return None
         # outages count only on epochs that reach the relative solution (RTKLIB returns
@@ -488,7 +495,7 @@ class Rtk:
         age = t - _time(base)
         first_sigs = {sig[0]: sig for sig in reversed(signals)}  # first signal of each system
 
-        sd = self._update_biases(signals, cols, common, yr, yb, tt, _time(base), first_sigs)
+        sd = self._update_biases(signals, cols, selected, yr, yb, tt, _time(base), first_sigs)
         if self.asked:
             self._test_asked(signals, common, sd, yr, age, first_sigs)
         dd = self._double_differences(signals, common, sd, yr, age)

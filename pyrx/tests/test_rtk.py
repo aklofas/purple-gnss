@@ -612,6 +612,49 @@ def test_a_dropped_phase_row_is_no_use_of_its_ambiguity(sat):
     assert (fixes[-1].status, fixes[-1].ns, fixes[-1].nb) == ("fix", 6, 5)
 
 
+def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone():
+    # RTKLIB selects the satellites above the mask at the base and reads the indicators of
+    # all of them; the rover's own mask only keeps rows out of the update. For three epochs
+    # the rover is 40 km off, where the lowest satellite stands under the mask, and the
+    # rover flags a slip of seven cycles there. Back above the mask the phase carries no
+    # flag: the ambiguity must have restarted in between, or it is seven cycles off
+    from pyrx.models import azimuth_elevation, geodetic
+    from pyrx.orbits import satellite_state
+
+    ephs = constellation()
+    key = ("G02", "G1C")
+    lat, lon, _ = llh = geodetic(USUD)
+    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
+    north = np.array([-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)])
+
+    def elevations(xyz, tow):
+        at = [satellite_state(e, tow - 0.07).position for e in ephs]
+        return np.degrees([azimuth_elevation(xyz, p, geodetic(xyz))[1] for p in at])
+
+    az = azimuth_elevation(USUD, satellite_state(ephs[1], TOW - 0.07).position, llh)[0]
+    far = USUD - 40e3 * (np.sin(az) * east + np.cos(az) * north)
+    mask = 24.0
+    for k in range(12):
+        near_els, far_els = elevations(ROVER, TOW + k), elevations(far, TOW + k)
+        assert near_els.min() > mask + 0.1 and elevations(USUD, TOW + k).min() > mask + 0.1
+        assert far_els[1] < mask - 0.1 and np.delete(far_els, 1).min() > mask + 0.1
+    rng = np.random.default_rng(29)
+    rtk = _six(ephs, mask_deg=mask)
+    fixes = []
+    for k in range(12):
+        away = 6 <= k < 9
+        r, b = _pair(
+            rng, ephs, TOW + 1.0 * k, signals=("G1C",), rover=far if away else ROVER,
+            amb_r=_offset(key, 7.0, 7)(k), lli={key: 1} if k == 7 else None,
+        )  # fmt: skip
+        fixes.append(rtk.step(r, b))
+        assert fixes[-1].ns == (5 if away else 6)
+        if fixes[-1].status == "fix":
+            where = far if away else ROVER
+            np.testing.assert_allclose(fixes[-1].position, where, atol=0.01, rtol=0)
+    assert rtk.biases[key].lock == 3 and fixes[-1].status == "fix"
+
+
 def _truth(a):
     """The double-differenced integer ambiguity of a record: reference minus satellite."""
     return (AMB_R[(a.ref, a.signal)] - AMB_B[(a.ref, a.signal)]) - (
