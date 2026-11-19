@@ -21,7 +21,13 @@ reads only the paired epochs, so that flag is lost); and a slip either receiver 
 in an epoch that ends before the ambiguities are looked at (no base epoch in reach, the
 single-point seed rejected, no common satellite) is applied at the next epoch that gets
 there, whichever satellites are common in it (RTKLIB returns before it reads those
-indicators, and the ambiguity survives the slip).
+indicators, and the ambiguity survives the slip); with a base slower than the rover,
+a base phase whose half-cycle bit is set keeps its ambiguity out of the integer search
+at every rover epoch it is paired with (RTKLIB reads a base observation's indicator
+once and admits the ambiguity at the later ones); and `Fix.ns`, with the four
+satellites an epoch needs, counts each system's satellites on the first signal listed
+for it (RTKLIB on its first frequency, L1 or E1, whatever the list), so a list without
+L1 or E1 still has a count.
 
 Kept as in RTKLIB: the loss-of-lock indicators are read only for the satellites
 both receivers contribute at an epoch (observed, with an ephemeris, above the
@@ -137,7 +143,7 @@ class Fix:
     status: str  # "fix" or "float"
     ns: int  # satellites used on the first signal of their system
     ratio: float
-    age: float  # s, rover minus base epoch
+    age: float  # s, rover minus base epoch (negative before the first base epoch)
     nb: int  # double-differenced ambiguities eligible for the search (LAMBDA runs from 2)
     float_position: np.ndarray  # rover marker from the float states, ECEF m
     position_std: np.ndarray  # m, standard deviation of the float position per ECEF axis
@@ -239,6 +245,8 @@ def pair_epochs(
     rover: list[Observations], base: list[Observations], max_age: float
 ) -> list[tuple[Observations, Observations | None]]:
     """Each rover epoch with the latest base epoch not later than it, None beyond `max_age`.
+    A rover epoch before the first base epoch is paired with that one when it is within
+    `max_age` ahead, as RTKLIB pairs it forward; the age is then negative.
 
     A base epoch that pairs with no rover epoch still reports its slips: an event
     there (the lost-lock bit set, or the half-cycle bit changed from the base's
@@ -277,7 +285,8 @@ def pair_epochs(
             j += 1
             events, paired = scan(base[j]), None
         b = None
-        if base and _time(base[j]) <= t + DTTOL and t - _time(base[j]) <= max_age:
+        # base[j] is later than the rover epoch only while it is the first one
+        if base and abs(t - _time(base[j])) <= max_age:
             if paired is None:
                 paired = base[j]
                 lli = paired.lli.copy()

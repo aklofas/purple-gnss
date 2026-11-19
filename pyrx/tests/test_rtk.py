@@ -42,6 +42,28 @@ def test_pair_epochs_takes_the_latest_base_within_age():
     assert [None if b is None else b.tow for _, b in pairs] == [0.0, 30.01, 59.0, None]
 
 
+def test_rover_epochs_before_the_first_base_epoch_are_paired_with_it_within_age():
+    # RTKLIB's forward pairing starts on the first base epoch: a base file that begins
+    # late still serves the rover epochs up to max_age before it, at a negative age
+    def mk(tow):
+        z = np.zeros((0, 0))
+        return Observations(2190, tow, (), (), z, z, z, z, np.zeros((0, 0), int))
+
+    pairs = pair_epochs([mk(t) for t in (0.0, 5.0, 20.0, 35.0, 40.0)], [mk(35.0), mk(40.0)], 30.0)
+    assert [None if b is None else b.tow for _, b in pairs] == [None, 35.0, 35.0, 35.0, 40.0]
+    assert pair_epochs([mk(0.0)], [], 30.0)[0][1] is None
+    # and the engine solves them: the base's first three epochs are missing
+    ephs = constellation()
+    pairs = _l1_run(np.random.default_rng(31), ephs, 12)
+    rover, base = [r for r, _ in pairs], [b for _, b in pairs[3:]]
+    fixes = solve_rtk(rover, base, ephs, Station(USUD, np.zeros(3)), np.zeros(3))
+    assert [f.age for f in fixes] == [-3.0, -2.0, -1.0] + [0.0] * 9
+    assert fixes[-1].status == "fix"
+    for f in fixes:
+        if f.status == "fix":
+            np.testing.assert_allclose(f.position, ROVER, atol=0.01, rtol=0)
+
+
 @pytest.mark.parametrize("tows", [(30.0, 0.0, 60.0), (0.0, 30.0, 30.0)])
 @pytest.mark.parametrize("which", ["rover", "base"])
 def test_pair_epochs_refuses_epochs_out_of_order_or_repeated(tows, which):
