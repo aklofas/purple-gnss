@@ -313,7 +313,9 @@ def test_unlocked_window_between_sparse_observations_flags_the_next_phase():
     epochs = make_observables([track], [ln], interval=2.0)
     assert all(np.isfinite(e.obs[0].carrier_phase) for e in epochs)
     assert epochs[6].obs[0].lli & LLI_SLIP and not base[6].obs[0].lli & LLI_SLIP
-    assert [e.obs[0].lli for e in epochs[7:]] == [e.obs[0].lli for e in base[7:]]
+    # the window lies after the last subframe: the half cycle stays open to the end
+    later = [b.obs[0].lli | LLI_HALF_CYCLE for b in base[7:]]
+    assert [e.obs[0].lli for e in epochs[7:]] == later
 
 
 def test_nan_indicator_blanks_the_phase():
@@ -547,7 +549,10 @@ def _unlocked_channel(subframes, window, *holds):
     the channel and in the one it is compared with: what the half-cycle rule adds to the
     blank phases and the slip that an unlocked window always is."""
     track, ln = _still_channel(subframes, phase_lock=_unlocked(*window))
-    base = make_observables([track], [ln])  # no hold record: the half-cycle rule is off
+    with pytest.MonkeyPatch.context() as patch:  # the half-cycle rule off
+        closed = lambda tr, polarity: np.zeros(len(tr.t), dtype=bool)
+        patch.setattr("pyrx.observables._half_cycle_open", closed)
+        base = make_observables([track], [ln])
     rx0 = receiver_time0([track], [ln])
     ks = [int(np.searchsorted(track.t, e.tow - rx0, side="right")) - 1 for e in base]
     held = np.zeros(30000, dtype=bool)
@@ -557,6 +562,18 @@ def _unlocked_channel(subframes, window, *holds):
     if not holds:
         assert [e.obs[0].lli & LLI_SLIP for e in epochs] == [e.obs[0].lli & LLI_SLIP for e in base]
     return epochs, base, ks
+
+
+def test_a_window_without_phase_lock_counts_on_a_track_without_the_hold_record():
+    # the windows' lock indicator is all the rule needs for them: without the record of
+    # the integrator's holds a track has no fades, and its unlocked windows still count
+    sfs = [(1500, 5044, False), (7500, 5050, False)]  # the last one ends at 13.5 s
+    track, ln = _still_channel(sfs, phase_lock=_unlocked(16000, 17000))
+    assert track.held is None
+    epochs = make_observables([track], [ln])
+    assert any(e.obs[0].lli == LLI_SLIP | LLI_HALF_CYCLE for e in epochs)
+    never = dataclasses.replace(track, held=np.zeros(30000, dtype=bool))
+    assert epochs == make_observables([never], [ln])
 
 
 def test_a_window_without_phase_lock_leaves_the_half_cycle_open_as_a_fade_does():
