@@ -997,6 +997,29 @@ def test_too_few_unflagged_satellites_cannot_vouch_for_a_phase(flagged, kept):
     assert locks == dict.fromkeys(sats, 12 if kept else 6)
 
 
+def test_phases_all_in_question_do_not_align_the_state_of_an_absent_satellite():
+    # every observed phase of the signal is flagged, one of them 5000 cycles off, and a sixth
+    # satellite has no base observation at that epoch. With no phase to trust, the existing
+    # states are not aligned to the epoch's clock at all (they restart): aligned to the mean
+    # of the flagged phases, the absent satellite's state came back a thousand cycles off
+    # and the run never fixed again
+    ephs = constellation()
+    absent = ("G06", "G1C")
+    flagged = {(f"G{n:02d}", "G1C"): 1 for n in range(1, 6)}
+    pairs = _l1_run(
+        np.random.default_rng(67), ephs, 20, amb_at=_offset(G03, 5000.0, 8),
+        lli_at=lambda k: flagged if k == 8 else None, drop_at=lambda k: {absent} if k == 8 else (),
+    )  # fmt: skip
+    rtk = _six(ephs, slips="check")
+    fixes = _stepped(rtk, pairs[:8])
+    before = rtk.x[rtk._index(absent)]
+    fixes[8] = rtk.step(*pairs[8])
+    assert rtk.x[rtk._index(absent)] == before
+    assert [rtk.biases[key].lock for key in flagged] == [1] * 5
+    fixes = _stepped(rtk, pairs[9:])
+    assert fixes[len(fixes) - 1].status == "fix"
+
+
 def test_a_phase_in_question_is_not_the_reference_of_another():
     # two flagged satellites, the highest of all among them and a cycle off; six Galileo
     # satellites keep the position sharp. The other flagged phase must be differenced

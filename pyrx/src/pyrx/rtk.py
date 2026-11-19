@@ -649,8 +649,11 @@ class Rtk:
             lam = wavelength(sig)
             news = {k: (v[0] - v[1]) / lam for k, v in sd.items() if k[1] == sig}
             existing = [k for k in news if k in self.biases]
-            # a phase in question may have slipped: it follows the others, it does not lead
-            existing = [k for k in existing if k not in self.asked] or existing
+            # a phase in question may have slipped: it follows the others, it does not lead.
+            # With every one in question there is nothing to align to: `_test_asked` finds
+            # none to difference against and restarts them, and the states of satellites
+            # without a phase now stay where they are
+            existing = [k for k in existing if k not in self.asked]
             if existing:
                 offset = np.mean([news[k] - self.x[self._index(k)] for k in existing])
                 for k in self.keys:
