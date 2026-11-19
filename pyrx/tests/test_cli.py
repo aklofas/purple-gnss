@@ -32,6 +32,7 @@ from pyrx.rinex import (
     write_rinex_observations,
 )
 from pyrx.signalspec import L5
+from pyrx.signalspec import SIGNALS as SIGNALS_BY_NAME
 from pyrx.synth import (
     TOW,
     USUD,
@@ -673,6 +674,93 @@ def test_rtk_main_hands_the_change_limit_to_the_engine(tmp_path, monkeypatch, ca
     assert rtk_main([*args, *flags]) == 0
     capsys.readouterr()
     assert seen[0].change_limit == limit and seen[0].slips == "check"
+
+
+def test_rtk_main_hands_every_option_to_the_engine(tmp_path, monkeypatch, capsys):
+    # each option with a value that is not its default: what reaches the engine, and what
+    # the options that act in the command itself (the window, the rows) do
+    from pyrx import cli
+    from pyrx.rtk import RtkOptions
+
+    rng = np.random.default_rng(23)
+    ephs = constellation()
+    pairs = [synthetic_pair(ephs, USUD, ROVER, TOW + 1.0 * k, SIGNALS, AMB_R, AMB_B, rng) for k in range(4)]
+    rov, base, nav, out = (tmp_path / n for n in ("r.obs", "b.obs", "n.nav", "f.pos"))
+    write_rinex_observations(rov, [p[0] for p in pairs], "ROVR")
+    write_rinex_observations(base, [p[1] for p in pairs], "BASE")
+    write_rinex_nav(nav, ephs, {e.prn: TOW for e in ephs})
+    calls = []
+    solve = cli.solve_rtk
+    monkeypatch.setattr(cli, "solve_rtk", lambda *a: calls.append(a) or solve(*a))
+    flags = [
+        "--mode", "static", "--mask", "20", "--slips", "restart", "--min-lock", "7",
+        "--fix-sats", "6", "--change-limit", "0.04", "--backward",
+        "--base-delta", "0.1", "0.2", "0.3", "--rover-delta", "0.4", "0.5", "0.6",
+        "--ts", "2021-12-26 08:00:01", "--te", "2021-12-26 08:00:02", "-v", "-o", str(out),
+    ]  # fmt: skip
+    assert rtk_main([str(rov), str(base), str(nav), "--base-xyz", *map(str, USUD), *flags]) == 0
+    rover, _, _, station, rover_delta, options, _ = calls[0]
+    assert options == RtkOptions(
+        mode="static", mask_deg=20.0, slips="restart", min_lock=7, min_fix_sats=6,
+        change_limit=0.04, backward=True,
+    )  # fmt: skip
+    np.testing.assert_array_equal(station.marker, USUD)
+    np.testing.assert_array_equal(station.delta_enu, [0.1, 0.2, 0.3])
+    np.testing.assert_array_equal(rover_delta, [0.4, 0.5, 0.6])
+    assert [o.tow for o in rover] == [TOW + 1.0, TOW + 2.0] and rover[0].signals == SIGNALS
+    rows = out.read_text().splitlines()[1:]
+    printed = capsys.readouterr().out.splitlines()
+    assert len(rows) == 2 and printed[:2] == rows  # -v prints the rows of the file
+
+
+def test_pvt_main_takes_the_mask_the_window_and_the_rows(tmp_path, capsys):
+    ephs = constellation()
+    epochs = [truth_epoch(ephs, USUD, 1e-3, tow=28800.0 + k) for k in range(4)]
+    obs, nav, out = tmp_path / "s.obs", tmp_path / "s.nav", tmp_path / "s.pos"
+    write_rinex_obs(obs, epochs)
+    write_rinex_nav(nav, ephs, {e.prn: 28800.0 for e in ephs})
+    window = ["--ts", "2021-12-26 08:00:01", "--te", "2021-12-26 08:00:02"]
+    assert pvt_main([str(obs), str(nav), *window, "-v", "-o", str(out)]) == 0
+    rows = out.read_text().splitlines()[1:]
+    printed = capsys.readouterr().out.splitlines()
+    assert [row.split()[1] for row in rows] == ["28801.000", "28802.000"] and printed[:2] == rows
+    assert [row.split()[6] for row in rows] == ["6", "6"]
+    # the lowest of the six satellites stands at 24 degrees
+    assert pvt_main([str(obs), str(nav), "--mask", "25", "-o", str(out)]) == 0
+    assert [row.split()[6] for row in out.read_text().splitlines()[1:]] == ["5"] * 4
+
+
+def test_rinex_main_takes_the_interval_and_the_week(tmp_path, capsys):
+    fs = 2.5e6
+    seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
+    x = synth_l1ca(4, fs, 0.0, 800.0, 500, int(fs * (len(seq) * 0.020 + 0.1)), 45.0, True, bits=seq)
+    f = tmp_path / "s.bin"
+    write_iq_int8(x, f)
+    obs = tmp_path / "o.obs"
+    args = [str(f), "--fs", "2.5e6", "--iq", "--prn", "4", "--obs", str(obs)]
+    assert rinex_main([*args, "--interval", "0.5", "--week", "2200"]) == 0
+    capsys.readouterr()
+    stamps = [line[2:29] for line in obs.read_text().splitlines() if line.startswith(">")]
+    # week 2200 begins on 2022-03-06, ten weeks after the decoded week 2190; half-second steps
+    assert all(stamp.startswith("2022 03 06 08 24 ") for stamp in stamps) and len(stamps) >= 30
+    seconds = [float(stamp[17:]) for stamp in stamps]
+    np.testing.assert_allclose(np.diff(seconds), 0.5, atol=1e-9)
+
+
+@pytest.mark.parametrize("signal,prn,fs", [("E5A", 2, 6e6), ("E1", 11, 12e6)])
+def test_acq_and_trk_main_find_and_hold_a_galileo_pilot(tmp_path, capsys, signal, prn, fs):
+    x = synth_pilot(SIGNALS_BY_NAME[signal], prn, fs, 0.0, 1234.0, 1500, int(fs * 2.6), 45.0)
+    f = tmp_path / "g.bin"
+    write_iq_int8(x, f)
+    args = [str(f), "--fs", str(fs), "--iq", "--signal", signal, "--prn", f"{prn},{prn + 1}"]
+    assert acq_main(args) == 0
+    found = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("SIG=")]
+    offset = 1500 / fs * 1e3
+    assert f"SIG= {signal:<4s}, PRN= {prn:3d}, COFF= {offset:8.5f} ms" in found[0]
+    assert float(found[0].split("C/N0=")[1].split()[0]) > 40 > float(found[1].split("C/N0=")[1].split()[0])
+    assert trk_main(args) == 0
+    out = capsys.readouterr().out
+    assert f"PRN {prn:2d}" in out and "SYNC 1." in out and "LOCK" in out and f"PRN {prn + 1:2d}" not in out
 
 
 @pytest.mark.parametrize("value", ["-0.01", "nan"])
