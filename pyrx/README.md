@@ -672,7 +672,7 @@ backward, agreed, apart:
 | Capture | GPS L1 + L5 | with Galileo E5a |
 |---|---|---|
 | started while driving | 1, 40, 0, 0 | 192, 188, 126, 0 |
-| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 |
+| the drive | 202, 178, 144, 1 | 242, 253, 225, 4 |
 | parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 |
 
 The capture started while driving has its first agreed epochs, in stretches of up to 31 s
@@ -680,9 +680,9 @@ between the fades, with twelve or more satellites in the solution and no epoch a
 of the 126 rest on one lost-lock bit ("A slip that only its flag shows" below). The
 drive's four epochs apart are just past the bounds (5.5 to 5.9 cm horizontally at three,
 10.1 cm vertically at one), where one direction has just come back from float with half
-its ambiguities. On the parked car the fixes with Galileo have their median 3 mm
+its ambiguities. On the parked car the fixes with Galileo have their median 4 mm
 horizontally and 2 mm vertically from the GPS-only static solution, and every kinematic one
-lies within 6 mm and 19 mm of that median. RTKLIB's rules on the same files agree at 18, 97
+lies within 6 mm and 19 mm of that median. RTKLIB's rules on the same files agree at 18, 98
 and 298 epochs: the lock count and the check are needed with Galileo too.
 
 None of this has a truth, and the agreed epochs of the capture started while driving are
@@ -690,9 +690,9 @@ evidence at the level of centimeters, not millimeters. They depend on the satell
 with the strongest Galileo satellite left out, 83 epochs are agreed and two stand apart,
 54 of the agreed the same, and at those the forward fix lies 17 mm away in the median and
 more than 3 cm at fifteen epochs (7.3 cm at most). On the drive the same comparison keeps
-216 of 227 epochs, 6 mm apart in the median and one epoch over 3 cm. A solution from the Galileo satellites alone
+213 of 225 epochs, 6 mm apart in the median and one epoch over 3 cm. A solution from the Galileo satellites alone
 would be a check that shares no satellite with the GPS one, but on one frequency and seven
-satellites it is not usable: it fixes 8 and 4 epochs of the capture started while driving,
+satellites it is not usable: it fixes 8 and 3 epochs of the capture started while driving,
 26 and 8 of the drive, none of the parked car, and no epoch in both directions. That check
 waits for Galileo's second signal, E1.
 
@@ -702,7 +702,7 @@ still without the change limit):
 | Capture | GPS L1 + L5 | with Galileo E5a | with Galileo E1 and E5a |
 |---|---|---|---|
 | started while driving | 1, 40, 0, 0 | 192, 188, 126, 0 | 206, 185, 128, 0 |
-| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 | 245, 250, 217, 3 |
+| the drive | 202, 178, 144, 1 | 242, 253, 225, 4 | 245, 249, 216, 3 |
 | parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 | 294, 299, 294, 0 |
 
 The capture started while driving has 128 agreed epochs where E5a alone has 126, none
@@ -713,11 +713,11 @@ with E5a alone only that flag does ("A slip that only its flag shows" below; bef
 flag existed the two columns read 54 and 132 agreed). Six Galileo satellites take part on
 both bands (two more are tracked but not at the base), four GPS satellites on L1 and L5
 and three on L1. There is no truth: leaving out one satellite at a time (the thirteen
-that take part), 78 to 137 epochs stay agreed and none to four stand apart, and of the forward fixes that
+that take part), 78 to 135 epochs stay agreed and none to four stand apart, and of the forward fixes that
 both runs have, up to 20 lie more than 3 cm apart, single ones up to a meter. RTKLIB's
 rules on the same file agree at 11 epochs.
 
-The drive is not better for E1: 217 agreed and three apart, at 53, 66 and 67 s, 5.4 to
+The drive is not better for E1: 216 agreed and three apart, at 53, 66 and 67 s, 5.4 to
 5.6 cm horizontally where the bound is 5. They lie in twenty seconds of a turn, 51 to 70 s,
 in which the forward filter is float at three epochs and the backward at none and, where
 both fix, they stand 1.6 to 5.6 cm apart; before 48 s they agree within 2 mm and from
@@ -727,7 +727,7 @@ directions hold the same integers there on every phase both have one for; they h
 for different phases. G24, one of the five GPS satellites with a pilot,
 is 5 to 13 dB down from 53 s with its L1 phase flagged at every epoch, and G11 follows
 from 66 s. The stretch hangs on the satellite set:
-without G24 no epoch stands apart (212 agreed), without G11 or without E27 one, without
+without G24 no epoch stands apart (210 agreed), without G11 or without E27 one, without
 E13 seven. Each direction by itself stays within 2.5 cm when E1 is taken away, at every
 epoch but one. No setting of the lock count or the floor removes the three (floor 6 or 7:
 three; lock count 10: four); restarting every flagged phase leaves one but takes the other
@@ -737,8 +737,8 @@ The parked car is as with E5a: every kinematic fix within 15 mm of their median,
 
 **GPS alone against Galileo alone** was to be the check that shares no satellite. With both
 bands Galileo alone still does not fix: no epoch of the parked car in kinematic or static
-mode (six satellites; the ratio stays below the threshold of 3, at 2.8 at most in static
-mode and 2.1 in kinematic), one of the capture started while driving, 2 forward and 14
+mode (six satellites; the ratio stays below the threshold of 3, at 2.7 at most in static
+mode and 2.1 in kinematic), one of the capture started while driving, 4 forward and 12
 backward of the drive. On the parked car its float solution in static mode ends 7 cm from
 the GPS-only fix in either direction. On the drive
 its 16 fixes all lie where the solution with every satellite lies; of the 8 that fall on
@@ -816,10 +816,10 @@ backward, agreed, apart):
 
 | Capture, signals | without | `change_limit=0.03` |
 |---|---|---|
-| started while driving, GPS and Galileo E1 and E5a | 206, 185, 128, 0 | 223, 189, 144, 0 |
-| the drive, the same | 245, 250, 217, 3 | 247, 251, 223, 0 |
+| started while driving, GPS and Galileo E1 and E5a | 206, 185, 128, 0 | 223, 188, 144, 0 |
+| the drive, the same | 245, 249, 216, 3 | 245, 250, 220, 0 |
 | parked, kinematic, the same | 294, 299, 294, 0 | 294, 299, 294, 0 |
-| the drive, GPS and Galileo E5a | 242, 255, 227, 4 | 242, 255, 226, 5 |
+| the drive, GPS and Galileo E5a | 242, 253, 225, 4 | 242, 253, 224, 5 |
 | started while driving, GPS and Galileo E5a | 192, 188, 126, 0 | 193, 188, 126, 0 |
 | the three captures, GPS L1 and L5 | 1, 40, 0, 0; 202, 178, 144, 1; 14, 0, 0, 0 | the same |
 
@@ -833,11 +833,11 @@ not better for it: the L1 frequency then has the GPS phases only, at times too f
 unflagged ones for a verdict on them.
 
 What that is worth. The drive has no epoch apart any more, but by a small margin: the three
-that stood 5.4 to 5.6 cm apart stand 4.2 cm apart, under a bound of 5. Through the turn
+that stood 5.4 to 5.6 cm apart stand 3.9 to 4.2 cm apart, under a bound of 5. Through the turn
 (51 to 72 s) the two directions still differ by 0.8 to 4.2 cm wherever both fix, and over
 the whole drive the epochs on which they differ by more than 3 cm go from 12 to 8. Which
 direction is right in the turn is as unknown as before. The limit itself matters little
-on the drive (223 or 224 agreed and none apart from 0.02 to 0.05 m) and more on the capture
+on the drive (220 to 222 agreed and none apart from 0.02 to 0.05 m) and more on the capture
 started while driving (144 agreed at 0.02 to 0.03 m, 131 at 0.035 and 0.04, 127 at 0.05,
 none apart at any). That capture's gain is thin. Run forward, it follows from one event: at
 182 s a flagged L1 phase of a satellite that itself did not move is kept, because a phase of
@@ -846,12 +846,12 @@ solution; with that ambiguity kept, three epochs from 187 to 189 s fix clearly (
 5.5 to 6.4 against 2.2 to 2.8) and thirteen from 213 to 225 s pass the ratio test at 3.0 to
 3.5 where without the limit, or with 0.035 m, they fail it at 2.9 to 3.0. The three
 restarts the limit itself adds there bring no fix. Left out one satellite at a
-time, the drive keeps 212 to 236 agreed
+time, the drive keeps 210 to 236 agreed
 epochs and has none apart in 12 cases of the 16 satellites that take part (three without
 either of two Galileo satellites, six without a third, one without a GPS satellite;
 without the limit 207 to 231 agreed and none apart in 2 cases of 16). The capture started while driving is no
-firmer for it: 79 to 148 agreed and none to five apart with one satellite left out (78
-to 137 and none to four without the limit), and single forward fixes
+firmer for it: 79 to 147 agreed and none to five apart with one satellite left out (78
+to 135 and none to four without the limit), and single forward fixes
 still lie up to a meter from where they lay with every satellite. The rule also leaves the
 unflagged signal that moved with the flagged one where it was: its error goes into the
 solution as before. A move that is back at the next epoch, the common kind, costs the
@@ -874,9 +874,11 @@ started while driving, with Galileo E5a alone beside GPS, has 104 epochs fixed f
 at 188 s and its ambiguity keeps the wrong one to the end. That one bit makes the whole
 difference (`test_rtk_reference.py` takes it off again and finds 70 agreed epochs or
 fewer); the other bits change no count by more than one. With both Galileo bands the
-bits move the counts within their noise (the capture started while driving 222, 194, 148
-and none apart before, 223, 189, 144 now; the drive 247, 249, 221 and 247, 251, 223; with
-GPS alone 1 and 39 before on the first of them, 1 and 40 now), and they take one stale
+bits moved the counts within their noise when they were added (the capture started while
+driving from 222, 194, 148 and none apart to 223, 189, 144; the drive from 247, 249, 221 to
+247, 251, 223; with GPS alone from 1 and 39 on the first of them to 1 and 40; the engine has
+since changed in its choice of Galileo navigation records, and the tables above hold today's
+counts), and they take one stale
 integer out: the forward fix at the first observation after the GPS L5 pilot's slip, where
 the satellite's L1 had no phase to show the step, held that pilot's old integer and lay
 5.9 cm from the solution its other phases give with their integers, the largest such
@@ -887,7 +889,7 @@ formed from, so two fixes must give two phases the same difference of integers a
 phase breaks between them (a lost-lock bit of either receiver, a change of a half-cycle
 bit, a missing phase), whatever the filter did in between. Checked on the fixes outside
 the package (no option of `pyrx-rtk` and no test does it): on both moving captures, with the command's options, the two directions hold the same integer on every
-phase both have one for at every epoch both fix (223 and 144 epochs), and no fix of either
+phase both have one for at every epoch both fix (220 and 144 epochs), and no fix of either
 direction holds a difference of two integers that another fix contradicts across phases unbroken between them. So where the directions stand centimeters apart, in the drive's turn, no integer
 that both hold differs: they hold integers for different sets of 12 to 27 phases, the
 worst of which stands more than 2 cm from a solution on those integers at 23 of 28
