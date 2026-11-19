@@ -107,12 +107,16 @@ SECONDARY_TIME = 0.100
 # TRAVEL_TIME_NOMINAL: a GPS satellite is 67 to 86 ms away, so the clock is up to 18 ms
 # behind true time and 1 ms ahead at most. A Galileo satellite is 77 to 97 ms away, the two
 # in eccentric orbits 57 to 106 ms: 39 to 107 ms by that clock. The window of 22 to 122 ms
-# leaves some 15 ms either side
+# leaves some 15 ms either side. That holds at sample 0, where the clock is set: later
+# receiver times are counted in samples at the nominal rate, so the margin shrinks by the
+# sample clock's rate error times the time since (0.06 to 0.16 ppm on the recordings here:
+# days). A receiver that runs on has to take this clock from its current GPS solution
 TRAVEL_TIME_MIN = 0.022
 # s two pilots of one satellite that each took their time from their own secondary code
-# may stand apart in transmit time at one instant: the bands' paths through a front end and
-# the ionosphere make a tenth of a microsecond, a secondary code found wrongly a millisecond
-# or more
+# may stand apart in transmit time at one instant: the bands' paths through a front end
+# make a tenth of a microsecond, and the ionosphere delays E5a against E1 by 0.43 ns per
+# TEC unit along the path, another tenth to a quarter under a heavy ionosphere (300 to
+# 560 units); a secondary code found wrongly makes a millisecond or more
 PILOT_AGREEMENT = 1e-6
 # epochs from the one completing a pilot's coasted sum to the one completing the next sum,
 # whose update is in the phases after it

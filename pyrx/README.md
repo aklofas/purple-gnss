@@ -1217,7 +1217,10 @@ a satellite at that height is 60 to 100 ms: the receiver's clock, which the GPS 
 set within 20 ms of true time, says which multiple. pyrx takes the travel time between
 22 and 122 ms by that clock (`TRAVEL_TIME_MIN`: the two Galileo satellites in eccentric
 orbits are 57 to 106 ms away, and the clock can be 18 ms behind, so a travel time reads 39
-to 107 ms). Nothing at run time checks the time a pilot is given beyond that. The run therefore
+to 107 ms). The clock is set once, at the recording's first sample, and later times are
+counted in samples: a sample clock off in rate uses the 15 ms of margin up, in days at the
+0.06 to 0.16 ppm of the recordings here, so a receiver that runs on has to take the clock
+from its current GPS solution. Nothing at run time checks the time a pilot is given beyond that. The run therefore
 needs GPS L1 for its clock, and the difference between Galileo's and GPS's system time,
 tens of nanoseconds, is in the pseudoranges; a relative solution with a reference
 satellite per system does not see it.
@@ -1256,7 +1259,9 @@ the header. The two pilots of a satellite are tracked in two recordings by chann
 share only the sample clock, and each finds its secondary code on its own, so their
 transmit times at one instant check each other: where they stand more than a microsecond
 apart (`PILOT_AGREEMENT`; a secondary code found wrongly is a millisecond or more, the
-front end and the ionosphere a tenth of a microsecond) neither is written, since nothing
+front end a tenth of a microsecond, and the ionosphere, which delays E5a against E1 by
+0.43 ns per TEC unit along the path, another tenth to a quarter when it is heavy) neither
+is written, since nothing
 says which is wrong; each is written where it is tracked alone, and a stretch withheld is
 not a loss of lock. That rule sees a wrong millisecond, not an E1 channel beside a side
 peak of its correlation, which is half a microsecond or a little more off; against that
