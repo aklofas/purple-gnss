@@ -1302,19 +1302,21 @@ def test_a_vouched_first_signal_vouches_for_a_third(monkeypatch):
     assert [rtk.biases[("G03", sig)].lock for sig in signals] == [12, 12, 12]
 
 
-def test_a_first_signal_that_stepped_vouches_for_nothing():
-    # three signals: the first slips four cycles without a flag, which shows against the
-    # second and restarts both; the third slips three cycles with a flag. Against the first
-    # the two slips cancel to 3 mm, but the first is no longer known to be continuous
+@pytest.mark.parametrize("signals", [("G1C", "G2W", "G5Q"), ("G1C", "G5Q", "G2W")])
+@pytest.mark.parametrize("flagged,cycles", [("G5Q", (4, 3)), ("G2W", (9, 7))])
+def test_a_first_signal_that_stepped_vouches_for_nothing(signals, flagged, cycles):
+    # three signals: the first slips without a flag, which shows against one of the others
+    # and restarts both; the remaining one slips with a flag. Against the first the two
+    # slips cancel to 3 mm, but the first is not continuous: its word for the flagged
+    # phase does not hold, whether it was given before the step showed or would come after
     ephs = constellation()
-    signals = ("G1C", "G2W", "G5Q")
-    third = ("G03", "G5Q")
+    key = ("G03", flagged)
     after = dict(AMB_R)
-    after[G03] += 4
-    after[third] += 3
+    after[G03] += cycles[0]
+    after[key] += cycles[1]
     pairs = _l1_run(
         np.random.default_rng(73), ephs, 12, amb_at=lambda k: after if k >= 6 else AMB_R,
-        lli_at=lambda k: {third: 1} if k == 6 else None, signals=signals,
+        lli_at=lambda k: {key: 1} if k == 6 else None, signals=signals,
     )  # fmt: skip
     rtk = _six(ephs, slips="check")
     fixes = _stepped(rtk, pairs)
