@@ -630,8 +630,8 @@ change little between 0.20 and 0.30 cycle and between 0.10 and 0.15 cycle (144 a
 throughout, one or two apart). The check trusts the phases that carry no flag; an
 unflagged slip is caught only by the geometry-free test, as before. And a second
 capture, started while driving, has no agreed epoch with any of these options (the
-command fixes one epoch forward and 39 backward, none of them the same; the default's 4
-and 14 scattered fixes agree nowhere and two are apart): seven satellites, four with an
+command fixes one epoch forward and 40 backward, none of them the same; the default's 5
+and 14 scattered fixes agree nowhere and three are apart): seven satellites, four with an
 L5 pilot, the other three flagged on 33 to 56 % of their L1 phases. It needs more
 satellites with a pilot.
 
@@ -643,25 +643,26 @@ command's options, fixed forward and backward, agreed, apart:
 
 | Capture | GPS L1 + L5 | with Galileo E5a |
 |---|---|---|
-| started while driving | 1, 39, 0, 0 | 104, 177, 54, 0 |
+| started while driving | 1, 40, 0, 0 | 192, 188, 126, 0 |
 | the drive | 202, 178, 144, 1 | 242, 255, 227, 4 |
 | parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 |
 
-The capture started while driving has its first agreed epochs, in stretches of up to 17 s
-between the fades, with twelve or more satellites in the solution and no epoch apart. The
+The capture started while driving has its first agreed epochs, in stretches of up to 31 s
+between the fades, with twelve or more satellites in the solution and no epoch apart; 72
+of the 126 rest on one lost-lock bit ("A slip that only its flag shows" below). The
 drive's four epochs apart are just past the bounds (5.5 to 5.9 cm horizontally at three,
 10.1 cm vertically at one), where one direction has just come back from float with half
 its ambiguities. On the parked car the fixes with Galileo have their median 3 mm
 horizontally and 2 mm vertically from the GPS-only static solution, and every kinematic one
-lies within 6 mm and 19 mm of that median. RTKLIB's rules on the same files agree at 14, 97
+lies within 6 mm and 19 mm of that median. RTKLIB's rules on the same files agree at 18, 97
 and 298 epochs: the lock count and the check are needed with Galileo too.
 
 None of this has a truth, and the agreed epochs of the capture started while driving are
 evidence at the level of centimeters, not millimeters. They depend on the satellite set:
-with the strongest Galileo satellite left out, 61 epochs are agreed, 39 of them the same,
-and at those the forward fix lies 14 mm away in the median and more than 3 cm at eight
-epochs (5.6 cm at most). On the drive the same comparison keeps 218 of 222 epochs, 6 mm
-apart in the median and one epoch over 3 cm. A solution from the Galileo satellites alone
+with the strongest Galileo satellite left out, 83 epochs are agreed and two stand apart,
+54 of the agreed the same, and at those the forward fix lies 17 mm away in the median and
+more than 3 cm at fifteen epochs (7.3 cm at most). On the drive the same comparison keeps
+216 of 227 epochs, 6 mm apart in the median and one epoch over 3 cm. A solution from the Galileo satellites alone
 would be a check that shares no satellite with the GPS one, but on one frequency and seven
 satellites it is not usable: it fixes 8 and 4 epochs of the capture started while driving,
 26 and 8 of the drive, none of the parked car, and no epoch in both directions. That check
@@ -671,33 +672,37 @@ With E1 beside E5a (signals `G1C,G5Q,E1C,E5Q`, the files of a whole run of the c
 
 | Capture | GPS L1 + L5 | with Galileo E5a | with Galileo E1 and E5a |
 |---|---|---|---|
-| started while driving | 1, 39, 0, 0 | 104, 177, 54, 0 | 206, 190, 132, 0 |
-| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 | 245, 249, 216, 3 |
+| started while driving | 1, 40, 0, 0 | 192, 188, 126, 0 | 206, 185, 128, 0 |
+| the drive | 202, 178, 144, 1 | 242, 255, 227, 4 | 245, 250, 217, 3 |
 | parked, kinematic mode | 14, 0, 0, 0 | 294, 299, 294, 0 | 294, 299, 294, 0 |
 
-The capture started while driving goes from 54 agreed epochs to 132, none apart, ten
-satellites or more in each. Six Galileo satellites take part on both bands (two more are
-tracked but not at the base), four GPS satellites on L1 and L5 and three on L1. It is
-firmer than with E5a alone, still without a truth: leaving out one satellite at a time
-(seven tried), 77 to 145 epochs stay agreed and none to three stand apart, and the forward
-fixes that both runs have lie 3 to 11 mm from each other in the median, 3 to 17 of some 160
-more than 3 cm, single ones up to a meter. RTKLIB's rules on the same file agree at 11
-epochs.
+The capture started while driving has 128 agreed epochs where E5a alone has 126, none
+apart, ten satellites or more in each: the second band adds little there. What it would
+add without the flag for a pilot's sum near the wrap is the sight of one slip: an E5a
+pilot slips a whole cycle at 188 s, the geometry-free difference with E1 shows it, and
+with E5a alone only that flag does ("A slip that only its flag shows" below; before the
+flag existed the two columns read 54 and 132 agreed). Six Galileo satellites take part on
+both bands (two more are tracked but not at the base), four GPS satellites on L1 and L5
+and three on L1. There is no truth: leaving out one satellite at a time (the thirteen
+that take part), 78 to 137 epochs stay agreed and none to four stand apart, and of the forward fixes that
+both runs have, up to 20 lie more than 3 cm apart, single ones up to a meter. RTKLIB's
+rules on the same file agree at 11 epochs.
 
-The drive is not better for E1: 216 agreed and three apart, at 53, 66 and 67 s, 5.4 to
+The drive is not better for E1: 217 agreed and three apart, at 53, 66 and 67 s, 5.4 to
 5.6 cm horizontally where the bound is 5. They lie in twenty seconds of a turn, 51 to 70 s,
-in which the forward filter is float at five epochs and the backward at one and, where
-both fix, they stand 1 to 7 cm apart; before 48 s they agree within millimeters and from
-72 s within a centimeter. From 64 to 70 s the difference is a steady 3 to 6 cm one way, so
-one direction holds other integers there, and five of those seven epochs still count as
-agreed: the bound is a coarse measure. G24, one of the four GPS satellites with a pilot,
+in which the forward filter is float at three epochs and the backward at none and, where
+both fix, they stand 1.6 to 5.6 cm apart; before 48 s they agree within 2 mm and from
+72 s within 2.2 cm. From 64 to 70 s the difference is a steady 3 to 6 cm one way, and five
+of those seven epochs still count as agreed: the bound is a coarse measure. The two
+directions hold the same integers there on every phase both have one for; they have them
+for different phases. G24, one of the four GPS satellites with a pilot,
 is 5 to 13 dB down from 53 s with its L1 phase flagged at every epoch, and G11 follows
 from 66 s. The stretch hangs on the satellite set:
-without G24 no epoch stands apart (210 agreed), without G11 or without E27 one, without
+without G24 no epoch stands apart (212 agreed), without G11 or without E27 one, without
 E13 seven. Each direction by itself stays within 2.5 cm when E1 is taken away, at every
 epoch but one. No setting of the lock count or the floor removes the three (floor 6 or 7:
 three; lock count 10: four); restarting every flagged phase leaves one but takes the other
-capture down to 36 agreed epochs. Which direction is right in that stretch is not known.
+capture down to 33 agreed epochs. Which direction is right in that stretch is not known.
 The parked car is as with E5a: every kinematic fix within 15 mm of their median, which lies
 2 mm from the GPS-only static solution.
 
@@ -720,14 +725,13 @@ satellites (next paragraph). Judged so, from the rover's observations with broad
 orbits, the phases of the parked car never change by more than 1.2 cm from one second to
 the next beyond what the others explain, down to 30 dB-Hz. On the two moving captures the
 pilot phases (GPS L5, Galileo E1 and E5a) do so by more than 4 cm, without a flag, 73 and
-118 times. Two of those are slips of a whole cycle, each through a fade of 40 to 160 ms
-in which the signal's own phase went around once and the loop followed it ("Galileo
-observations" below). In many of the others both signals of the satellite move together,
+111 times. (Three pilots of the second capture also slip a whole cycle, each in a fade
+null; those phases carry a flag, "L5 observations" below.) In many of the moves both signals of the satellite move together,
 the difference of the two under half the move (19 of 22 such events with both Galileo
-pilots unflagged on the drive, 26 of 48 on the capture started while driving), often out
+pilots unflagged on the drive, 26 of 46 on the capture started while driving), often out
 and back at consecutive seconds, and the one GPS case looked at shows the same on the L1
 C/A phase and the L5 pilot. Most fall in a second in which the signal faded (61 of the 73
-and 109 of the 118).
+and 102 of the 111).
 What they are physically is not established here; a path around the edge of an obstruction
 is longer by the same length on both frequencies. The geometry-free difference shows none
 of it. So a flagged phase beside an unflagged one was taken for continuous while both
@@ -779,12 +783,12 @@ backward, agreed, apart):
 
 | Capture, signals | without | `change_limit=0.03` |
 |---|---|---|
-| started while driving, GPS and Galileo E1 and E5a | 206, 190, 132, 0 | 222, 194, 148, 0 |
-| the drive, the same | 245, 249, 216, 3 | 247, 249, 221, 0 |
+| started while driving, GPS and Galileo E1 and E5a | 206, 185, 128, 0 | 223, 189, 144, 0 |
+| the drive, the same | 245, 250, 217, 3 | 247, 251, 223, 0 |
 | parked, kinematic, the same | 294, 299, 294, 0 | 294, 299, 294, 0 |
 | the drive, GPS and Galileo E5a | 242, 255, 227, 4 | 242, 255, 226, 5 |
-| started while driving, GPS and Galileo E5a | 104, 177, 54, 0 | 104, 177, 54, 0 |
-| the three captures, GPS L1 and L5 | 1, 39, 0, 0; 202, 178, 144, 1; 14, 0, 0, 0 | the same |
+| started while driving, GPS and Galileo E5a | 192, 188, 126, 0 | 193, 188, 126, 0 |
+| the three captures, GPS L1 and L5 | 1, 40, 0, 0; 202, 178, 144, 1; 14, 0, 0, 0 | the same |
 
 With GPS alone the counts do not move because there is little to judge: on the capture
 started while driving no epoch has twelve unflagged phases. On the two station pairs with a
@@ -800,21 +804,21 @@ that stood 5.4 to 5.6 cm apart stand 4.2 cm apart, under a bound of 5. Through t
 (51 to 72 s) the two directions still differ by 0.8 to 4.2 cm wherever both fix, and over
 the whole drive the epochs on which they differ by more than 3 cm go from 12 to 8. Which
 direction is right in the turn is as unknown as before. The limit itself matters little
-on the drive (221 to 223 agreed and none apart from 0.02 to 0.05 m) and more on the capture
-started while driving (148 agreed at 0.02 to 0.03 m, 134 at 0.035 and 0.04, 131 at 0.05,
+on the drive (223 or 224 agreed and none apart from 0.02 to 0.05 m) and more on the capture
+started while driving (144 agreed at 0.02 to 0.03 m, 131 at 0.035 and 0.04, 127 at 0.05,
 none apart at any). That capture's gain is thin. Run forward, it follows from one event: at
 182 s a flagged L1 phase of a satellite that itself did not move is kept, because a phase of
 another satellite that changed by 3 to 3.5 cm is in question beside it and out of the trial
 solution; with that ambiguity kept, three epochs from 187 to 189 s fix clearly (ratios of
-5.5 to 6.3 against 2.2 to 2.8) and thirteen from 213 to 225 s pass the ratio test at 3.0 to
+5.5 to 6.4 against 2.2 to 2.8) and thirteen from 213 to 225 s pass the ratio test at 3.0 to
 3.5 where without the limit, or with 0.035 m, they fail it at 2.9 to 3.0. The three
 restarts the limit itself adds there bring no fix. Left out one satellite at a
-time, the drive keeps 210 to 236 agreed
-epochs and has none apart in 15 cases of 19 (three without either of two Galileo
-satellites, six without a third, one without a GPS satellite; without the limit 205 to
-231 agreed and none apart in 2 cases of 19). The capture started while driving is no
-firmer for it: 78 to 151 agreed and none to three apart with one satellite left out (77
-to 145 and none to three without the limit), on the same epochs, and single forward fixes
+time, the drive keeps 212 to 236 agreed
+epochs and has none apart in 12 cases of the 16 satellites that take part (three without
+either of two Galileo satellites, six without a third, one without a GPS satellite;
+without the limit 207 to 231 agreed and none apart in 2 cases of 16). The capture started while driving is no
+firmer for it: 79 to 148 agreed and none to five apart with one satellite left out (78
+to 137 and none to four without the limit), and single forward fixes
 still lie up to a meter from where they lay with every satellite. The rule also leaves the
 unflagged signal that moved with the flagged one where it was: its error goes into the
 solution as before. A move that is back at the next epoch, the common kind, costs the
@@ -823,6 +827,43 @@ phase and waits out the lock count. A move spread over several flagged epochs in
 under the limit passes, since the change is taken from one epoch to the next. The run takes
 about half again as long with the option (a fit per satellite at every epoch). And the
 rule was found on these two captures.
+
+**A slip that only its flag shows.** The measurements of this section are on observation
+files in which a pilot's phase after a sum near the wrap of the loop's discriminator
+carries the lost-lock bit ("L5 observations" below): 5 pilot phases of the drive, 23 of
+the capture started while driving, none of the parked car, the phases after three slips
+of a whole cycle among them. Where a satellite has two signals the engine sees such a
+slip without the flag: the geometry-free difference steps and both ambiguities restart,
+at that observation or, where the other signal has no phase then, at the next. With one
+signal nothing else shows it. Without those bits the capture
+started while driving, with Galileo E5a alone beside GPS, has 104 epochs fixed forward,
+177 backward and 54 agreed where it now has 193, 188 and 126: an E5a pilot slips a cycle
+at 188 s and its ambiguity keeps the wrong one to the end. That one bit makes the whole
+difference (`test_rtk_reference.py` takes it off again and finds 70 agreed epochs or
+fewer); the other bits change no count by more than one. With both Galileo bands the
+bits move the counts within their noise (the capture started while driving 222, 194, 148
+and none apart before, 223, 189, 144 now; the drive 247, 249, 221 and 247, 251, 223; with
+GPS alone 1 and 39 before on the first of them, 1 and 40 now), and they take one stale
+integer out: the forward fix at the first observation after the GPS L5 pilot's slip, where
+the satellite's L1 had no phase to show the step, held that pilot's old integer and lay
+5.9 cm from the solution its other phases give with their integers, the largest such
+distance of the capture; now the largest is 2.9 cm.
+
+What the integers say. A double-differenced ambiguity belongs to the two phases it is
+formed from, so two fixes must give two phases the same difference of integers as long as
+neither carries a slip between them, whatever the filter did in between. On both moving
+captures, with the command's options, the two directions hold the same integer on every
+phase both have one for at every epoch both fix (223 and 144 epochs), and no fix of either
+direction holds a difference of two integers that another fix contradicts across unflagged
+phases. So where the directions stand centimeters apart, in the drive's turn, no integer
+that both hold differs: they hold integers for different sets of 12 to 27 phases, the
+worst of which stands more than 2 cm from a solution on those integers at 23 of 28
+seconds, and which direction is nearer the truth there cannot be told from these
+observations. The check is blind to an integer only one direction holds. Left out one
+satellite at a time, the capture started while driving has epochs apart in four cases;
+in one the integers of the two directions differ (two epochs 19 cm apart), and in the
+other three, with fixes up to 36 cm apart, every integer both hold is the same and no fix
+contradicts another: there each direction holds integers for phases the other does not.
 
 ## Standalone positioning
 
@@ -973,7 +1014,9 @@ captures against the L5 pilot of the five satellites that have one (a pilot loop
 second lock point half a cycle away, so an L1 step shows against it wherever the L5
 phase is itself unflagged): of the L1 phases written, 23 on the cold-start drive and 24
 on the driving capture are discontinuous from the epoch before (more than 4 cm against
-the pilot); without the fade rule 21 of each carried no flag, with it none and 2 (steps
+the pilot; counted before the pilot's flag for a sum near the wrap, below, which flags
+the L5 phase at three of them and leaves 21 and 23); without the fade rule 21 of each
+carried no flag, with it none and 2 (steps
 of 5.9 and 4.5 cm at 38 dB-Hz with little or no hold before them, not half cycles). The
 price is flags: 34.7 % of the cold-start capture's L1 phases and 11.2 % of the driving
 capture's carry one (1.6 % and 1.9 % without the rule), on those five satellites
@@ -1021,8 +1064,8 @@ pilot loop tracks the whole cycle, so there is no half-cycle indicator on `L5Q`;
 the tracker had settled on the inverted pilot before the secondary code was found, the
 half cycle is put back. The loss-of-lock indicator is value 1 on a segment's first
 observation and within 2 s of the segment's start, on the first phase after an unlocked
-window, and on every phase from a coasted sum to the first that holds the loop's return
-(below).
+window, on every phase from a coasted sum to the first that holds the loop's return, and
+on a phase after a sum the loop took near the wrap of its discriminator (both below).
 RINEX 3.05 (Table A23) makes L5I the reference signal of the band and has the L5Q
 phase aligned to it by a quarter cycle; the phase written is aligned (the quarter cycle
 is applied), and the header's `SYS / PHASE SHIFT` line for `L5Q` carries the 0.00000
@@ -1076,6 +1119,43 @@ sum, and every `L5Q` from a coasted sum to the first one that holds the loop's r
 (the next sum's update, 20 ms after the coasted sum ended) carries the loss-of-lock
 indicator.
 
+A pilot can also slip with its signal present, every sum coherent enough to be taken and
+every window reading phase-locked. Three pilots do in the car-roof capture started while
+driving, at 35 to 47 dB-Hz, in two ways. In a fade null the received phase turns a whole
+cycle within a few sums and the loop follows it, a large part of a cycle behind: an E5a
+pilot (the sums' phase against the loop goes to 0.46 cycle and back on one side, with
+their coherence at 0.21 and 0.24, just above the 0.20 at which the loop would coast) and
+an E1 pilot (0.41 cycle at a coherence of 0.36). Or the received phase runs past half a
+cycle from the loop, where the four-quadrant phase of a sum wraps, and the loop pulls the
+other way and settles a cycle off: a GPS L5 pilot (0.37 cycle, then -0.46 in the next sum,
+at coherences of 0.61 and 0.70, the sums' power between 0.04 and 0.15 of its usual value
+over nine sums). In both a sum stands far from the loop's own phase, near the wrap. So a
+pilot phase after a sum the loop took at 0.35 cycle or more from its own phase
+(`NEAR_WRAP`) carries the loss-of-lock indicator, on the first observation after that
+sum. The coherence is not part of the rule: the third slip had plenty.
+
+The rule was tried on the loop itself with synthetic prompts (`test_tracking_pilot.py`
+runs a small part): the direct path beside one reflection whose phase turns at 2 to 10 Hz,
+the direct path taken down to between nothing and 0.3 of its amplitude for 0.1 or 0.3 s,
+28 to 45 dB-Hz, 36,000 fades. A steady signal has no sum at 0.35 cycle or more from 24 to
+45 dB-Hz in 2000 s at each strength. Of 3634 fades that ended a whole cycle or more from
+the direct path, the coasting rule flags 1714, every one at 28 and 32 dB-Hz; of the 1920
+it leaves, nearly all at 40 and 45 dB-Hz, this rule flags 1187. Of the 32,366 fades that
+ended without a slip the loop coasted in 26,409, which the coasting rule flags; of the
+other 5957 this rule marks 1649. So where the loop did not coast it flags six slips in ten
+and nearly three in ten of the fades without one: the flag says a slip was possible. A
+threshold of 0.40 cycle flags 687 of the 1920 and 0.30 flags 1596, with 1504 and 1846 marks
+on the 5957. The 733 it misses are the limit of any rule on the sum's phase: where the reflection
+outweighs the direct path and turns slowly, the loop follows the received phase all the
+way round with a small error, and nothing in one channel tells that from the antenna's
+motion. The model's reflections are invented, so these rates rank the thresholds; they are
+not the rates of a drive.
+
+On the car-roof captures the rule adds the indicator to 5 of the drive's 6161 pilot
+phases, to 23 of the 5156 of the capture started while driving, the three slips among
+them, and to none of the parked car's 6279. What that does to the relative solution is in
+"A slip that only its flag shows" under RTK above.
+
 On the two recordings of 2021-12-26 (`test_joint_observables_reference.py`) the four
 satellites on both bands have both signals at every epoch. `C5Q` minus `C1C` is
 -29 m for all of them within 2.4 m (mostly the front end's delay between its two
@@ -1113,8 +1193,9 @@ satellite per system does not see it.
 
 The rest is the L5 pilot's: `C5Q`, `D5Q` and `S5Q` from the epoch after the secondary
 code was found, `L5Q` where the window is phase-locked, the loss-of-lock indicator within
-2 s of a segment's start, after an unlocked window and from a coasted sum to the return,
-no half-cycle indicator, and the half cycle of a pilot found inverted put back. The phase
+2 s of a segment's start, after an unlocked window, from a coasted sum to the return and
+after a sum near the discriminator's wrap, no half-cycle indicator, and the half cycle of
+a pilot found inverted put back. The phase
 is written aligned to the band's reference signal as RINEX 3.05 Table A23 has it, L5Q a
 quarter cycle from L5I, with 0.00000 in the header. That value is the table's. Derived
 from the signal's definition, in which the E5a pilot leads the data component where the
@@ -1168,14 +1249,15 @@ cycle, so no measurement here checks it.
 
 In motion the pilots' phases move without a flag now and then. The geometry-free
 combination of a satellite's two phases steps by more than 4 cm from one second to the
-next, neither phase flagged, 23 times on the capture started while driving (the largest
-29 cm, more than a cycle of either band), 4 times on the drive (7 cm at most) and never on
+next, neither phase flagged, 21 times on the capture started while driving (9 cm at
+most), 4 times on the drive (7 cm at most) and never on
 the parked car (8 mm at most); on GPS L1 and L5 of the two moving captures the same count
 is none and two. Which band moved shows against the other satellites, without the other
-band (the judgment "Two signals that move together" above describes): in 17 of the 29
-steps one band alone, E1 in 8 and E5a in 9, in 5 both, and 7 are not settled (a band
-between 1.5 and 2 cm, or no solution at that second). Two are slips of a whole cycle: an
-E5a cycle on one satellite, an E1 cycle on another. Neither is the loop
+band (the judgment "Two signals that move together" above describes): in 17 of the 27
+steps one band alone, E1 in 7 and E5a in 10, in 3 both, and 7 are not settled (a band
+between 1.5 and 2 cm, or no solution at that second). Two more steps were slips of a whole
+cycle, an E5a cycle on one satellite and an E1 cycle on another; their phases carry the
+flag for a sum near the wrap ("L5 observations" above). Neither is the loop
 losing a signal that was there. In the first the power of the 20 ms sums fell to an
 eighth for 160 ms, their coherence to 0.21 and 0.24, just above the 0.20 at which the loop
 coasts and the phase is flagged, and the sum's phase against the loop went to 0.46 cycle
