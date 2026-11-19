@@ -455,7 +455,9 @@ Observations enter as arrays of every satellite by every requested signal, with
 the RINEX loss-of-lock indicators. The base station is its marker plus the antenna
 offset; the rover's single-point fix seeds each epoch, solved by the standalone
 solver on GPS L1 C/A when it is among the signals, else on the first GPS signal
-listed (no GPS signal is an error). A rover epoch is paired with the latest base epoch
+listed (no GPS signal is an error). The seed is a GPS solution whatever other systems
+the signals hold: an epoch with fewer than four GPS satellites has no solution, where
+RTKLIB seeds on every system with an offset between them. A rover epoch is paired with the latest base epoch
 not later than it and no older than 30 s; before the first base epoch it is paired with
 that one when it lies within 30 s ahead, as RTKLIB does forward, and the reported age
 is negative.
@@ -509,7 +511,10 @@ choice of reference is a change of basis and does not change the fixed position)
 A fix is accepted when at least two ambiguities were searched and the ratio of the
 second to the best squared norm is at least 3, or the best norm is zero; the float
 states are kept (continuous mode, no hold). Galileo E1/E5a and GPS L5 run through
-the same engine with a reference satellite per system.
+the same engine with a reference satellite per system. Two reported values are not
+RTKLIB's and change no fix or position: the ratio of a float epoch with a single
+double-differenced ambiguity is 0 (RTKLIB reports the value of a search it does not
+use), and two integer candidates of exactly equal norm come back in the other order.
 
 The reference tests run on the first 6 h (721 epochs) of two IGS station pairs of
 2021-12-26, MATE–MAT1 (Matera, 11 m) and TLSE–TLSG (Toulouse, 1266 m), against the
