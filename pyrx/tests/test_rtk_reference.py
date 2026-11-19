@@ -1,5 +1,6 @@
 """Our RTK fix against RTKLIB's and the EUREF coordinates on two IGS station pairs."""
 
+import dataclasses
 from datetime import datetime
 
 import numpy as np
@@ -341,6 +342,7 @@ def test_the_parked_start_of_the_drive_fixes_where_the_parked_capture_did(captur
 # The same captures with the Galileo E5a pilots beside GPS (pyrx-rinex --l5 --galileo), the
 # base's Galileo beside its GPS, and the day's public broadcast file for the Galileo orbits
 COLD_START = "sky/20261103_032110_carroof-coldstart"  # begun in motion, an obstruction at 40 s
+E21_SLIP = 185076  # s of week of the first observation after E21's E5a pilot slipped a cycle
 CAR_BASE_GALILEO = "cors/base_20261103_0300_0330.rnx"
 PUBLIC_NAV = "brdc/BRDC00IGS_R_20263070000_01D_MN.rnx"
 WITH_E5A = ("G1C", "G5Q", "E5Q")
@@ -436,21 +438,32 @@ def test_galileo_pilots_give_the_cold_start_fixes_both_directions_agree_on(captu
     # directions never fix the same epoch at the same place. The six Galileo satellites the
     # base also has, on their E5a pilots, are the carrier redundancy that was missing.
     # Measured with the command's settings, forward fixed / backward fixed / together /
-    # apart: GPS 1 / 39 / 0 / 0, with Galileo 104 / 177 / 54 / 0, twelve satellites or
-    # more in every fix. No truth for it, and the 54 depend on the satellite set at the level
-    # of centimeters: without the strongest Galileo satellite 61 are together, 39 of them the
-    # same epochs.
+    # apart: GPS 1 / 40 / 0 / 0, with Galileo 193 / 188 / 126 / 0, twelve satellites or
+    # more in every fix both directions agree on. No truth for it, and the 126 depend on
+    # the satellite set: without the strongest Galileo satellite 82 are together, 54 of them
+    # the same epochs, and two stand apart. They also rest on one flag: E21's pilot slips a
+    # whole cycle at 188 s, with one Galileo band nothing but its own lost-lock bit says so,
+    # and without that bit the counts are 105 / 177 / 54 / 0.
     gps = _car(captures, COLD_START, L1_L5)
     _, _, together, _ = _both_ways(gps, **COMMAND)
     assert together == []
     data = _car_with_galileo(captures, COLD_START)
     fwd, bwd, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 50 and len(apart) <= 1, (len(together), len(apart))
+    assert len(together) >= 115 and len(apart) <= 1, (len(together), len(apart))
     fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
-    assert fixed[0] >= 98 and fixed[1] >= 168, fixed
+    assert fixed[0] >= 180 and fixed[1] >= 175, fixed
     assert min(fwd[k].ns for k in together) >= 12
-    # RTKLIB's rules get a quarter of that (14): the lock count and the check are needed too
-    assert len(_both_ways(data)[2]) <= 20
+    # RTKLIB's rules get a seventh of that (18): the lock count and the check are needed too
+    assert len(_both_ways(data)[2]) <= 25
+    # the slip's flag taken off again: the ambiguity keeps the wrong cycle to the end
+    k = next(n for n, e in enumerate(data[0]) if round(e.tow) == E21_SLIP)
+    i, j = data[0][k].sats.index("E21"), WITH_E5A.index("E5Q")
+    assert data[0][k].lli[i, j] & 1
+    lli = data[0][k].lli.copy()
+    lli[i, j] &= ~1
+    unflagged = [*data[0][:k], dataclasses.replace(data[0][k], lli=lli), *data[0][k + 1 :]]
+    _, _, together, _ = _both_ways((unflagged, *data[1:]), **COMMAND)
+    assert len(together) <= 70, len(together)
 
 
 def test_galileo_pilots_add_agreed_fixes_to_the_drive_and_the_parked_car(captures):
@@ -494,6 +507,30 @@ def test_the_file_with_both_galileo_bands_holds_the_earlier_files(captures, capt
                 j = b.sats.index(sat)
                 for field in ("pseudorange", "carrier_phase", "doppler", "cn0", "lli"):
                     np.testing.assert_array_equal(getattr(a, field)[i], getattr(b, field)[j])
+
+
+def test_the_whole_cycle_slips_of_the_capture_started_while_driving_carry_the_flag(captures):
+    # Three pilots slip a whole cycle in that capture, each in a fade null in which a 20 ms
+    # sum stood 0.41 to 0.46 cycle from the loop's phase, near the discriminator's wrap, and
+    # was still coherent enough for the loop to take it: G24's L5 pilot
+    # 146 s into the capture, E21's E5a pilot at 188 s, E30's E1 pilot at 231 s. The
+    # phase after each carries the lost-lock bit. On the two Galileo satellites the other
+    # band shows the cycle: the geometry-free difference of the two phases steps by one
+    # wavelength of the band that slipped, within 4 cm (the fade moves both by centimeters).
+    path = capture_file(captures, f"{COLD_START}/{E1_E5A_FILE}")
+    epochs = {round(e.tow): e for e in read_rinex_observations(path, BOTH_BANDS)}
+    for tow, sat, signal in ((185035, "G24", "G5Q"), (E21_SLIP, "E21", "E5Q"), (185119, "E30", "E1C")):
+        e = epochs[tow]
+        assert e.lli[e.sats.index(sat), BOTH_BANDS.index(signal)] & 1, (tow, sat, signal)
+        if sat[0] == "E":
+            gf = []
+            for t in (tow - 1, tow):
+                row = epochs[t].carrier_phase[epochs[t].sats.index(sat)]
+                gf.append(wavelength("E1C") * row[2] - wavelength("E5Q") * row[3])
+            assert abs(abs(gf[1] - gf[0]) - wavelength(signal)) < 0.04, (sat, gf[1] - gf[0])
+    # and the parked capture's pilots carry no flag after their first seconds, as before
+    parked = read_rinex_observations(capture_file(captures, f"{STATIC}/{E1_E5A_FILE}"), BOTH_BANDS)
+    assert not any((e.lli[:, 1:] & 1).any() for e in parked[3:])
 
 
 def _galileo_pairs(captures, capture):
@@ -543,29 +580,29 @@ def test_e1_and_e5a_phases_of_the_parked_car_follow_a_line_together(captures):
 
 def test_both_galileo_bands_give_the_cold_start_more_fixes_both_directions_agree_on(captures):
     # Measured with the command's settings, forward fixed / backward fixed / together / apart:
-    # with the E5a pilots alone 104 / 177 / 54 / 0, with E1 beside them 222 / 194 / 148 / 0
-    # (206 / 190 / 132 / 0 without the change limit). Six Galileo satellites take part on
+    # with the E5a pilots alone 193 / 188 / 126 / 0, with E1 beside them 223 / 189 / 144 / 0
+    # (206 / 185 / 128 / 0 without the change limit). Six Galileo satellites take part on
     # both bands (two more are not at the base), four GPS satellites on L1 and L5 and three
     # on L1. No truth for it, and the gain is thin: forward it follows from one ambiguity
     # that is kept at 182 s, after which thirteen epochs pass the ratio test at 3.0 to 3.5
-    # where they fail it at 2.9 to 3.0. Left out one satellite at a time, 78 to 151 epochs
-    # stay together and none to three stand apart, and single forward fixes lie up to a
+    # where they fail it at 2.9 to 3.0. Left out one satellite at a time, 79 to 148 epochs
+    # stay together and none to five stand apart, and single forward fixes lie up to a
     # meter from where they lay with every satellite.
     data = _car_with_galileo(captures, COLD_START, BOTH_BANDS, E1_E5A_FILE)
     fwd, bwd, together, apart = _both_ways(data, **COMMAND)
-    assert len(together) >= 132 and not apart, (len(together), len(apart))
+    assert len(together) >= 136 and not apart, (len(together), len(apart))
     fixed = [sum(f.status == "fix" for f in run.values()) for run in (fwd, bwd)]
     assert fixed[0] >= 196 and fixed[1] >= 180, fixed
     _, _, together, apart = _both_ways(data, **NO_LIMIT)
-    assert 125 <= len(together) <= 140 and not apart, (len(together), len(apart))
-    # RTKLIB's rules: 37 / 51 / 11 / 0
+    assert 120 <= len(together) <= 135 and not apart, (len(together), len(apart))
+    # RTKLIB's rules: 40 / 52 / 11 / 0
     assert len(_both_ways(data)[2]) <= 20
 
 
 def test_both_galileo_bands_on_the_drive_and_the_parked_car(captures):
-    # Measured with the command's settings: the drive 247 / 249 / 221 / 0 where GPS alone has
+    # Measured with the command's settings: the drive 247 / 251 / 223 / 0 where GPS alone has
     # 202 / 178 / 144 / 1 and E5a beside it 242 / 255 / 226 / 5. Without the change limit 245
-    # / 249 / 216 / 3, the three apart 5.4 to 5.6 cm horizontal at 53, 66 and 67 s, in twenty
+    # / 250 / 217 / 3, the three apart 5.4 to 5.6 cm horizontal at 53, 66 and 67 s, in twenty
     # seconds of a turn in which G24 is 5 to 13 dB down with its L1 phase flagged at every
     # epoch and both its phases moving by centimeters against the other satellites. With the
     # limit those three are 4.2 cm apart, under the bound of 5: the directions do not agree
