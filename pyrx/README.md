@@ -464,7 +464,8 @@ is carried. Ambiguities are created from phase minus code with a 30-cycle sigma,
 removed when a satellite misses five epochs that reach the relative
 solution, on a loss-of-lock flag at either receiver, or when the single-differenced
 geometry-free combination of a satellite's first and another signal jumps by more
-than 5 cm.
+than 5 cm. A phase whose code is missing at either receiver keeps the row of the ambiguity
+it has, as in RTKLIB; a new ambiguity needs the code to begin on.
 
 Residuals use the geometric range with the Earth-rotation term to the antenna
 reference point, the satellite clock with its relativistic term, and the
