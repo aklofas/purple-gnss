@@ -179,7 +179,7 @@ of the Pocket SDR front-end.
 ## Acquisition from the command line
 
 ```sh
-pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--signal L1CA] [--prn 1-32] [--duration 0.02] [--plot DIR]
+pyrx-acq FILE --fs 4e6 --iq [--f-if 0] [--signal L1CA] [--prn 1-32] [--t-start 0] [--duration 0.02] [--plot DIR]
 ```
 
 By default the first 20 ms of the file are integrated (`--duration 0` for the whole
@@ -218,7 +218,7 @@ Non-integer rates are not supported.
 ## Tracking from the command line
 
 ```sh
-pyrx-trk FILE --fs 8e6 --f-if 2e6 [--iq] [--signal L1CA] [--prn 1-32] [--duration 0] [--log trk.csv] [--plot DIR]
+pyrx-trk FILE --fs 8e6 --f-if 2e6 [--iq] [--signal L1CA] [--prn 1-32] [--t-start 0] [--duration 0] [--log trk.csv] [--plot DIR]
 ```
 
 Searches each PRN on 20 ms windows, at the start and then every 10 s wherever the
@@ -252,7 +252,7 @@ trial also turns away a seed whose loops settled on a side peak of the correlati
 ## Navigation message decode from the command line
 
 ```sh
-pyrx-nav FILE --fs 8e6 --f-if 2e6 [--iq] [--prn 1-32] [--duration 0] [--json nav.json]
+pyrx-nav FILE --fs 8e6 --f-if 2e6 [--iq] [--prn 1-32] [--t-start 0] [--duration 0] [--json nav.json]
 ```
 
 Acquires and tracks as `pyrx-trk` does, then decodes each segment's navigation
@@ -267,7 +267,7 @@ ephemerides only.
 ## RINEX output from the command line
 
 ```sh
-pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--duration 0] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0] [--galileo]]
+pyrx-rinex FILE --fs 24e6 --f-if 6e6 [--iq] [--prn 1-32] [--t-start 0] [--duration 0] [--interval 1.0] [--week N] [--marker NAME] [--marker-type TYPE] --obs out.obs [--nav out.nav] [--l5 L5FILE [--l5-f-if 0] [--galileo]]
 ```
 
 Acquires, tracks and decodes as `pyrx-nav` does, forms observations at every
@@ -294,8 +294,9 @@ line, `G5Q PRN nn  epochs ...`, or `G5Q PRN nn  no time tag` when it could not b
 placed on the L1 time (see "L5 observations" below). Nothing checks that the two files
 belong together. If no pilot is tracked at all, which is what a wrong `--l5-f-if` or
 sample rate gives, a line on stderr says so and the file is written with empty L5
-columns; pilots tracked in a file that does not line up with `FILE` sample for sample
-find no place on the L1 time and print `no time tag`.
+columns; pilots tracked in a file that is off from `FILE` by other than a whole number of
+milliseconds find no place on the L1 time and print `no time tag`; a file off by whole
+milliseconds is not caught.
 
 With `--galileo` as well, the Galileo pilots are tracked too, every satellite number from
 1 to 36: E1 in `FILE` and E5a in `L5FILE`, written as `C1C L1C D1C S1C C5Q L5Q D5Q S5Q`
@@ -1302,8 +1303,7 @@ next, neither phase flagged, 21 times on the capture started while driving (9 cm
 most), 4 times on the drive (7 cm at most) and never on
 the parked car (8 mm at most); on GPS L1 and L5 of the two moving captures the same count
 is none and two. Which band moved shows against the other satellites, without the other
-band (the judgment "Two signals that move together" above describes): in 17 of the 27
-steps one band alone, E1 in 7 and E5a in 10, in 3 both, and 7 are not settled (a band
+band (the judgment "Two signals that move together" above describes): in 17 of the 27 steps (the 25 of Galileo and the two of GPS) one band alone, E1 in 7 and E5a in 10, in 3 both, and 7 are not settled (a band
 between 1.5 and 2 cm, or no solution at that second). Two more steps were slips of a whole
 cycle, an E5a cycle on one satellite and an E1 cycle on another; their phases carry the
 flag for a sum near the wrap ("L5 observations" above). Neither is the loop
