@@ -6,7 +6,7 @@ import sys
 import time
 from dataclasses import asdict
 from datetime import datetime
-from math import degrees, nan
+from math import degrees, inf, nan
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +32,7 @@ from pyrx.rinex import (
 )
 from pyrx.rtk import RtkOptions, solve_rtk
 from pyrx.samples import SampleFile, read_samples
+from pyrx.signals import FREQUENCY
 from pyrx.signalspec import SIGNALS
 from pyrx.tracking import TrackResult
 
@@ -207,14 +208,14 @@ def acq_main(argv: list[str] | None = None) -> int:
     spec = SIGNALS[args.signal]
 
     duration = args.duration if args.duration > 0 else None
-    samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
-    t0 = time.perf_counter()
     try:
+        samples = read_samples(args.file, args.fs, args.iq, args.t_start, duration)
+        t0 = time.perf_counter()
         if spec.pilot:
             results = [acquire_signal(samples, args.fs, args.f_if, spec, prn) for prn in args.prn]
         else:
             results = [acquire_l1ca(samples, args.fs, args.f_if, prn) for prn in args.prn]
-    except ValueError as e:  # fewer samples than one block of the search
+    except ValueError as e:  # fewer samples than the window, or than one block of the search
         print(e, file=sys.stderr)
         return 2
     elapsed = time.perf_counter() - t0
@@ -338,6 +339,23 @@ def _length(value: str) -> float:
     return x
 
 
+def _interval(value: str) -> float:
+    """An argument type: a time step in s, more than 0."""
+    x = float(value)
+    if not 0.0 < x < inf:
+        raise argparse.ArgumentTypeError(f"must be more than 0: {value}")
+    return x
+
+
+def _instant(value: str) -> datetime:
+    """An argument type: a date and time."""
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as e:
+        text = f"not a time 'YYYY-MM-DD HH:MM:SS': {value!r} ({e})"
+        raise argparse.ArgumentTypeError(text) from None
+
+
 def rinex_main(argv: list[str] | None = None) -> int:
     """Acquire, track and decode GPS L1 C/A PRNs; write RINEX observation and navigation
     files. With --l5, also track the GPS L5 pilots in a second recording of the same
@@ -346,7 +364,7 @@ def rinex_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pyrx-rinex", description=rinex_main.__doc__)
     _add_sample_arguments(p)
     p.add_argument("--duration", type=float, default=0.0, help="length to process (s), 0 = all")
-    p.add_argument("--interval", type=float, default=1.0, help="observation epoch interval (s)")
+    p.add_argument("--interval", type=_interval, default=1.0, help="observation epoch interval (s)")
     p.add_argument("--week", type=int, default=None, help="GPS week (needed without subframe 1)")
     p.add_argument("--marker", type=_text(60), default="PYRX", help="RINEX marker name")
     p.add_argument(
@@ -481,18 +499,17 @@ def rinex_main(argv: list[str] | None = None) -> int:
 def _add_positioning_arguments(p: argparse.ArgumentParser) -> None:
     """Mask, time window and output: what the positioning commands take last."""
     p.add_argument("--mask", type=float, default=ELEVATION_MASK, help="elevation mask (deg)")
-    p.add_argument("--ts", default=None, help="first epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
-    p.add_argument("--te", default=None, help="last epoch, GPS time 'YYYY-MM-DD HH:MM:SS'")
+    when = "GPS time 'YYYY-MM-DD HH:MM:SS'"
+    p.add_argument("--ts", type=_instant, default=None, help=f"first epoch, {when}")
+    p.add_argument("--te", type=_instant, default=None, help=f"last epoch, {when}")
     p.add_argument("-o", "--out", default=None, help="write one line per solved epoch here")
     p.add_argument("-v", "--verbose", action="store_true", help="print one line per epoch")
 
 
-def _time_limits(ts: str | None, te: str | None):
+def _time_limits(ts: datetime | None, te: datetime | None):
     if ts is None and te is None:
         return None
-    start = datetime.fromisoformat(ts) if ts else datetime(1980, 1, 6)
-    end = datetime.fromisoformat(te) if te else datetime(2100, 1, 1)
-    return (start, end)
+    return (ts or datetime(1980, 1, 6), te or datetime(2100, 1, 1))
 
 
 def _write_rows(path, header: str, rows: list[str]) -> None:
@@ -627,6 +644,10 @@ def rtk_main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     signals = tuple(args.signals.split(","))
+    for sig in signals:
+        if len(sig) != 3 or sig[:2] not in FREQUENCY:
+            bands = ", ".join(sorted(FREQUENCY))
+            p.error(f"argument --signals: {sig!r} is no signal of a band in use ({bands})")
     tlim = _time_limits(args.ts, args.te)
     t0 = time.perf_counter()
     try:
