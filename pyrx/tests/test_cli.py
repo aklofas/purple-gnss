@@ -616,20 +616,29 @@ def test_rinex_main_reports_a_missing_or_empty_l5_file(tmp_path, capsys):
         assert err.count("\n") == 1 and name in err and "--l5" in err
 
 
-def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize(
+    "seconds,turned_down,trial",
+    [
+        (7.5, [(4, 0.0), (4, 5.0)], "2 detections failed the 6 s"),  # a full and a short one
+        (3.2, [(4, 0.0)], "1 detection failed the 3.2 s"),  # the data ends before the trial
+    ],
+)
+def test_rinex_main_says_when_no_pilot_is_tracked(
+    tmp_path, capsys, monkeypatch, seconds, turned_down, trial
+):
     # a wrong --l5-f-if, sample rate or file leaves the L5 columns empty: say so
     fs = 2.5e6
     seq = np.concatenate([np.zeros(100, dtype=np.uint8), frame()])
     f = tmp_path / "s.bin"
     write_iq_int8(synth_l1ca(4, fs, 0.0, 800.0, 500, int(fs * (len(seq) * 0.020 + 0.1)), 45.0, True, bits=seq), f)
     l5 = tmp_path / "l5.bin"
-    l5.write_bytes(bytes(int(2 * fs * 7.5)))  # 7.5 s: a full trial at 0 s, a short one at 5 s
+    l5.write_bytes(bytes(int(2 * fs * seconds)))
     real = cli.track_prns
 
     def walk(path, fs_, iq, f_if, prns, **kwargs):
         if kwargs.get("signal") != "L5":
             return real(path, fs_, iq, f_if, prns, **kwargs)
-        kwargs["rejected"].extend([(4, 0.0), (4, 5.0)])
+        kwargs["rejected"].extend(turned_down)
         return []
 
     monkeypatch.setattr(cli, "track_prns", walk)
@@ -639,7 +648,7 @@ def test_rinex_main_says_when_no_pilot_is_tracked(tmp_path, capsys, monkeypatch)
     out, err = capsys.readouterr()
     assert "G5Q" not in out and "PRN  4  epochs" in out
     assert err.count("\n") == 1 and "--l5" in err and "no L5 pilot tracked" in err
-    assert "2 detections failed the 6 s secondary-code trial" in err and "--l5-f-if" in err
+    assert f"{trial} secondary-code trial" in err and "--l5-f-if" in err
     assert "C5Q L5Q D5Q S5Q" in obs.read_text()
 
 

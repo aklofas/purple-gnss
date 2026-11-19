@@ -511,6 +511,41 @@ def test_a_slip_at_an_epoch_without_a_solution_is_applied_at_the_next(spoil):
     assert fixes[95.0].status == "fix"
 
 
+def test_a_change_of_the_half_cycle_bit_at_an_epoch_without_a_solution_is_held():
+    # the half-cycle bit comes on at an epoch that ends early and stays: the next epoch sees
+    # no change of the bit, so the slip it stands for is the held one or none
+    ephs = constellation()
+    key = ("G03", "G1C")
+    pairs = _l1_run(np.random.default_rng(34), ephs, 12, lli_at=lambda k: {key: 2} if k >= 6 else None)
+    pairs[6] = _blunder(*pairs[6])
+    rtk = _rtk(ephs)
+    for k, pair in enumerate(pairs):
+        assert (rtk.step(*pair) is None) == (k == 6)
+    assert (rtk.biases[key].lock, rtk.biases[key].half) == (5, True)
+    assert rtk.biases[("G02", "G1C")].lock == 11
+
+
+def test_a_held_slip_ends_the_ambiguity_of_a_satellite_absent_at_the_next_epoch():
+    # flagged at an epoch that ends early, without a base observation at the next, back
+    # unflagged after that: the ambiguity goes at the epoch that applies the held slips,
+    # with or without the satellite, and does not live through the gap
+    ephs = constellation()
+    key = ("G03", "G1C")
+    pairs = _l1_run(
+        np.random.default_rng(35), ephs, 12, amb_at=_offset(key, 7.0, 6),
+        lli_at=lambda k: {key: 1} if k == 6 else None, drop_at=lambda k: {key} if k == 7 else (),
+    )  # fmt: skip
+    pairs[6] = _blunder(*pairs[6])
+    rtk = _six(ephs)
+    for k, pair in enumerate(pairs):
+        fix = rtk.step(*pair)
+        assert (fix is None) == (k == 6)
+        assert (key in rtk.biases) == (k != 7)
+        if fix is not None and fix.status == "fix":
+            np.testing.assert_allclose(fix.position, ROVER, atol=0.01, rtol=0)
+    assert rtk.biases[key].lock == 4 and fix.status == "fix"
+
+
 def test_a_rover_slip_at_an_epoch_without_a_base_is_applied_at_the_next():
     rng = np.random.default_rng(34)
     ephs = constellation()
@@ -604,6 +639,14 @@ def test_zero_innovation_limit_means_no_limit():
     ephs = constellation()
     fix = _rtk(ephs, max_innovation=0.0).step(*_pair(rng, ephs, TOW))
     assert fix is not None and fix.nb == 10
+    # a phase 200 cycles (38 m) off: beyond the default limit its rows are dropped and the
+    # ambiguity is not used; without a limit the rows are taken, whatever they do
+    key = ("G03", "G1C")
+    pairs = _l1_run(np.random.default_rng(28), ephs, 8, amb_at=_offset(key, 200.0, 6))
+    for limit, lock, ns in ((30.0, 6, 5), (0.0, 8, 6)):
+        rtk = _rtk(ephs, max_innovation=limit)
+        fixes = [rtk.step(*pair) for pair in pairs]
+        assert (rtk.biases[key].lock, fixes[-1].ns) == (lock, ns), limit
 
 
 @pytest.mark.parametrize("sat", ["G01", "G03"])
@@ -865,7 +908,9 @@ def _searched(fix, sat):
 
 def test_a_restarted_ambiguity_waits_min_lock_updates_before_the_search():
     # RTKLIB's pos2-arlockcnt: an ambiguity begun again counts up from -min_lock and is
-    # searched once it is above zero; one seen for the first time starts at zero
+    # searched once it is above zero; so does one begun on a phase that slipped, or after
+    # the first max_outage solved epochs. One seen for the first time within those epochs,
+    # with no slip before it, starts at zero
     rng = np.random.default_rng(43)
     ephs = constellation()
     key = ("G03", "G1C")
@@ -1033,7 +1078,8 @@ def test_a_flagged_phase_that_slipped_restarts(cycles):
     rtk = _six(ephs, slips="check")
     fixes = _stepped(rtk, pairs)
     assert rtk.biases[G03].lock == 6 and rtk.biases[("G02", "G1C")].lock == 12
-    # half a cycle off is no integer: the receiver marks such a phase and it is not searched
+    # half a cycle off is no integer: nothing marks the phase here (the flag is the
+    # lost-lock bit alone), so its ambiguity is searched and the search does not pass
     assert fixes[11].status == ("fix" if cycles % 1 == 0 else "float")
 
 
@@ -1774,7 +1820,8 @@ def test_the_solutions_without_one_satellite_find_a_small_move_among_weak_phases
     assert found >= 140
 
 
-# two systems on two frequencies: 24 phases, enough for a verdict on an epoch's changes
+# two systems on two frequencies each, three in all (L1 and E1 are one): 24 phases, enough
+# for a verdict on an epoch's changes
 BOTH = ("G1C", "G2W", "E1C", "E5Q")
 G03_2 = ("G03", "G2W")
 
@@ -2053,8 +2100,10 @@ def test_the_engine_hands_the_verdict_each_phase_with_its_frequency_and_satellit
         signals=BOTH,
     )  # fmt: skip
     rtk = _rtk(ephs, slips="check", change_limit=0.03)
+    kept = []
     for pair in pairs:
         rtk.step(*pair)
+        kept.append(rtk.residuals)
     assert len(calls) == 2  # nothing to compare the first epoch with
     change, los, band, sat, clean, limit = calls[-1]
     keys = list(rtk.residuals)
@@ -2069,6 +2118,12 @@ def test_the_engine_hands_the_verdict_each_phase_with_its_frequency_and_satellit
     assert len(set(band)) == 3  # L1 and E1 are one frequency
     np.testing.assert_allclose(np.linalg.norm(los, axis=1), 1.0)
     assert np.abs(change).max() < 5.0 and np.abs(change - change.mean()).max() > 1e-4
+    # each phase with its own change since the epoch before, and with the line of sight of
+    # this epoch: the residuals the engine keeps are those of the last step
+    for i, key in enumerate(keys):
+        assert change[i] == kept[2][key][0] - kept[1][key][0]
+        np.testing.assert_array_equal(los[i], kept[2][key][1])
+        assert (los[i] != kept[1][key][1]).any()
 
 
 def test_a_pair_whose_difference_stepped_restarts_both_as_before():
