@@ -122,7 +122,9 @@ def write_rinex_obs(
 
 def _write_observations(path, epochs, signals, marker, program, marker_type, strip) -> None:
     """The observation file of both writers: `epochs` as `Observations` with rows, `signals`
-    for the header and the columns, `strip` to end each record at its last field."""
+    for the header and the columns, `strip` to end each record at its last field. The
+    header has no GLONASS record (`GLONASS COD/PHS/BIS`, `GLONASS SLOT / FRQ #`): the
+    files hold GPS and Galileo alone and no reader of them asks for one."""
     systems = sorted({s[0] for s in signals})
     if not set(systems) <= {"G", "E"}:
         raise ValueError(f"systems {systems}: only GPS (G) and Galileo (E) are written")
