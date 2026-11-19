@@ -1062,8 +1062,8 @@ its polarity throughout, so a fade whose held epochs all lie under decoded subfr
 slip of whole cycles at most. Where fades lie between the end of one subframe and the
 start of the next one of the same polarity, the polarity came back, so they held no slip
 or two; with two, the phases between them are half a cycle off, and one long flickering
-fade can hold both. The phases from the first held epoch of the first such fade to the
-end of the last one's flag therefore carry the half-cycle flag; so do the phases from a
+fade can hold both. The phases after the first held epoch of the first such fade, up to
+the end of the last one's flag, therefore carry the half-cycle flag; so do the phases from a
 fade after a channel's last subframe to its end, since nothing decoded later says where
 the loop settled. A run of windows without phase lock counts as a fade in both rules: its
 own phases are withheld, and the loop that locks again after it stands on either half
