@@ -783,8 +783,9 @@ class Rtk:
     def _double_differences(self, signals, common, sd, yr, age, without=frozenset()):
         """Double-differenced phase and code against the highest satellite per system
         (RTKLIB ddres): design matrix, innovations, covariance and the (satellite, signal)
-        states used; None when no difference can be formed. The phases of `without` are
-        left out."""
+        states used, those of the phase rows that were kept (RTKLIB's vsat: lock, outage
+        and satellite counts follow them); None when no difference can be formed. The
+        phases of `without` are left out."""
         opt = self.opt
         rows, v, blocks = [], [], []
         used = set()
@@ -819,7 +820,8 @@ class Rtk:
                         rows.append(h)
                         v.append(res)
                         block.append(self._variance(yr[sat][3], age, kind == "code"))
-                        used.update({(sat, sig), (ref, sig)})
+                        if kind == "phase":  # a code row does not use the ambiguities
+                            used.update({(sat, sig), (ref, sig)})
                     if block:
                         blocks.append((var_ref, block))
         if not rows:
