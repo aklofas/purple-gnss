@@ -451,6 +451,13 @@ def _read_iono(path) -> Ionosphere | None:
     return None
 
 
+def _transmitted(r) -> float | None:
+    """The record's transmission time, None where the file has none (blank, or the
+    0.9999E9 a writer puts for unknown)."""
+    ttr = float(r["TransTime"].values)
+    return ttr if abs(ttr) < 0.9999e9 else None
+
+
 def _gps_record(r, prn, toc) -> Ephemeris:
     f = {ours: float(r[theirs].values) for theirs, ours in _NAV_NAMES.items()}
     for k in ("iode", "iodc", "health", "code_l2", "l2p"):
@@ -462,6 +469,7 @@ def _gps_record(r, prn, toc) -> Ephemeris:
         toc=toc,
         fit=1 if float(r["FitIntvl"].values) > 4 else 0,
         aodo=0,
+        ttr=_transmitted(r),
         **f,
     )
 
@@ -487,6 +495,7 @@ def _galileo_record(r, prn, toc) -> Ephemeris | None:
         system="E",
         tgd=float(r["BGDe5a"].values),
         tgd2=float(r["BGDe5b"].values),
+        ttr=_transmitted(r),
         **f,
     )
 

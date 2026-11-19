@@ -11,7 +11,7 @@ into [-302400, 302400) with `wrap_week`; callers never wrap their own time.
 """
 
 from dataclasses import dataclass
-from math import atan2, cos, isfinite, sin, sqrt
+from math import atan2, cos, inf, isfinite, sin, sqrt
 
 import numpy as np
 
@@ -22,8 +22,8 @@ MU_GPS = 3.986005e14  # m^3/s^2, WGS 84 value of the ICD
 MU_GAL = 3.986004418e14  # m^3/s^2, GTRF value of the Galileo OS SIS ICD
 OMEGA_E = 7.2921151467e-5  # rad/s, WGS 84 Earth rotation rate
 F_REL = -4.442807633e-10  # s/sqrt(m), relativistic clock constant
-MAX_TOE_AGE = 7200.0  # s, oldest GPS ephemeris used, as RTKLIB
-MAX_TOE_AGE_GAL = 14400.0  # s, the same for Galileo
+MAX_TOE_AGE = 7201.0  # s, a GPS record is used this far from its toe, as RTKLIB
+MAX_TOE_AGE_GAL = 14400.0  # s, a Galileo record this long after its toe
 _DT = 0.5e-3  # s, half the central-difference step
 
 
@@ -60,13 +60,39 @@ def usable(eph: Ephemeris) -> bool:
 def select_ephemeris(
     ephs: list[Ephemeris], prn: int, t: float, system: str = "G"
 ) -> Ephemeris | None:
-    """The satellite's record with `toe` nearest to `t`, or None beyond the age limit."""
-    mine = [e for e in ephs if e.prn == prn and e.system == system]
-    if not mine:
-        return None
-    best = min(mine, key=lambda e: abs(wrap_week(t - e.toe)))
+    """The satellite's record for time `t` as RTKLIB selects it, or None when there is none.
+
+    The record with `toe` nearest to `t` within the age limit; of Galileo only a record
+    with `toe` before `t` (its data is in force from then on, and a receiver has no
+    later one). Of several at the same distance the one transmitted last, records
+    without a transmission time in list order. An issue broadcast more than once (the
+    same `toe` and issue of data; the health and group delays of a Galileo record may
+    change between repeats) is taken as it was last transmitted by `t`, or as first
+    transmitted when `t` is before all of them.
+    """
     limit = MAX_TOE_AGE_GAL if system == "E" else MAX_TOE_AGE
-    return best if abs(wrap_week(t - best.toe)) <= limit else None
+    nearest: list[Ephemeris] = []
+    for e in ephs:
+        if e.prn != prn or e.system != system:
+            continue
+        dt = wrap_week(t - e.toe)
+        if abs(dt) > limit or (system == "E" and dt <= 0.0):
+            continue
+        if nearest and abs(dt) > abs(wrap_week(t - nearest[0].toe)):
+            continue
+        if nearest and abs(dt) < abs(wrap_week(t - nearest[0].toe)):
+            nearest = []
+        nearest.append(e)
+    if not nearest:
+        return None
+
+    def sent(e):  # s after `t`: negative for a record on the air by then
+        return -inf if e.ttr is None else wrap_week(e.ttr - t)
+
+    last = max(reversed(nearest), key=sent)
+    repeats = [e for e in nearest if (e.toe, e.iode) == (last.toe, last.iode)]
+    by_now = [e for e in repeats if sent(e) <= 0.0]
+    return max(reversed(by_now), key=sent) if by_now else min(repeats, key=sent)
 
 
 def satellite_clock(eph: Ephemeris, t: float) -> float:

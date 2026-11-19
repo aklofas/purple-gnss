@@ -3,6 +3,7 @@ frame, an ephemeris, a constellation visible from USUD, and the observations the
 package's own models predict for a receiver or a rover/base pair."""
 
 from dataclasses import replace
+from math import sqrt
 
 import numpy as np
 
@@ -19,7 +20,7 @@ from pyrx.models import (
     zenith_hydrostatic,
 )
 from pyrx.observations import Epoch, Observation, Observations
-from pyrx.orbits import OMEGA_E, sat_id, satellite_state
+from pyrx.orbits import MU_GAL, OMEGA_E, sat_id, satellite_state
 from pyrx.pvt import IONO_DEFAULT, LAMBDA_L1
 from pyrx.signals import L1_FREQ, wavelength
 from pyrx.signalspec import SignalSpec
@@ -268,7 +269,19 @@ def truth_epoch(
 
 
 def as_galileo(ephs):
-    return [replace(e, prn=e.prn + 10, system="E") for e in ephs]
+    """The records as Galileo satellites ten PRNs up, each with its `toe` ten minutes
+    earlier on the orbit it had: a Galileo record is selected only after its `toe`."""
+    out = []
+    for e in ephs:
+        n = sqrt(MU_GAL / e.sqrt_a**6) + e.delta_n
+        back = {
+            "toe": e.toe - 600.0,
+            "m0": e.m0 - n * 600.0,
+            "omega0": e.omega0 - e.omega_dot * 600.0,
+            "i0": e.i0 - e.idot * 600.0,
+        }
+        out.append(replace(e, prn=e.prn + 10, system="E", **back))
+    return out
 
 
 def ambiguities(rng, ephs, signals):

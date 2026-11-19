@@ -297,7 +297,12 @@ def nav_main(argv: list[str] | None = None) -> int:
     if args.json is not None:
         iono = ionosphere_of(results)
         data = {
-            "ephemeris": {str(prn): asdict(e) for prn, e in ephemerides.items()},
+            # (less the transmission time, which a record put together from subframes
+            # does not have: the subframes listed above carry theirs)
+            "ephemeris": {
+                str(prn): {k: v for k, v in asdict(e).items() if k != "ttr"}
+                for prn, e in ephemerides.items()
+            },
             "ionosphere": None if iono is None else {"alpha": iono.alpha, "beta": iono.beta},
         }
         out = Path(args.json)

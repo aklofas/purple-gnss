@@ -250,6 +250,11 @@ def test_read_rinex_nav_galileo_record(tmp_path):
     assert e.ura == ura_index(3.12) == 1
     assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10
     assert e.toc == 600.0 and e.sqrt_a == pytest.approx(5440.608743668)
+    # the transmission time is kept, in the week of the record: negative for the GPS one
+    assert e.ttr == 1775.0 and next(e for e in ephs if e.system == "G").ttr == -7182.0
+    (tmp_path / "u.nav").write_text(GAL_NAV.replace(" 1.775000000000e+03", " 9.999000000000e+08"))
+    unknown = read_rinex_nav(tmp_path / "u.nav")[0]
+    assert [e.ttr for e in unknown if e.system == "E"] == [None]  # a writer's "not known"
 
 
 def test_read_rinex_nav_galileo_records_with_and_without_the_spare_field(tmp_path):
