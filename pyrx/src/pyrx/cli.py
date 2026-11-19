@@ -350,10 +350,13 @@ def _interval(value: str) -> float:
 def _instant(value: str) -> datetime:
     """An argument type: a date and time."""
     try:
-        return datetime.fromisoformat(value)
+        t = datetime.fromisoformat(value)
     except ValueError as e:
         text = f"not a time 'YYYY-MM-DD HH:MM:SS': {value!r} ({e})"
         raise argparse.ArgumentTypeError(text) from None
+    if t.tzinfo is not None:  # the epochs are GPS time and carry no zone to compare with
+        raise argparse.ArgumentTypeError(f"a GPS time takes no time zone: {value!r}")
+    return t
 
 
 def rinex_main(argv: list[str] | None = None) -> int:
@@ -648,6 +651,8 @@ def rtk_main(argv: list[str] | None = None) -> int:
         if len(sig) != 3 or sig[:2] not in FREQUENCY:
             bands = ", ".join(sorted(FREQUENCY))
             p.error(f"argument --signals: {sig!r} is no signal of a band in use ({bands})")
+    if not any(sig[0] == "G" for sig in signals):
+        p.error("argument --signals: a GPS signal is needed, for the single-point seed")
     tlim = _time_limits(args.ts, args.te)
     t0 = time.perf_counter()
     try:
