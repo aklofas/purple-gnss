@@ -358,10 +358,11 @@ so a GPS signal must be listed). With `--slips check`, the default, a phase the 
 flags as a possible slip is looked at before its ambiguity is given up; `--min-lock` is
 the number of updates a new ambiguity waits before the integer search (RTKLIB's
 `pos2-arlockcnt`), and `--fix-sats` the number of satellites that search must span for a
-fix. `--change-limit` (m, with `--slips check`; 0 turns it off) is how far a flagged phase
-or its satellite's other signal may change against the other satellites from one epoch to
-the next before the other signal's word that the flagged one is continuous is no longer
-taken.
+fix. `--change-limit` (m, with `--slips check`; 0 turns it off): a flagged phase keeps its
+ambiguity when its satellite's other signal shows it continuous (their geometry-free
+difference did not step, see RTK below); the limit is how far either of the two may
+change against the other satellites from one epoch to the next before that is no longer
+taken and the flagged phase is tested against the rest of the epoch instead.
 `--slips restart --min-lock 0 --fix-sats 0` is RTKLIB's behavior, which is also what the
 library's `RtkOptions` default to (see RTK below). `--backward` runs the filter from the
 last epoch to the first; the output stays in time order. The
@@ -613,7 +614,7 @@ and it counts the half-cycle bit of a satellite's first indicator as a change.
 There is no truth for the car-roof captures, so the check is judged by agreement: the
 filter runs forward and backward, and an epoch is agreed when both fix it within 5 cm
 horizontally and 10 cm vertically of each other, apart when both fix it further apart.
-The drive, 279 solved epochs at 1 s with fades and one obstruction, GPS L1 and L5 on
+The drive, 279 solved epochs at 1 s with fades and two obstructions, GPS L1 and L5 on
 five of nine satellites, a base 15 km away, kinematic:
 
 | Options | Fixed forward | Fixed backward | Agreed | Apart |
@@ -661,7 +662,8 @@ Galileo supplies them. The same recordings hold nine or ten Galileo satellites, 
 a pilot on E5a, and the base has six to eight of them. With their E5a observations beside
 GPS (`pyrx-rinex --l5 --galileo`, "Galileo observations" below; signals `G1C,G5Q,E5Q`; the
 Galileo orbits from the day's public broadcast file added to the decoded GPS ones), the
-command's options, fixed forward and backward, agreed, apart:
+command's options without the change limit (`--change-limit 0`), fixed forward and
+backward, agreed, apart:
 
 | Capture | GPS L1 + L5 | with Galileo E5a |
 |---|---|---|
@@ -690,7 +692,8 @@ satellites it is not usable: it fixes 8 and 4 epochs of the capture started whil
 26 and 8 of the drive, none of the parked car, and no epoch in both directions. That check
 waits for Galileo's second signal, E1.
 
-With E1 beside E5a (signals `G1C,G5Q,E1C,E5Q`, the files of a whole run of the command):
+With E1 beside E5a (signals `G1C,G5Q,E1C,E5Q`, the files of a whole run of the command;
+still without the change limit):
 
 | Capture | GPS L1 + L5 | with Galileo E5a | with Galileo E1 and E5a |
 |---|---|---|---|
@@ -717,7 +720,7 @@ both fix, they stand 1.6 to 5.6 cm apart; before 48 s they agree within 2 mm and
 72 s within 2.2 cm. From 64 to 70 s the difference is a steady 3 to 6 cm one way, and five
 of those seven epochs still count as agreed: the bound is a coarse measure. The two
 directions hold the same integers there on every phase both have one for; they have them
-for different phases. G24, one of the four GPS satellites with a pilot,
+for different phases. G24, one of the five GPS satellites with a pilot,
 is 5 to 13 dB down from 53 s with its L1 phase flagged at every epoch, and G11 follows
 from 66 s. The stretch hangs on the satellite set:
 without G24 no epoch stands apart (212 agreed), without G11 or without E27 one, without
@@ -765,8 +768,10 @@ and both its phases move by 6 to 21 cm against the others at three of them.
 of a phase changes by the change of the position error along its line of sight, by a
 receiver clock term that is one number per carrier frequency (it also holds the antenna's
 turn, one cycle a turn on every phase of a frequency), and by what the phase did on its
-own. The engine fits the change of position and the clocks to the phases that neither
-receiver flags at either epoch, with the least sum of absolute residuals, once without
+own. The engine fits the change of position and the clocks to the phases that carry no
+lost-lock bit at either epoch, no slip held from an epoch that ended early, and each
+receiver's half-cycle bit the same at both epochs (a half-cycle bit that stays set does
+not keep a phase out), with the least sum of absolute residuals, once without
 each satellite in turn (a phase that moved still pulls on such a solution when few phases
 are there), and takes the solution that explains the most of them within 1.5 cm
 (`CHANGE_FIT`). A solution is formed only where the phases left determine it: three
@@ -874,12 +879,12 @@ the satellite's L1 had no phase to show the step, held that pilot's old integer 
 distance of the capture; now the largest is 2.9 cm.
 
 What the integers say. A double-differenced ambiguity belongs to the two phases it is
-formed from, so two fixes must give two phases the same difference of integers as long as
-neither carries a slip between them, whatever the filter did in between. On both moving
-captures, with the command's options, the two directions hold the same integer on every
+formed from, so two fixes must give two phases the same difference of integers as long as neither
+phase breaks between them (a lost-lock bit of either receiver, a change of a half-cycle
+bit, a missing phase), whatever the filter did in between. Checked on the fixes outside
+the package (no option of `pyrx-rtk` and no test does it): on both moving captures, with the command's options, the two directions hold the same integer on every
 phase both have one for at every epoch both fix (223 and 144 epochs), and no fix of either
-direction holds a difference of two integers that another fix contradicts across unflagged
-phases. So where the directions stand centimeters apart, in the drive's turn, no integer
+direction holds a difference of two integers that another fix contradicts across phases unbroken between them. So where the directions stand centimeters apart, in the drive's turn, no integer
 that both hold differs: they hold integers for different sets of 12 to 27 phases, the
 worst of which stands more than 2 cm from a solution on those integers at 23 of 28
 seconds, and which direction is nearer the truth there cannot be told from these
