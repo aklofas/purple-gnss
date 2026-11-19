@@ -484,8 +484,8 @@ GAP = [(1500, 5044, False), (19500, 5062, False)]  # nothing decoded from 7.5 to
 def test_two_fades_between_subframes_of_one_polarity_leave_the_half_cycle_open():
     # a slip of half a cycle in each of two fades leaves the data polarity as it was, so the
     # subframes on either side agree and say nothing about the phases between the fades:
-    # those may be half a cycle off, from the first held epoch of the first fade to the end
-    # of the last one's span
+    # those may be half a cycle off, from the epoch after the first held epoch of the first
+    # fade to the end of the last one's span
     epochs, base, ks = _held_channel(GAP, (9000, 9059), (15000, 15059))
     end = 15059 + round(FADE_SPAN / CA_PERIOD) - 50  # the last epoch whose span holds 50 ms
     assert _half_cycle(epochs, base, ks) == [k for k in ks if 9000 < k <= end]

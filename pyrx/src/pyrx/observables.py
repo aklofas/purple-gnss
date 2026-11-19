@@ -232,9 +232,9 @@ def _faded(tr: TrackResult) -> np.ndarray | None:
 
 
 def _coasting(tr: TrackResult) -> np.ndarray | None:
-    """Per epoch of a pilot, whether a coasted sum completed within the COAST_RETURN epochs up
-    to it, so that its phase may not hold the loop's return yet; None for a track without
-    the record."""
+    """Per epoch of a pilot, whether a coasted sum completed at it or within the
+    COAST_RETURN epochs before it, so that its phase may not hold the loop's return yet;
+    None for a track without the record."""
     if tr.held is None:
         return None
     count = np.cumsum(tr.held)
@@ -287,8 +287,9 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
     `_carrier_state` reads. Two such slips between two decoded subframes do not: the
     polarity is back where it was, and the phases between the slips are half a cycle off.
     So where fades lie between the end of one subframe and the start of the next of the
-    same polarity, the half cycle is open from the first held epoch of the first fade to
-    the end of the last one's flag (one long fade can hold both slips); and from a fade
+    same polarity, the half cycle is open from the epoch after the first held epoch of the
+    first fade (a held epoch counts for the phases after its own) to the end of the last
+    one's flag (one long fade can hold both slips); and from a fade
     after the last subframe to the end of the track, for nothing decoded after it says
     where the loop settled. A subframe that decoded held its polarity throughout, so a
     fade whose held epochs all lie under decoded subframes is a slip of whole cycles at
