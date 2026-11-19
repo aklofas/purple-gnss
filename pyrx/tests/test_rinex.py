@@ -287,14 +287,28 @@ def test_read_rinex_nav_galileo_records_with_and_without_the_spare_field(tmp_pat
     third[0] = third[0].replace("00 10 00", "00 30 00")
     third[3] = third[3].replace(" 6.000000000000e+02", " 1.800000000000e+03")
     third[7] = third[7] + " 0.000000000000e+00" * 3
-    text = head + "END OF HEADER\n" + "\n".join(record + later + third) + "\n"
-    (tmp_path / "m.nav").write_text(text)
+    # in either order: the parser takes its layout from the satellite's first record, so the
+    # one with the spares after the transmission time must also come first once
+    for records in (record + later + third, third + later + record):
+        (tmp_path / "m.nav").write_text(head + "END OF HEADER\n" + "\n".join(records) + "\n")
+        ephs, _ = read_rinex_nav(tmp_path / "m.nav")
+        assert [(e.prn, e.toe) for e in ephs] == [(1, 600.0), (1, 1200.0), (1, 1800.0)]
+        for e in ephs:
+            assert e.health == 0 and e.ura == ura_index(3.12) and e.ttr == 1775.0
+            assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10
+            assert e.wn == 2190 % 1024 and e.idot == -1.050043738536e-10
+
+
+def test_read_rinex_nav_leaves_the_header_alone(tmp_path):
+    # a header comment that begins like a Galileo record is no record: the lines five and
+    # seven below it, here inside the first record, keep their fields
+    comment = f"{'E01 2021 was the year of this file':<60s}COMMENT\n"
+    first, rest = GAL_NAV.split("\n", 1)
+    (tmp_path / "m.nav").write_text(first + "\n" + comment + rest)
     ephs, _ = read_rinex_nav(tmp_path / "m.nav")
-    assert [(e.prn, e.toe) for e in ephs] == [(1, 600.0), (1, 1200.0), (1, 1800.0)]
-    for e in ephs:
-        assert e.health == 0 and e.ura == ura_index(3.12)
-        assert e.tgd == 9.313225746155e-10 and e.tgd2 == 6.984919309616e-10
-        assert e.wn == 2190 % 1024 and e.idot == -1.050043738536e-10
+    assert sorted(sat_id(e) for e in ephs) == ["E01", "G04"]
+    e = next(e for e in ephs if e.system == "E")
+    assert (e.wn, e.health, e.ura, e.tgd2) == (2190 % 1024, 0, 1, 6.984919309616e-10)
 
 
 def test_read_rinex_nav_skips_fnav_records(tmp_path):
