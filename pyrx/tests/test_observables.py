@@ -1090,21 +1090,25 @@ def test_e1_and_e5a_that_disagree_write_neither_where_both_are(apart):
     assert PILOT_AGREEMENT == 1e-6
 
 
-@pytest.mark.parametrize("event", ["none", "unlocked", "coasted"])
+@pytest.mark.parametrize("event", ["none", "unlocked", "coasted", "near the wrap"])
 def test_a_stretch_withheld_is_not_a_loss_of_lock(event):
     # E5a tracked for 30 s; from 8 to 18 s an E1 pilot of the satellite stands a code period
     # off, so neither is written while both are there. E5a's first phase after the stretch
-    # carries on its line without a flag when the loop held all through; an unlocked window
-    # or a coasted sum inside the stretch is carried to that phase as it would be to the
-    # next phase written
+    # carries on its line without a flag when the loop held all through; an unlocked window,
+    # a coasted sum or a sum near the wrap inside the stretch is carried to that phase as it
+    # would be to the next phase written
     lock = np.ones(30000)
     held = np.zeros(30000, dtype=bool)
+    error = np.zeros(30000)
     if event == "unlocked":
         lock[12000:13000] = 0.1
     if event == "coasted":
         held[13100:13301:20] = True
+    if event == "near the wrap":
+        error[13100] = -NEAR_WRAP
     track, ln = _still_channel(SFS)
     e5a, travel = _still_e5a(phase_lock=lock, held=held)
+    e5a = dataclasses.replace(e5a, carrier_error=error)
     e1 = _still_e1(travel + 4e-3, k_start=8000, n=10000)
     joint = make_joint_observables([track], [ln], [e5a, e1], pilot_signals=BOTH_BANDS)
     rx0 = receiver_time0([track], [ln])

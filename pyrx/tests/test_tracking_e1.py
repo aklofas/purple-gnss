@@ -169,10 +169,12 @@ def test_the_main_peak_never_trips_the_guard(cn0):
 @pytest.mark.parametrize("seed", [5, 6])
 def test_a_weak_main_peak_ends_by_the_loss_rule_not_the_guard(cn0, seed):
     # near the loss threshold the guard's sums are mostly noise; a window below the loss
-    # rule's C/N0 is not judged by the guard at all
+    # rule's C/N0 is not judged by the guard at all. Every one of these ends by the loss
+    # rule after its third window
     x = _signal(8.2, cn0, 200.0, seed=seed)
     r = _track(x, doppler=200.0, cn0=cn0)
     assert not r.side_peak
+    assert not r.locked and len(r.t) == 3000 and r.lost_at == pytest.approx(3.0, abs=2e-3)
 
 
 @pytest.mark.parametrize("seed", [11, 12, 14])
