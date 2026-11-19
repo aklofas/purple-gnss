@@ -683,6 +683,10 @@ class Rtk:
             if check:
                 for sig in restarted:
                     self._forget_references(sat, sig, ref_sig, signals)
+        # a phase without its code rested on the ambiguity it had: where a step of the
+        # satellite's other signal took that away, there is no code to begin another on
+        for key in [k for k, v in sd.items() if v[1] is None and k not in self.biases]:
+            del sd[key]
         # align existing states to the current single-differenced clock, create the rest
         self.fresh = {}
         for sig in signals:
