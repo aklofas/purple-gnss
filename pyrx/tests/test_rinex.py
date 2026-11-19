@@ -312,9 +312,17 @@ def test_read_rinex_nav_leaves_the_header_alone(tmp_path):
 
 
 def test_read_rinex_nav_skips_fnav_records(tmp_path):
-    (tmp_path / "m.nav").write_text(GAL_NAV)
+    # the satellite's F/NAV record alone (data sources 258): no Galileo record is read
+    head, body = GAL_NAV.split("END OF HEADER\n")
+    lines = body.split("\n")
+    assert " 2.580000000000e+02" in lines[13] and lines[16].startswith("G04")
+    (tmp_path / "m.nav").write_text(head + "END OF HEADER\n" + "\n".join(lines[8:]))
     ephs, _ = read_rinex_nav(tmp_path / "m.nav")
-    assert len([e for e in ephs if e.system == "E"]) == 1  # the 258 (F/NAV) record is dropped
+    assert [sat_id(e) for e in ephs] == ["G04"]
+    # and with the data sources of an I/NAV record it is one
+    text = head + "END OF HEADER\n" + "\n".join(lines[8:]).replace(" 2.58", " 5.17")
+    (tmp_path / "m.nav").write_text(text)
+    assert sorted(sat_id(e) for e in read_rinex_nav(tmp_path / "m.nav")[0]) == ["E01", "G04"]
 
 
 def test_nav_writer_dates_a_next_week_data_set_in_its_own_week(tmp_path):
