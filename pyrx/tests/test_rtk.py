@@ -677,17 +677,13 @@ def test_a_dropped_phase_row_is_no_use_of_its_ambiguity(sat):
     assert (fixes[-1].status, fixes[-1].ns, fixes[-1].nb) == ("fix", 6, 5)
 
 
-def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone():
-    # RTKLIB selects the satellites above the mask at the base and reads the indicators of
-    # all of them; the rover's own mask only keeps rows out of the update. For three epochs
-    # the rover is 40 km off, where the lowest satellite stands under the mask, and the
-    # rover flags a slip of seven cycles there. Back above the mask the phase carries no
-    # flag: the ambiguity must have restarted in between, or it is seven cycles off
+def _where_g02_is_low(ephs, mask):
+    """A place 40 km from the base where, for twelve seconds from TOW, the constellation's
+    lowest satellite (G02) stands under `mask` (degrees) and every other above it, as all
+    of them do at the base and at ROVER."""
     from pyrx.models import azimuth_elevation, geodetic
     from pyrx.orbits import satellite_state
 
-    ephs = constellation()
-    key = ("G02", "G1C")
     lat, lon, _ = llh = geodetic(USUD)
     east = np.array([-np.sin(lon), np.cos(lon), 0.0])
     north = np.array([-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)])
@@ -698,11 +694,23 @@ def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone
 
     az = azimuth_elevation(USUD, satellite_state(ephs[1], TOW - 0.07).position, llh)[0]
     far = USUD - 40e3 * (np.sin(az) * east + np.cos(az) * north)
-    mask = 24.0
     for k in range(12):
         near_els, far_els = elevations(ROVER, TOW + k), elevations(far, TOW + k)
         assert near_els.min() > mask + 0.1 and elevations(USUD, TOW + k).min() > mask + 0.1
         assert far_els[1] < mask - 0.1 and np.delete(far_els, 1).min() > mask + 0.1
+    return far
+
+
+def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone():
+    # RTKLIB selects the satellites above the mask at the base and reads the indicators of
+    # all of them; the rover's own mask only keeps rows out of the update. For three epochs
+    # the rover is 40 km off, where the lowest satellite stands under the mask, and the
+    # rover flags a slip of seven cycles there. Back above the mask the phase carries no
+    # flag: the ambiguity must have restarted in between, or it is seven cycles off
+    ephs = constellation()
+    key = ("G02", "G1C")
+    mask = 24.0
+    far = _where_g02_is_low(ephs, mask)
     rng = np.random.default_rng(29)
     rtk = _six(ephs, mask_deg=mask)
     fixes = []
@@ -718,6 +726,21 @@ def test_a_flag_is_read_while_the_satellite_is_under_the_mask_at_the_rover_alone
             where = far if away else ROVER
             np.testing.assert_allclose(fixes[-1].position, where, atol=0.01, rtol=0)
     assert rtk.biases[key].lock == 3 and fixes[-1].status == "fix"
+
+
+def test_the_change_fit_takes_no_phase_under_the_mask_at_the_rover():
+    # the flags of such a satellite are read, but the fit of the changes is of the phases
+    # the update can use: a phase the mask keeps out of the solution does not judge others
+    ephs = constellation()
+    mask = 24.0
+    far = _where_g02_is_low(ephs, mask)
+    rng = np.random.default_rng(31)
+    rtk = _six(ephs, mask_deg=mask, slips="check", change_limit=0.03)
+    for k in range(6):
+        away = k >= 3
+        rtk.step(*_pair(rng, ephs, TOW + 1.0 * k, signals=("G1C",), rover=far if away else ROVER))
+        assert {sat for sat, _ in rtk.residuals} >= {"G01", "G03"}
+        assert (("G02", "G1C") in rtk.residuals) is not away
 
 
 def test_a_phase_without_its_code_keeps_the_row_of_its_ambiguity():

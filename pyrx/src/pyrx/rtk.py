@@ -585,7 +585,9 @@ class Rtk:
         self.asked, self.gf_now = set(), {}
         self.moved = set()
         if check and opt.change_limit > 0.0:
-            self.moved = self._judge_changes(signals, cols, common, yr, yb, t_base)
+            # the fit is of the phases the update can use: above the rover's mask too
+            above = [sat for sat in common if yr[sat][3] >= radians(opt.mask_deg)]
+            self.moved = self._judge_changes(signals, cols, above, yr, yb, t_base)
         for key in self.held:  # slips of the epochs since the last one that came this far
             self.begun.add(key)
             if key in self.biases:
