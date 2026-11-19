@@ -38,8 +38,10 @@ that is after a half-cycle slip of the Costas loop; value 2 (bit 1) where the po
 established by a decoded subframe: before the first subframe, from the end of
 the last subframe before a polarity change to the start of the first subframe
 after it, and where fades leave it open (`_half_cycle_open`): from the first to the last
-fade between two subframes of one polarity, and from a fade after the last subframe on. The bits are kept on an observation without a phase too, so
-the slip is reported on the next observation that has one.
+fade between two subframes of one polarity, and from a fade after the last subframe on,
+a run of windows without phase lock counting as a fade does. The bits are kept on an
+observation without a phase too, so the slip is reported on the next observation that
+has one.
 
 A pilot channel of a second band on the same sample clock (GPS L5 next to L1) decodes
 no time of its own. Every one of its epochs is one code period too, so it needs the
@@ -267,9 +269,18 @@ def _fades(tr: TrackResult) -> list[tuple[int, int, int]]:
     return out
 
 
+def _unlocked(tr: TrackResult) -> tuple[list[tuple[int, int, int]], np.ndarray]:
+    """The runs of epochs whose window is not phase-locked, in the form of `_fades` (first,
+    last, last), and the epochs themselves: the Costas loop that locks again after one has
+    settled on either half cycle, as after a fade."""
+    off = tr.phase_lock < PLI_LOCKED  # a window not yet judged (nan) is not one
+    edges = np.flatnonzero(np.diff(np.concatenate(([False], off, [False]))))
+    return [(int(a), int(b), int(b)) for a, b in zip(edges[::2], edges[1::2] - 1, strict=True)], off
+
+
 def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
-    """Per epoch, whether fades leave the half cycle of its phase open; None for a track
-    without the hold record.
+    """Per epoch, whether fades and windows without phase lock leave the half cycle of its
+    phase open; None for a track without the hold record.
 
     A slip of half a cycle in a fade shows as a subframe of the other polarity, which
     `_carrier_state` reads. Two such slips between two decoded subframes do not: the
@@ -280,20 +291,24 @@ def _half_cycle_open(tr: TrackResult, polarity) -> np.ndarray | None:
     after the last subframe to the end of the track, for nothing decoded after it says
     where the loop settled. A subframe that decoded held its polarity throughout, so a
     fade whose held epochs all lie under decoded subframes is a slip of whole cycles at
-    most.
+    most. A run of windows without phase lock is the same kind of event with nothing held:
+    its phases are withheld, and the first one after it is half a cycle either way from
+    the last one before.
     """
     if tr.held is None:
         return None
     starts, flipped = polarity
     is_open = np.zeros(len(tr.t), dtype=bool)
-    fades = _fades(tr)
+    runs, off = _unlocked(tr)
+    events = [(f, tr.held) for f in _fades(tr)] + [(u, off) for u in runs]
+    events.sort(key=lambda event: event[0])
     for j in range(len(starts)):
         lo = starts[j] + SUBFRAME_EPOCHS  # the first epoch after subframe j
         last = j + 1 == len(starts)
         hi = len(tr.t) if last else starts[j + 1]
-        # the fades with a held epoch in the gap, which is empty between subframes decoded
-        # back to back
-        between = [f for f in fades if tr.held[max(f[0], lo) : min(f[1] + 1, hi)].any()]
+        # the events with a held or unlocked epoch in the gap, which is empty between
+        # subframes decoded back to back
+        between = [f for f, at in events if at[max(f[0], lo) : min(f[1] + 1, hi)].any()]
         if last and between:
             is_open[between[0][0] + 1 :] = True
         elif not last and flipped[j + 1] == flipped[j] and between:

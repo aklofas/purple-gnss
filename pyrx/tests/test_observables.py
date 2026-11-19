@@ -542,6 +542,48 @@ def test_a_fade_after_the_last_subframe_leaves_the_half_cycle_open_to_the_end():
     assert _half_cycle(epochs, base, ks) == []
 
 
+def _unlocked_channel(subframes, window, *holds):
+    """`_held_channel` with the windows from `window[0]` to `window[1]` not phase-locked, in
+    the channel and in the one it is compared with: what the half-cycle rule adds to the
+    blank phases and the slip that an unlocked window always is."""
+    track, ln = _still_channel(subframes, phase_lock=_unlocked(*window))
+    base = make_observables([track], [ln])  # no hold record: the half-cycle rule is off
+    rx0 = receiver_time0([track], [ln])
+    ks = [int(np.searchsorted(track.t, e.tow - rx0, side="right")) - 1 for e in base]
+    held = np.zeros(30000, dtype=bool)
+    for first, last in holds:
+        held[first : last + 1] = True
+    epochs = make_observables([dataclasses.replace(track, held=held)], [ln])
+    if not holds:
+        assert [e.obs[0].lli & LLI_SLIP for e in epochs] == [e.obs[0].lli & LLI_SLIP for e in base]
+    return epochs, base, ks
+
+
+def test_a_window_without_phase_lock_leaves_the_half_cycle_open_as_a_fade_does():
+    # the Costas loop that locks again has settled on either half cycle, with no hold of the
+    # integrator to show for it. After the last subframe nothing decoded says which: the
+    # phases from the window on carry the half-cycle bit, where they once had the slip alone
+    sfs = [(1500, 5044, False), (7500, 5050, False)]  # the last one ends at 13.5 s
+    epochs, base, ks = _unlocked_channel(sfs, (16000, 17000))
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if k > 16000]
+    after = next(i for i, k in enumerate(ks) if k >= 17000)
+    assert epochs[after].obs[0].lli == LLI_SLIP | LLI_HALF_CYCLE
+    assert epochs[after + 1].obs[0].lli == LLI_HALF_CYCLE
+    assert np.isfinite(epochs[after].obs[0].carrier_phase)
+    # between two subframes of one polarity the half cycle is open inside the window, whose
+    # phases are withheld, and settled after it
+    epochs, base, ks = _unlocked_channel(GAP, (10000, 11000))
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if 10000 < k < 11000]
+    assert all(np.isnan(epochs[ks.index(k)].obs[0].carrier_phase) for k in ks if 10000 < k < 11000)
+    # with a fade later in the same gap, from the window to the end of the fade's flag
+    epochs, base, ks = _unlocked_channel(GAP, (10000, 11000), (15000, 15059))
+    end = 15059 + round(FADE_SPAN / CA_PERIOD) - 50
+    assert _half_cycle(epochs, base, ks) == [k for k in ks if 10000 < k <= end]
+    # and a window under subframes decoded back to back opens nothing
+    epochs, base, ks = _unlocked_channel(SFS, (10000, 11000))
+    assert _half_cycle(epochs, base, ks) == []
+
+
 def test_a_held_epoch_counts_for_the_phases_after_it():
     # the carrier phase of an epoch is the loop's state before that epoch's update: the hold
     # that completes a fade at an observation's own epoch is the next phase's business
