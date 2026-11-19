@@ -767,7 +767,8 @@ own. The engine fits the change of position and the clocks to the phases that ne
 receiver flags at either epoch, with the least sum of absolute residuals, once without
 each satellite in turn (a phase that moved still pulls on such a solution when few phases
 are there), and takes the solution that explains the most of them within 1.5 cm
-(`CHANGE_FIT`). A phase that stands more than `change_limit` from it has moved, flagged
+(`CHANGE_FIT`). A solution is formed only where the phases left determine it: three
+satellites, or several at one elevation, cannot tell a change of position from the clocks. A phase that stands more than `change_limit` from it has moved, flagged
 or not. The consequence is one: where a phase in question or the signal that would vouch for
 it has moved, neither vouches, and the phase in question goes to the test against the rest
 of the epoch. No phase restarts for having moved, an unflagged phase is not touched, and
@@ -775,8 +776,9 @@ the 5 cm geometry-free test is as it was. There is no verdict, and the engine is
 without the option, with fewer than twelve unflagged phases (`CHANGE_MIN_PHASES`), or
 when the phases the solution explains, less one per unknown, do not outnumber the
 unflagged phases it leaves out: those could be the receiver's motion. The phases of a
-frequency are judged only when the solution explains three or more on it
-(`CHANGE_MIN_BAND`): a clock fitted to one or two phases explains them whatever they did.
+frequency are judged only when the solution explains those of three or more satellites on
+it (`CHANGE_MIN_BAND`): a clock fitted to one or two satellites explains them whatever
+they did, on however many signals of the frequency.
 And no verdict is given across more than 5 s (`CHANGE_MAX_STEP`) or where the base epoch
 changed by another step than the rover's. The change of a residual also holds the turn of
 the line of sight times the error of the position the residual was formed at, in

@@ -95,7 +95,7 @@ CHECK_SIGMA = 0.125
 # a verdict on which phases changed against the others since the previous epoch (`_moved`):
 CHANGE_FIT = 0.015  # m, a phase within this of the solution is explained by it
 CHANGE_MIN_PHASES = 12  # phases no receiver flags that it takes
-CHANGE_MIN_BAND = 3  # explained phases on a frequency for its phases to be judged
+CHANGE_MIN_BAND = 3  # satellites explained on a frequency for its phases to be judged
 CHANGE_MAX_STEP = 5.0  # s between the two epochs
 
 
@@ -206,12 +206,15 @@ def _moved(
     least sum of absolute residuals. A phase that moved still pulls on
     such a solution when few phases are there, so one is formed without each satellite in
     turn (`sat`, an index), and the one that explains the most clean phases within
-    CHANGE_FIT gives the verdict. There is none with fewer than CHANGE_MIN_PHASES clean
-    phases, or when the phases it explains, less one per unknown (any solution explains
-    that many for nothing), do not outnumber the clean phases it leaves out: those may be
-    the receiver's motion and the others the ones that moved. A phase of a frequency with
-    fewer than CHANGE_MIN_BAND phases among the explained is not judged: a clock fitted to
-    one or two phases explains them whatever they did.
+    CHANGE_FIT gives the verdict. A solution is formed only where the phases left
+    determine the unknowns: three satellites, or several at one elevation, cannot tell a
+    change of position from the clocks. There is no verdict with fewer than
+    CHANGE_MIN_PHASES clean phases, or when the phases the best solution explains, less
+    one per unknown (any solution explains that many for nothing), do not outnumber the
+    clean phases it leaves out: those may be the receiver's motion and the others the
+    ones that moved. A phase of a frequency with fewer than CHANGE_MIN_BAND satellites
+    among the explained is not judged: a clock fitted to one or two satellites explains
+    them whatever they did, on however many signals.
 
     The position error meant is that of the position the residuals were formed at. In
     kinematic mode that is each epoch's single-point seed, meters off, and the lines of
@@ -227,14 +230,20 @@ def _moved(
     best = None
     for left_out in np.unique(sat[clean]):
         rows = clean & (sat != left_out)
+        known = a[rows][:, a[rows].any(axis=0)]  # less the clocks of frequencies not there
+        if np.linalg.matrix_rank(known) < known.shape[1]:
+            continue
         off = np.abs(change - a @ _least_deviations(a[rows], change[rows]))
         fit = clean & (off <= CHANGE_FIT)
         if best is None or fit.sum() > best[0]:
             best = (fit.sum(), off, fit)
+    if best is None:
+        return None
     _, off, fit = best
     if fit.sum() - a.shape[1] <= clean.sum() - fit.sum():
         return None
-    judged = np.bincount(band[fit], minlength=band.max() + 1)[band] >= CHANGE_MIN_BAND
+    on_band = np.unique(np.stack([band[fit], sat[fit]]), axis=1)[0]  # one per satellite
+    judged = np.bincount(on_band, minlength=band.max() + 1)[band] >= CHANGE_MIN_BAND
     return (off > limit) & judged
 
 

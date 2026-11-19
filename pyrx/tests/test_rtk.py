@@ -1664,6 +1664,49 @@ def test_a_frequency_is_judged_on_three_explained_phases_or_more(unflagged, judg
         assert _which(verdict) == ([second[0]] if judged else [])
 
 
+@pytest.mark.parametrize("signals", [(0, 0, 1, 2), (0, 1, 2)])
+def test_no_solution_from_phases_that_cannot_tell_the_position_from_the_clocks(signals):
+    # unflagged satellites at one elevation: their lines of sight have one height, so a
+    # change of height is a change of every clock to them. A flagged satellite at the
+    # zenith changed by what 16 cm of height and clocks of -8 cm do, exactly: any solution
+    # of the others that leaves the height where it was calls it moved by 8 cm. Three
+    # satellites with two signals on one of three frequencies, or four on three: twelve
+    # unflagged phases either way, and no verdict
+    ring = 3 if len(signals) == 4 else 4
+
+    def verdict(others):
+        az = 2.0 * np.pi * np.arange(ring) / ring
+        up = [[np.sqrt(0.75) * np.sin(a), np.sqrt(0.75) * np.cos(a), 0.5] for a in az]
+        up = np.array([*up, *others, [0.0, 0.0, 1.0]])
+        los, band = np.repeat(up, len(signals), axis=0), np.tile(signals, len(up))
+        sat = np.repeat(np.arange(len(up)), len(signals))
+        change = los @ [0.0, 0.0, 0.16] - 0.08
+        clean = sat < len(up) - 1
+        assert clean.sum() == (ring + len(others)) * len(signals)
+        return _moved(change, los, band, sat, clean, 0.03)
+
+    assert verdict([]) is None  # twelve unflagged phases
+    # two more unflagged satellites at other elevations: a solution, and it is the right one
+    assert not verdict([[0.6, 0.0, 0.8], [0.0, -0.8, 0.6]]).any()
+
+
+@pytest.mark.parametrize("satellites,judged", [(2, False), (3, True)])
+def test_a_frequency_is_judged_on_three_satellites_not_three_phases(satellites, judged):
+    # two signals on the second frequency (as L1 C/A and L1 P on the first would be): two
+    # satellites are four explained phases there, and a clock fitted to two satellites
+    # still explains them whatever they did
+    change, los, band, sat, clean = _changes(np.random.default_rng(3), 12, bands=1)
+    twice = np.repeat(np.arange(satellites), 2)
+    rows = np.concatenate([np.arange(12), twice, [11]])
+    change, los, sat = change[rows], los[rows], sat[rows]
+    band = np.concatenate([np.zeros(12, dtype=int), np.ones(len(twice) + 1, dtype=int)])
+    clean = np.ones(len(rows), dtype=bool)
+    clean[-1] = False
+    change[-1] += 0.5  # a flagged phase of the second frequency, half a meter off
+    verdict = _moved(change, los, band, sat, clean, 0.03)
+    assert _which(verdict) == ([len(rows) - 1] if judged else [])
+
+
 @pytest.mark.parametrize(
     "bands,sats,flagged,moved,least", [(2, 10, 1, 6, 13), (2, 10, 0, 7, 13), (3, 8, 0, 9, None)]
 )
