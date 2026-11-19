@@ -1364,6 +1364,38 @@ def test_an_ambiguity_no_update_has_used_is_not_looked_at():
     assert locks(slips="check") == locks() == [0, -2, -1, 0]
 
 
+@pytest.mark.parametrize("slips", ["restart", "check"])
+def test_a_slip_before_the_first_ambiguity_makes_it_wait_the_lock_count(slips):
+    # RTKLIB puts its counter at -minlock at a slip whether or not the phase has a state.
+    # A geometry-free step: the second signal has no base code at the first epoch, so no
+    # ambiguity, and steps a cycle without a flag at the next, where its first one begins
+    ephs = constellation()
+    second = ("G03", "G2W")
+    pairs = _l1_run(np.random.default_rng(82), ephs, 4, amb_at=_offset(second, 1.0, 1), signals=SIGNALS)
+    r, b = pairs[0]
+    code = b.pseudorange.copy()
+    code[b.sats.index("G03"), 1] = np.nan
+    pairs[0] = (r, replace(b, pseudorange=code))
+    rtk = _rtk(ephs, min_lock=3, slips=slips)
+    locks = []
+    for pair in pairs:
+        rtk.step(*pair)
+        locks.append([rtk.biases[key].lock if key in rtk.biases else None for key in (G03, second)])
+    assert locks == [[1, None], [-2, -2], [-1, -1], [0, 0]]
+    # a flag at an epoch that ends early, on a satellite the base did not have until then
+    pairs = _l1_run(
+        np.random.default_rng(82), ephs, 5, lli_at=lambda k: {G03: 1} if k == 2 else None,
+        drop_at=lambda k: {G03} if k < 2 else (),
+    )  # fmt: skip
+    pairs[2] = _blunder(*pairs[2])
+    rtk = _rtk(ephs, min_lock=3, slips=slips)
+    locks = []
+    for pair in pairs:
+        rtk.step(*pair)
+        locks.append(rtk.biases[G03].lock if G03 in rtk.biases else None)
+    assert locks == [None, None, None, -2, -1]
+
+
 def test_a_slip_held_from_an_unsolved_epoch_leaves_no_reference_to_vouch_with():
     # the second signal slips 7 cycles, flagged at an epoch that gets no solution; the first
     # slips 9 at the next. The two steps cancel in the geometry-free difference to 3 mm, and

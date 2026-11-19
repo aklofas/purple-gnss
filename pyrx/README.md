@@ -568,8 +568,10 @@ file's half-cycle bit says; a restarted one takes the file's bit.
 
 `min_lock` is RTKLIB's `pos2-arlockcnt`, counted as RTKLIB counts it: an ambiguity
 waits that many updates before it enters the integer search when it is begun again after
-a slip or an outage, begun on a flagged phase, or begun after the first five solved
-epochs; only one that appears unflagged within those first epochs is searched at once.
+a slip or an outage, begun on a phase that slipped then or earlier (a flag of either
+receiver, a geometry-free step, with or without a state at the time), or begun after the
+first five solved epochs; only one that appears within those first epochs with no slip
+before it is searched at once.
 `min_fix_sats` keeps an epoch float unless the ambiguities eligible for the search span
 that many satellites, the reference among them. The number is meant for one system: every
 system has its own reference satellite, so with GPS and Galileo five satellites are three

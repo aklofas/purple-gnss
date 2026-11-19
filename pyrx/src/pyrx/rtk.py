@@ -326,8 +326,8 @@ class Rtk:
         self.lli_base: dict[tuple[str, str], int] = {}
         self.base_seen: dict[tuple[str, str], float] = {}  # base epoch whose indicator was read
         self.held: set[tuple[str, str]] = set()  # slips of epochs that ended early, to apply
-        self.begun: set[tuple[str, str]] = set()  # every ambiguity there has been a state for
-        self.slipped: set[tuple[str, str]] = set()  # phases flagged at this epoch
+        # every ambiguity there has been a state for, or a slip seen on before it had one
+        self.begun: set[tuple[str, str]] = set()
         self.epochs = 0  # epochs that reached the relative solution
         self.asked: set[tuple[str, str]] = set()  # phases in question at this epoch
         self.fresh: dict[tuple[str, str], tuple[float, bool]] = {}  # what a restart begins with
@@ -360,10 +360,11 @@ class Rtk:
         self.x, self.P = x, P
         self.keys.append(key)
         self.biases[key] = _Bias()
-        # RTKLIB's lock counter: -minlock for an ambiguity begun again, for one begun on a
-        # phase that carries a slip, and for one begun after max_outage solved epochs
-        # without it; zero only for a first, unflagged ambiguity of the first epochs
-        if key in self.begun or key in self.slipped or self.epochs > self.opt.max_outage:
+        # RTKLIB's lock counter: -minlock for an ambiguity begun again, for one whose
+        # phase slipped at this epoch or before it had a state (a flag of either receiver,
+        # a held one, a geometry-free step), and for one begun after max_outage solved
+        # epochs without it; zero only for a first, unflagged ambiguity of the first epochs
+        if key in self.begun or self.epochs > self.opt.max_outage:
             self.biases[key].lock = -self.opt.min_lock
         self.begun.add(key)
 
@@ -547,11 +548,11 @@ class Rtk:
         opt = self.opt
         check = opt.slips == "check"
         self.asked, self.gf_now = set(), {}
-        self.slipped = set()
         self.moved = set()
         if check and opt.change_limit > 0.0:
             self.moved = self._judge_changes(signals, cols, common, yr, yb, t_base)
         for key in self.held:  # slips of the epochs since the last one that came this far
+            self.begun.add(key)
             if key in self.biases:
                 self._remove(key)
             # nor can its phase vouch for the satellite's other signal now (a base flag may
@@ -588,7 +589,7 @@ class Rtk:
                     if self._flagged(self.lli_base, key, int(lli_b[jb])):
                         slip, asked = True, False
                 if slip:
-                    self.slipped.add(key)
+                    self.begun.add(key)
                 phase = None
                 if isfinite(yr_p[j]) and isfinite(yb_p[jb]):
                     phase = yr_p[j] - yb_p[jb]
@@ -612,6 +613,7 @@ class Rtk:
                         if prev is not None and abs(gf - prev) > opt.slip_threshold:
                             slip, asked, ref_asked, question = True, False, False, False
                             ref_clear = False  # which of the two stepped is not known
+                            self.begun.update({key, (sat, ref_sig)})
                             self.asked.discard((sat, ref_sig))
                             self.asked.update(vouched)  # nor whether those are continuous
                             vouched.clear()
