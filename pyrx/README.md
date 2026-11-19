@@ -927,7 +927,8 @@ know counts as last, as it does to RTKLIB). One rule is not RTKLIB's: an issue b
 again, as Galileo does when a health word or a group delay changes, is taken as it was
 last transmitted by the epoch, where RTKLIB takes the repeat transmitted last in the file
 even if that is after the epoch (repeats without a transmission time count in file
-order). On the files used here the repeats differ by 0.2 mm in the orbit and 5 cm in the
+order; beside repeats that have one, such a repeat stands only until the first of those
+was transmitted, wherever the file lists it). On the files used here the repeats differ by 0.2 mm in the orbit and 5 cm in the
 clock at most, which a difference between two receivers does not see. A satellite with no
 such record, with a health flag set, or with a stated accuracy RTKLIB excludes (a GPS URA
 index of 10 or more, a Galileo record without an accuracy prediction or with an SISA over

@@ -78,8 +78,10 @@ def select_ephemeris(
     the health and group delays of a Galileo record may change between repeats) is taken
     as it was last transmitted by `t`, or as first transmitted when `t` is before all of
     them; repeats without a transmission time count as listed, the last one standing.
-    RTKLIB takes the repeat transmitted last in the file, whenever that was: a receiver
-    at `t` does not have it yet.
+    Among repeats with a time, one without counts as on the air before all of them: it
+    stands until the first of those was transmitted, wherever it is listed (a time that
+    is known is believed before an order of listing). RTKLIB takes the repeat transmitted
+    last in the file, whenever that was: a receiver at `t` does not have it yet.
     """
     limit = MAX_TOE_AGE_GAL if system == "E" else MAX_TOE_AGE
     nearest: list[Ephemeris] = []
