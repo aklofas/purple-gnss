@@ -278,7 +278,9 @@ seen) are written as a RINEX navigation file. The GPS week comes from subframe 1
 when the recording holds none, give it with `--week`. `--marker-type` writes the
 `MARKER TYPE` header record, which RINEX 3.05 requires for markers other than geodetic
 and non-geodetic ones (`GROUND_CRAFT` for a receiver on a vehicle); without it the
-record is omitted. One line per track segment reports how
+record is omitted. The header carries no GLONASS record (`GLONASS COD/PHS/BIS`,
+`GLONASS SLOT / FRQ #`), which the letter of RINEX 3.05 asks of every file: the files
+hold GPS and Galileo alone. One line per track segment reports how
 many epochs it contributed to and its first pseudorange and Doppler, then the number
 of epochs and their span.
 
@@ -1239,7 +1241,9 @@ relative solution depends on it.
 
 Galileo's orbits come from a navigation file: only its I/NAV records are read, as RTKLIB
 does, so a satellite is used when the whole health word of that record is zero, and the
-E5a signal's own health bits, which the F/NAV records carry, are not looked at.
+E5a signal's own health bits, which the F/NAV records carry, are not looked at. The word
+is the test for every signal of the satellite, as in RTKLIB: a record that flags E5b
+alone takes the satellite's E1 and E5a observations out too.
 
 Checked on the car-roof captures (`test_rtk_reference.py`): at the single-point fix of
 the GPS L1 rows, the E5a pseudorange of every Galileo satellite is the range to the
@@ -1255,7 +1259,9 @@ The E1 pilot is timed by the same rule: its secondary code has 25 chips of one 4
 period each, 100 ms again, and the tracker holds it as one entry per 1 ms epoch. Its
 observations are `C1C L1C D1C S1C` under the L5 pilot's rules, the phase with the half
 cycle that Table A23 puts between L1C and the band's reference signal L1B, and 0.00000 in
-the header. The two pilots of a satellite are tracked in two recordings by channels that
+the header. The E1 pilot is tracked on its BOC(1,1) part alone; the indicator's bit 2,
+with which RINEX 3.05 lets a receiver mark such tracking of a multiplexed signal, is not
+set on `L1C` or anywhere else. The two pilots of a satellite are tracked in two recordings by channels that
 share only the sample clock, and each finds its secondary code on its own, so their
 transmit times at one instant check each other: where they stand more than a microsecond
 apart (`PILOT_AGREEMENT`; a secondary code found wrongly is a millisecond or more, the
