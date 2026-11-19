@@ -40,7 +40,7 @@ class Epoch:
 
     week: int | None
     tow: float  # GPS seconds of week of the receiver epoch
-    obs: list[Observation]  # ascending PRN
+    obs: list[Observation]  # in the producer's order: ascending PRN from the builders
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ class Observations:
 
     week: int
     tow: float
-    sats: tuple[str, ...]  # ascending RINEX ids
+    sats: tuple[str, ...]  # RINEX ids, ascending from the builders and the reader
     signals: tuple[str, ...]
     pseudorange: np.ndarray  # m
     carrier_phase: np.ndarray  # cycles
