@@ -9,6 +9,7 @@ from support import assert_tracks_equal
 
 from pyrx.acquisition import acquire_signal
 from pyrx.codes import CA_PERIOD
+from pyrx.observables import NEAR_WRAP
 from pyrx.samples import ArraySamples, SampleFile
 from pyrx.signalspec import E1, E5A, L5
 from pyrx.synth import synth_pilot
@@ -434,3 +435,82 @@ def test_track_channels_takes_the_signal(tmp_path):
         assert_tracks_equal(r, track(SampleFile(path, FS, True), 0.0, L5, prn, coff, dop, cn0))
         assert r.signal == "L5" and r.sec_sync is not None and abs(r.doppler[-1] - dop) < 2.0
         assert np.nanmin(r.phase_lock[r.sec_sync :]) > PLI_LOCKED
+
+
+def _loop_through_a_fade(cn0, seed, fade=None, seconds=6.0):
+    """The pilot's carrier loop on synthetic prompts after its secondary sync: the direct
+    path (amplitude 1, phase 0) and noise for `cn0`, 1 ms prompts, coherent sums of
+    T_PILOT_COH, the NCO integrating the Doppler the loop sets. With `fade` = (depth, length,
+    reflection, rate) the direct path is down to `depth` for `length` s from 2 s on (50 ms
+    raised-cosine edges) beside a reflection of that amplitude whose phase turns at `rate`
+    Hz: while it is the stronger path the received phase follows it. Returns the whole
+    cycles the NCO ends from the direct path, the number of sums the loop coasted on and
+    the phases of the sums it took."""
+    rng = np.random.default_rng(seed)
+    n = round(seconds / CA_PERIOD)
+    t = (np.arange(n) + 0.5) * CA_PERIOD
+    signal = np.ones(n, dtype=complex)
+    if fade is not None:
+        depth, length, reflection, rate = fade
+        ramp = np.clip((t - 2.0) / 0.05, 0, 1) * np.clip((2.1 + length - t) / 0.05, 0, 1)
+        signal = 1.0 - (1.0 - depth) * 0.5 * (1.0 - np.cos(pi * ramp))
+        signal = signal + reflection * np.exp(2j * pi * (rate * (t - 2.0) + rng.uniform()))
+    sigma = sqrt(1.0 / (2.0 * 10.0 ** (cn0 / 10.0) * CA_PERIOD))
+    noise = sigma * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    loop, fd, nco = CarrierLoop(), 0.0, 0.0
+    total, power, coasted, phases = 0j, 0.0, 0, []
+    for k in range(n):
+        prompt = complex(signal[k] * np.exp(-2j * pi * (nco + 0.5 * fd * CA_PERIOD)) + noise[k])
+        loop.fade_window(prompt, (k + 1) % N_DLL == 0)
+        total += prompt
+        power += abs(prompt) ** 2
+        nco += fd * CA_PERIOD
+        if (k + 1) % N_COH == 0:
+            increment, phase = loop.update_coherent(total, power, T_PILOT_COH)
+            fd += increment
+            if np.isfinite(phase):
+                phases.append(phase)
+            else:
+                coasted += 1
+            total, power = 0j, 0.0
+    return round(nco), coasted, np.array(phases)
+
+
+@pytest.mark.parametrize("cn0", [26.0, 30.0, 40.0])
+def test_a_steady_pilot_has_no_sum_near_the_wrap(cn0):
+    # the flag for a sum near the discriminator's wrap must not fire on a signal that does
+    # nothing, down to where the loss rule ends the track: at 26 dB-Hz the loop coasts on
+    # one sum in seven, and the largest phase of a sum it takes in a minute is 0.17 cycle
+    # (0.11 at 30 dB-Hz, 0.03 at 40)
+    slip, coasted, phases = _loop_through_a_fade(cn0, seed=3, seconds=60.0)
+    assert slip == 0 and len(phases) + coasted == 3000
+    assert np.abs(phases).max() < NEAR_WRAP - 0.1, np.abs(phases).max()
+
+
+def _fades(cn0, fade, trials=40):
+    """Per trial with a slip: (the loop coasted, a taken sum was near the wrap)."""
+    runs = [_loop_through_a_fade(cn0, seed, fade) for seed in range(trials)]
+    return [(c > 0, bool((np.abs(p) >= NEAR_WRAP).any())) for slip, c, p in runs if slip != 0]
+
+
+def test_a_sum_near_the_wrap_marks_most_slips_the_loop_does_not_coast_through():
+    # a strong signal whose direct path is down to a tenth for 0.3 s beside a reflection of
+    # 0.3 turning at 5 Hz: the received phase follows the reflection and comes back whole
+    # cycles from the direct path, and the sums stay coherent, so the loop takes them and
+    # nothing is flagged for coasting. Most of those slips pass a sum near the wrap: all 40
+    # trials slip, the loop coasts in one, and 37 of the other 39 have such a sum.
+    slips = _fades(45.0, (0.1, 0.3, 0.3, 5.0))
+    assert len(slips) >= 36
+    quiet = [near for coasted, near in slips if not coasted]
+    assert len(quiet) >= 30 and sum(quiet) >= 0.8 * len(quiet), (len(quiet), sum(quiet))
+
+
+def test_a_slip_the_loop_follows_seldom_passes_a_sum_near_the_wrap():
+    # what the flag cannot see: with the direct path gone for 0.3 s and the same reflection
+    # turning at 2 Hz the loop follows the received phase all the way round with a small
+    # error: 27 of the 40 trials slip, 24 of them without a coasted sum, and 5 of the 24
+    # pass a sum near the wrap. Nothing in one channel tells such a slip from the antenna's
+    # motion.
+    slips = _fades(45.0, (0.0, 0.3, 0.3, 2.0))
+    quiet = [near for coasted, near in slips if not coasted]
+    assert len(quiet) >= 10 and sum(quiet) <= 0.5 * len(quiet), (len(quiet), sum(quiet))

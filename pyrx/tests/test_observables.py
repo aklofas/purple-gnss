@@ -15,7 +15,9 @@ from pyrx.observables import (
     FADE_SPAN,
     LLI_HALF_CYCLE,
     LLI_SLIP,
+    NEAR_WRAP,
     PILOT_AGREEMENT,
+    _near_wrap,
     code_starts,
     make_joint_observables,
     make_observables,
@@ -1225,6 +1227,132 @@ def test_the_first_pilot_phase_holding_the_return_from_a_coast_is_a_slip(offset)
     assert moved[0] == (i if offset == -PILOT_SUM - 1 else i + 1)
     assert _g5q(joint[moved[0]])[0][4] == LLI_SLIP
     assert _slip_changes(joint, base) == list(range(i, moved[0] + 1))
+
+
+def test_a_pilot_phase_after_a_sum_near_the_wrap_is_a_slip():
+    # the pilot loop works on the four-quadrant phase of its coherent sums, which wraps at
+    # half a cycle: after a sum that close to the wrap the loop may be pulling the other
+    # way, and the phase then continues a whole cycle off with every window reading locked
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    error = np.zeros(30000)  # the tracker writes a sum's phase on the epoch completing it
+    error[k + 300] = NEAR_WRAP  # between observations i and i + 1
+    error[k + 2100] = -0.46  # between i + 2 and i + 3
+    error[k + 4100 : k + 4200 : PILOT_SUM] = 0.3  # a loop far off, but not near the wrap
+    pilot = dataclasses.replace(_still_pilot(), carrier_error=error)
+    joint = make_joint_observables([track], [ln], [pilot])
+    flagged = _slip_changes(joint, base)
+    assert flagged == [i + 1, i + 3]
+    assert all(_g5q(joint[n])[0][4] == LLI_SLIP for n in flagged)
+    for o, b in zip(joint, base, strict=True):
+        # the values themselves are untouched, and so is L1's indicator
+        np.testing.assert_array_equal(_g5q(o)[0][:4], _g5q(b)[0][:4])
+        assert _g5q(o)[1][4] == _g5q(b)[1][4]
+
+
+@pytest.mark.parametrize("offset,after", [(-1000, 0), (-1, 0), (0, 1), (999, 1), (1000, 2)])
+def test_a_sum_near_the_wrap_is_the_business_of_the_phases_after_it(offset, after):
+    # the sum's update moves the carrier from the next epoch on: an observation in the
+    # epoch that completes the sum is the loop's state before it, and the one after it
+    # carries the flag (the observations are 1000 epochs apart)
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    error = np.zeros(30000)
+    error[k + offset] = 0.4
+    pilot = dataclasses.replace(_still_pilot(), carrier_error=error)
+    joint = make_joint_observables([track], [ln], [pilot])
+    assert _slip_changes(joint, base) == [i + after]
+
+
+@pytest.mark.parametrize(
+    "phase,near",
+    [
+        (NEAR_WRAP, True),
+        (-NEAR_WRAP, True),
+        (0.5, True),
+        (-0.5, True),
+        (np.nextafter(NEAR_WRAP, 0.0), False),
+        (-np.nextafter(NEAR_WRAP, 0.0), False),
+        (0.25, False),
+        (np.nan, False),  # a sum the loop coasted on has no phase; the coasting rule has it
+    ],
+)
+def test_near_the_wrap_is_a_sum_phase_of_that_size_or_more(phase, near):
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    error = np.zeros(30000)
+    error[k + 300] = phase
+    pilot = dataclasses.replace(_still_pilot(), carrier_error=error)
+    assert _near_wrap(pilot).tolist() == [n == k + 300 and near for n in range(30000)]
+    joint = make_joint_observables([track], [ln], [pilot])
+    assert _slip_changes(joint, base) == ([i + 1] if near else [])
+
+
+def test_near_the_wrap_begins_at_0_35_cycle():
+    # under the smallest sum phase the three whole-cycle slips of the car-roof captures
+    # passed (0.41 cycle) by 0.06, and twice what a steady pilot's sums reach at 26 dB-Hz
+    assert NEAR_WRAP == 0.35
+    track, ln, base, i, k = _pilot_epoch_after(10.0)
+    for phase, near in ((0.34, False), (0.36, True)):
+        error = np.zeros(30000)
+        error[k + 300] = phase
+        pilot = dataclasses.replace(_still_pilot(), carrier_error=error)
+        joint = make_joint_observables([track], [ln], [pilot])
+        assert _slip_changes(joint, base) == ([i + 1] if near else [])
+
+
+def test_only_a_coherent_sum_can_be_near_the_wrap():
+    # up to the epoch of the secondary sync the record holds the pull-in's frequency
+    # discriminator and the Costas phase error, whatever their size; a segment that never
+    # found its secondary code has no sums
+    error = np.full(30000, 0.4)
+    synced = dataclasses.replace(_still_pilot(sec_sync=1500), carrier_error=error)
+    marks = _near_wrap(synced)
+    assert not marks[:1501].any() and marks[1501:].all()
+    never = dataclasses.replace(_still_pilot(), carrier_error=error, sec_sync=None)
+    assert not _near_wrap(never).any()
+
+
+def _lli_changes(pilots):
+    """(time of week, satellite, signal) of every indicator that differs from the same
+    pilots without any phase error in their record."""
+    track, ln = _still_channel(SFS)
+    clean = [dataclasses.replace(p, carrier_error=np.zeros(len(p.t))) for p in pilots]
+    runs = [make_joint_observables([track], [ln], ps, pilot_signals=GALILEO) for ps in (pilots, clean)]
+    out = []
+    for a, b in zip(*runs, strict=True):
+        assert a.sats == b.sats
+        out += [(a.tow, a.sats[i], a.signals[j]) for i, j in np.argwhere(a.lli != b.lli)]
+    return out
+
+
+def test_a_sum_near_the_wrap_flags_its_own_pilot_among_several():
+    error = np.zeros(30000)
+    error[15100] = -0.41
+    e5a = _still_e5a()[0]
+    # the second pilot's sum: its phase alone carries the flag, once
+    changes = _lli_changes([_still_pilot(), dataclasses.replace(e5a, carrier_error=error)])
+    assert [(sat, signal) for _, sat, signal in changes] == [("E11", "E5Q")]
+    # a pilot that takes no part (its code starts fit no L1 code period, so it has no time)
+    # does not lend its sums to the pilot listed after it
+    lost = dataclasses.replace(_still_pilot(delay=0.3e-3), carrier_error=error)
+    assert _lli_changes([lost, e5a]) == []
+
+
+@pytest.mark.parametrize("band", ["E5A", "E1"])
+def test_a_galileo_pilot_phase_after_a_sum_near_the_wrap_is_a_slip(band):
+    track, ln = _still_channel(SFS)
+    still = _still_e5a()[0] if band == "E5A" else _still_e1(0.080)
+    row, names = (_e5q, GALILEO) if band == "E5A" else (_e1c, BOTH_BANDS)
+    error = np.zeros(30000)
+    error[15100] = -0.41
+    pilot = dataclasses.replace(still, carrier_error=error)
+    rx0 = receiver_time0([track], [ln])
+    runs = [
+        [(o.tow - rx0, row(o)) for o in make_joint_observables([track], [ln], [p], pilot_signals=names) if "E11" in o.sats]
+        for p in (still, pilot)
+    ]  # fmt: skip
+    changed = [t for (t, a), (_, b) in zip(*runs, strict=True) if a[4] != b[4]]
+    assert len(changed) == 1 and 15.1 < changed[0] <= 16.11
+    for (_, a), (_, b) in zip(*runs, strict=True):
+        np.testing.assert_array_equal(a[:4], b[:4])
 
 
 def test_pilot_observations_in_the_first_two_seconds_are_flagged():
