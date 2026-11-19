@@ -208,7 +208,9 @@ def _moved(
     least sum of absolute residuals. A phase that moved still pulls on
     such a solution when few phases are there, so one is formed without each satellite in
     turn (`sat`, an index), and the one that explains the most clean phases within
-    CHANGE_FIT gives the verdict. A solution is formed only where the phases left
+    CHANGE_FIT gives the verdict. Of several that explain equally many, the first in
+    the order of the satellite left out (`sat` ascending) gives it: a convention, and such
+    solutions can differ on a phase near the limit. A solution is formed only where the phases left
     determine the unknowns: three satellites, or several at one elevation, cannot tell a
     change of position from the clocks (the test is of rank: satellites a few degrees
     from one elevation pass it and still determine the height poorly). There is no verdict with fewer than

@@ -784,7 +784,10 @@ receiver's half-cycle bit the same at both epochs (a half-cycle bit that stays s
 not keep a phase out), with the least sum of absolute residuals, once without
 each satellite in turn (a phase that moved still pulls on such a solution when few phases
 are there), and takes the solution that explains the most of them within 1.5 cm
-(`CHANGE_FIT`). A solution is formed only where the phases left determine it: three
+(`CHANGE_FIT`). Of several that explain equally many it takes the first in the order of
+the identifier of the satellite left out (`E05` before `G01`, `G01` before `G02`). That is
+a convention: such solutions can differ on a phase near the limit, and a port that takes
+another gives another verdict there. A solution is formed only where the phases left determine it: three
 satellites, or several at one elevation, cannot tell a change of position from the clocks.
 That test is exact. Unflagged satellites within a few degrees of one elevation pass it
 and determine the height poorly. In a synthetic case of five such satellites on three
