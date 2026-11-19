@@ -235,7 +235,9 @@ def _moved(
     best = None
     for left_out in np.unique(sat[clean]):
         rows = clean & (sat != left_out)
-        known = a[rows][:, a[rows].any(axis=0)]  # less the clocks of frequencies not there
+        there = a[rows].any(axis=0)  # less the clocks of frequencies not there
+        there[:3] = True  # a direction no line of sight has a part in is not determined
+        known = a[rows][:, there]
         if np.linalg.matrix_rank(known) < known.shape[1]:
             continue
         off = np.abs(change - a @ _least_deviations(a[rows], change[rows]))

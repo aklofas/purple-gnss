@@ -1795,6 +1795,20 @@ def test_the_majority_counts_one_phase_off_for_every_unknown(bands, sats, flagge
     assert exact == 0 if least is None else exact >= least
 
 
+def test_no_verdict_when_no_unflagged_line_of_sight_has_a_part_in_one_direction():
+    # the unflagged satellites stand in one plane through the antenna: a step of the rover
+    # across it shows in none of their phases, and the flagged one off the plane would be
+    # called moved for that step
+    rng = np.random.default_rng(5)
+    _, los, band, sat, clean = _changes(rng, 10)
+    los[sat != 0, 0] = 0.0
+    los[sat == 0] = [0.6, 0.0, 0.8]
+    clean[sat == 0] = False
+    change = -los @ np.array([0.5, 0.2, -0.1]) + np.array([0.3, -0.2])[band]
+    change += rng.normal(0.0, 0.002, len(band))
+    assert _moved(change, los, band, sat, clean, 0.03) is None
+
+
 def test_a_frequency_without_an_unflagged_phase_is_not_judged():
     # its clock is not known, so the changes of its phases say nothing
     change, los, band, sat, clean = _changes(np.random.default_rng(7), 16)
