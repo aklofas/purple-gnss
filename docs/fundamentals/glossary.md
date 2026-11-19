@@ -168,6 +168,8 @@
 
 **IF.** Intermediate frequency, where the signal sits after the mixer, a few MHz instead of 1.5 GHz. [From antenna to samples](03-antenna-to-samples.md).
 
+**Innovation test.** Checking a measurement against the filter's prediction of it, made without that measurement: the innovation is the measurement minus the prediction, and the measurement is accepted when the innovation is small and the prediction precise. [RTK](09-rtk.md).
+
 **Integer least squares.** Finding the integer vector closest to a real-valued estimate, measured in the metric of its covariance; the problem LAMBDA solves for RTK ambiguities. [RTK](09-rtk.md).
 
 **Integrate and dump.** Summing the correlator products over one code period, reporting the sum and starting afresh. [Staying locked](05-tracking.md).
@@ -214,7 +216,7 @@
 
 **Loop order.** The number of running sums around a tracking loop, the NCO's sum of frequency into phase included: a second-order loop has one integrator in its filter, a third-order loop two. [Staying locked](05-tracking.md).
 
-**Loss-of-lock indicator.** LLI, the flag a receiver reports with each carrier phase when lock was not continuous since the previous epoch, or when the phase may be half a cycle out; RINEX carries it. [The measurements](07-measurements.md), [RTK](09-rtk.md).
+**Loss-of-lock indicator.** LLI, the flag a receiver reports with each carrier phase when lock may not have been continuous since the previous epoch, or when the phase may be half a cycle out; RINEX carries it. [The measurements](07-measurements.md), [RTK](09-rtk.md).
 
 **Mapping function.** The factor that stretches a zenith delay to a satellite's elevation, about $1/\sin\varepsilon$ for elevation $\varepsilon$ in its simplest form. [A standalone fix](08-standalone-fix.md).
 
