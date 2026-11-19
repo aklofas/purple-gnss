@@ -455,7 +455,10 @@ Observations enter as arrays of every satellite by every requested signal, with
 the RINEX loss-of-lock indicators. The base station is its marker plus the antenna
 offset; the rover's single-point fix seeds each epoch, solved by the standalone
 solver on GPS L1 C/A when it is among the signals, else on the first GPS signal
-listed (no GPS signal is an error).
+listed (no GPS signal is an error). A rover epoch is paired with the latest base epoch
+not later than it and no older than 30 s; before the first base epoch it is paired with
+that one when it lies within 30 s ahead, as RTKLIB does forward, and the reported age
+is negative.
 
 The state is the rover antenna position and one single-differenced (rover minus
 base) carrier-phase ambiguity in cycles per satellite and signal. In kinematic mode
@@ -478,7 +481,10 @@ ambiguities aligned to the current clock per signal rather than per frequency, t
 geometry-free slip test run past a missing band, the tie order of two reference
 candidates at the same elevation, a slip flagged in a base epoch that pairs with no
 rover epoch carried to the next paired one, a slip flagged in an epoch that gets no
-solution before the ambiguities are looked at applied at the next one that does) are
+solution before the ambiguities are looked at applied at the next one that does, a base
+half-cycle bit that keeps its ambiguity out of the search at every rover epoch paired
+with that base epoch, and the satellite count taken on each system's first listed
+signal where RTKLIB counts on L1 or E1 whatever the list) are
 listed in `rtk.py` and do not change the default-configuration comparisons. One limit is kept as RTKLIB has it: the loss-of-lock
 flags are read only for satellites both receivers contribute at an epoch, so a slip
 flagged by one receiver while the other lacks the satellite goes unseen if the satellite
