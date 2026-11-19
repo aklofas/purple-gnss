@@ -320,9 +320,11 @@ def test_reader_refuses_an_epoch_damaged_inside_the_file(tmp_path):
     (tmp_path / "t.obs").write_text(HEADER + cut)
     with pytest.raises(ValueError, match="truncated observation record"):
         read_rinex_observations(tmp_path / "t.obs", ("G1C",))
-    # in the last epoch too, when a record follows the cut one
-    last = body.rindex("G04")
-    (tmp_path / "t.obs").write_text(HEADER + body[: last + 10] + "\n" + _rec("G16", 2.0e7, 1.0e8))
+    # in the last epoch too, when a record follows the cut one: a last epoch of two records
+    # with the first cut inside its first field
+    last = body.rindex(">")
+    two = body[:last] + "> 2021 12 26 00 00 30.0000000  0  2\nG04  2223537\n" + _rec("G16", 2.0e7, 1.0e8)
+    (tmp_path / "t.obs").write_text(HEADER + two)
     with pytest.raises(ValueError, match="truncated observation record"):
         read_rinex_observations(tmp_path / "t.obs", ("G1C",))
 
