@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from pyrx.orbits import (
+    MU_GAL,
+    MU_GPS,
     OMEGA_E,
     sat_id,
     satellite_clock,
@@ -148,6 +150,15 @@ def test_satellite_state_uses_galileo_constants():
     de = satellite_state(e, g.toe + 3600.0).position
     # the mean motions differ by (MU_GAL / MU_GPS)**0.5 - 1 = -7.3e-8: meters after an hour
     assert 0.5 < np.linalg.norm(dg - de) < 5.0
+    # the relativistic clock term has each system's constant, -2 sqrt(mu) / c^2 with its
+    # own mu. At toe the eccentric anomaly is the same for both, so the terms are in the
+    # ratio of the constants
+    g, e = replace(g, e=0.1), replace(e, e=0.1)
+    term_g = satellite_state(g, g.toe).clock - satellite_clock(g, g.toe)
+    term_e = satellite_state(e, e.toe).clock - satellite_clock(e, e.toe)
+    assert abs(term_g) > 1e-8
+    assert term_e / term_g == pytest.approx(4.442807309 / 4.442807633, rel=1e-10)
+    assert term_e / term_g == pytest.approx((MU_GAL / MU_GPS) ** 0.5, rel=1e-8)
 
 
 @pytest.mark.parametrize(("ura", "ok"), [(0, True), (9, True), (10, False), (15, False)])

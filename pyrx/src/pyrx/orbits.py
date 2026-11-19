@@ -21,7 +21,8 @@ from pyrx.gpstime import WEEK_S
 MU_GPS = 3.986005e14  # m^3/s^2, WGS 84 value of the ICD
 MU_GAL = 3.986004418e14  # m^3/s^2, GTRF value of the Galileo OS SIS ICD
 OMEGA_E = 7.2921151467e-5  # rad/s, WGS 84 Earth rotation rate
-F_REL = -4.442807633e-10  # s/sqrt(m), relativistic clock constant
+F_REL = -4.442807633e-10  # s/sqrt(m), relativistic clock constant of IS-GPS-200
+F_REL_GAL = -4.442807309e-10  # s/sqrt(m), that of the Galileo OS SIS ICD (its own mu)
 MAX_TOE_AGE = 7201.0  # s, a GPS record is used this far from its toe, as RTKLIB
 MAX_TOE_AGE_GAL = 14400.0  # s, a Galileo record this long after its toe
 # RTKLIB leaves out a record whose accuracy has a variance over (300 m)^2: a GPS URA
@@ -132,7 +133,8 @@ def _position_clock(eph: Ephemeris, t: float) -> tuple[np.ndarray, float]:
             yp * sin(i),
         ]
     )
-    clock = satellite_clock(eph, t) + F_REL * eph.e * eph.sqrt_a * sin(big_e)
+    f_rel = F_REL_GAL if eph.system == "E" else F_REL
+    clock = satellite_clock(eph, t) + f_rel * eph.e * eph.sqrt_a * sin(big_e)
     return position, clock
 
 
