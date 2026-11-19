@@ -232,6 +232,20 @@ def test_reader_rejects_an_in_file_change_of_observation_types(tmp_path):
         read_rinex_observations(tmp_path / "e.obs", ("G1C",))
 
 
+def test_reader_rejects_a_scale_factor_given_inside_the_file(tmp_path):
+    # the header records an event may carry are checked as the header's own are: values
+    # after a factor of 10 would be read ten times too large
+    glonass = "R   10  1 L1C".ljust(60) + "SYS / SCALE FACTOR\n"  # not a system that is read
+    for record, refused in ((SCALE_FACTOR, True), (glonass, False)):
+        event = ">                              4  1\n" + record
+        (tmp_path / "e.obs").write_text(HEADER + event + RINEX[len(HEADER) :])
+        if refused:
+            with pytest.raises(ValueError, match="scale factor"):
+                read_rinex_observations(tmp_path / "e.obs", ("G1C",))
+        else:
+            assert len(read_rinex_observations(tmp_path / "e.obs", ("G1C",))) == 2
+
+
 def test_reader_accepts_galileo_time_and_rinex_4(tmp_path):
     text = RINEX.replace("     3.04", "     4.02", 1).replace("     GPS", "     GAL", 1)
     (tmp_path / "t.obs").write_text(text)

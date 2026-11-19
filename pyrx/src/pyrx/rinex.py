@@ -256,6 +256,12 @@ def signal_strength_unit(path) -> str:
     return ""
 
 
+def _scaled(line: str) -> bool:
+    """A header record that gives GPS or Galileo observations a scale factor other than 1."""
+    label = line[60:].strip()
+    return label == "SYS / SCALE FACTOR" and line[0] in "GE" and line[2:6].strip() not in ("", "1")
+
+
 def _check_observation_header(lines: list[str], signals: tuple[str, ...]) -> None:
     """Reject what the observation readers do not implement.
 
@@ -274,9 +280,7 @@ def _check_observation_header(lines: list[str], signals: tuple[str, ...]) -> Non
             tsys = line[48:51].strip()
             if tsys and tsys not in ("GPS", "GAL"):
                 raise ValueError(f"time system {tsys} not supported (GPS or GAL)")
-        elif (
-            label == "SYS / SCALE FACTOR" and line[0] in "GE" and line[2:6].strip() not in ("", "1")
-        ):
+        elif _scaled(line):
             raise ValueError("a scale factor other than 1 (SYS / SCALE FACTOR) is not supported")
     if version is None or version < 3:
         raise ValueError("a RINEX 3 observation file is required")
@@ -312,7 +316,7 @@ def read_rinex_observations(
     file (its count runs into the next epoch, or a record is cut with another after it)
     raises ValueError. Files outside the
     implemented profile raise ValueError (see `_check_observation_header`); so
-    does a change of the observation types inside the file.
+    does a change of the observation types, or a scale factor, inside the file.
     """
     import hatanaka
 
@@ -349,6 +353,8 @@ def read_rinex_observations(
         if flag > 1:  # event records: header lines or comments follow
             if any(r[60:].strip() == "SYS / # / OBS TYPES" for r in records):
                 raise ValueError(f"line {i + 1}: observation types change inside the file")
+            if any(_scaled(r) for r in records):
+                raise ValueError(f"line {i + 1}: a scale factor other than 1 inside the file")
             continue
         short = sum(r[:1].isalpha() for r in records) < count
         cut = [n for n, r in enumerate(records) if _cut_short(r)]
