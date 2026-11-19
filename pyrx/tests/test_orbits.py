@@ -116,14 +116,25 @@ def test_a_galileo_record_is_not_selected_before_its_toe():
         assert select_ephemeris(ephs, 4, 600.0, system="E") is None
 
 
-def test_of_two_records_at_the_same_distance_the_one_transmitted_last_is_selected():
-    # exactly between two toes RTKLIB takes the last of its records, which it has sorted
-    # by transmission time; without transmission times the list's order stands for it
+def test_of_two_records_at_the_same_distance_the_last_in_rtklibs_order_is_selected():
+    # exactly between two toes RTKLIB takes the last of its records, which it has sorted by
+    # transmission time and then by toe. A file's "not known" (0.9999E9 s) is to RTKLIB a
+    # time decades ahead: such a record sorts after every one with a time
     a, b = ephemeris(prn=4, toe=0.0, iode=1), ephemeris(prn=4, toe=7200.0, iode=2)
-    assert select_ephemeris([a, b], 4, 3600.0) is b and select_ephemeris([b, a], 4, 3600.0) is a
-    a, b = replace(a, ttr=-7170.0), replace(b, ttr=30.0)
-    assert select_ephemeris([a, b], 4, 3600.0) is b and select_ephemeris([b, a], 4, 3600.0) is b
-    assert select_ephemeris([a, b], 4, 3599.0) is a and select_ephemeris([a, b], 4, 3601.0) is b
+    for ephs in ([a, b], [b, a]):
+        assert select_ephemeris(ephs, 4, 3600.0) is b  # neither has a time: the later toe
+    sent_a, sent_b = replace(a, ttr=-7170.0), replace(b, ttr=30.0)
+    for ephs in ([sent_a, sent_b], [sent_b, sent_a]):
+        assert select_ephemeris(ephs, 4, 3600.0) is sent_b
+        assert select_ephemeris(ephs, 4, 3599.0) is sent_a
+        assert select_ephemeris(ephs, 4, 3601.0) is sent_b
+    for ephs in ([a, sent_b], [sent_b, a]):
+        assert select_ephemeris(ephs, 4, 3600.0) is a  # the one without a time is last
+    for ephs in ([sent_a, b], [b, sent_a]):
+        assert select_ephemeris(ephs, 4, 3600.0) is b
+    # two records of one toe and different issues, neither with a time: as listed
+    c = replace(a, iode=3)
+    assert select_ephemeris([a, c], 4, 100.0) is c and select_ephemeris([c, a], 4, 100.0) is a
 
 
 def test_an_issue_broadcast_again_is_taken_as_last_transmitted_by_the_time():
@@ -141,6 +152,7 @@ def test_an_issue_broadcast_again_is_taken_as_last_transmitted_by_the_time():
     # without transmission times the later in the list stands
     first, again = replace(first, ttr=None), replace(again, ttr=None)
     assert select_ephemeris([first, again], 1, 2000.0, system="E") is again
+    assert select_ephemeris([again, first], 1, 2000.0, system="E") is first
 
 
 def test_satellite_state_uses_galileo_constants():

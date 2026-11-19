@@ -491,7 +491,9 @@ rover epoch carried to the next paired one, a slip flagged in an epoch that gets
 solution before the ambiguities are looked at applied at the next one that does, a base
 half-cycle bit that keeps its ambiguity out of the search at every rover epoch paired
 with that base epoch, and the satellite count taken on each system's first listed
-signal where RTKLIB counts on L1 or E1 whatever the list) are
+signal where RTKLIB counts on L1 or E1 whatever the list, and a broadcast issue
+transmitted again taken as last transmitted by the epoch, "Standalone positioning"
+below) are
 listed in `rtk.py` and do not change the default-configuration comparisons. One limit is kept as RTKLIB has it: the loss-of-lock
 flags are read only for satellites both receivers contribute at an epoch, so a slip
 flagged by one receiver while the other lacks the satellite goes unseen if the satellite
@@ -907,9 +909,13 @@ Satellite position, velocity and clock come from the broadcast ephemeris
 by central differences over 1 ms). For each satellite the record whose `toe` is
 nearest the epoch is used, within 2 h, as RTKLIB selects it: a Galileo record only after
 its `toe` and for 4 h, the nearest one behind when a nearer one lies ahead; of two at the
-same distance the one transmitted last; and an issue broadcast again, as Galileo does
-when a health word or a group delay changes, as it was last transmitted by the epoch (a
-file's records without a transmission time count in file order). A satellite with no
+same distance the one transmitted last (one whose transmission time the file does not
+know counts as last, as it does to RTKLIB). One rule is not RTKLIB's: an issue broadcast
+again, as Galileo does when a health word or a group delay changes, is taken as it was
+last transmitted by the epoch, where RTKLIB takes the repeat transmitted last in the file
+even if that is after the epoch (repeats without a transmission time count in file
+order). On the files used here the repeats differ by 0.2 mm in the orbit and 5 cm in the
+clock at most, which a difference between two receivers does not see. A satellite with no
 such record, with a health flag set, or with a stated accuracy RTKLIB excludes (a GPS URA
 index of 10 or more, a Galileo record without an accuracy prediction or with an SISA over
 6 m) is left out, of the single-point solution and of RTK alike. Times of week are reduced into half a week either way

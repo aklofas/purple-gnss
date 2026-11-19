@@ -66,15 +66,20 @@ def usable(eph: Ephemeris) -> bool:
 def select_ephemeris(
     ephs: list[Ephemeris], prn: int, t: float, system: str = "G"
 ) -> Ephemeris | None:
-    """The satellite's record for time `t` as RTKLIB selects it, or None when there is none.
+    """The satellite's record for time `t`, or None when there is none.
 
-    The record with `toe` nearest to `t` within the age limit; of Galileo only a record
-    with `toe` before `t` (its data is in force from then on, and a receiver has no
-    later one). Of several at the same distance the one transmitted last, records
-    without a transmission time in list order. An issue broadcast more than once (the
-    same `toe` and issue of data; the health and group delays of a Galileo record may
-    change between repeats) is taken as it was last transmitted by `t`, or as first
-    transmitted when `t` is before all of them.
+    As RTKLIB selects it: the record with `toe` nearest to `t` within the age limit; of
+    Galileo only a record with `toe` before `t` (its data is in force from then on, and a
+    receiver has no later one); of several at the same distance the last in RTKLIB's
+    order of records, which is by transmission time, a record without one after those
+    that have one, then by `toe`, then as listed.
+
+    Not as RTKLIB: an issue broadcast more than once (the same `toe` and issue of data;
+    the health and group delays of a Galileo record may change between repeats) is taken
+    as it was last transmitted by `t`, or as first transmitted when `t` is before all of
+    them; repeats without a transmission time count as listed, the last one standing.
+    RTKLIB takes the repeat transmitted last in the file, whenever that was: a receiver
+    at `t` does not have it yet.
     """
     limit = MAX_TOE_AGE_GAL if system == "E" else MAX_TOE_AGE
     nearest: list[Ephemeris] = []
@@ -92,10 +97,13 @@ def select_ephemeris(
     if not nearest:
         return None
 
+    def order(e):  # RTKLIB's sort of the records
+        return (inf if e.ttr is None else wrap_week(e.ttr - t), wrap_week(e.toe - t))
+
     def sent(e):  # s after `t`: negative for a record on the air by then
         return -inf if e.ttr is None else wrap_week(e.ttr - t)
 
-    last = max(reversed(nearest), key=sent)
+    last = max(reversed(nearest), key=order)
     repeats = [e for e in nearest if (e.toe, e.iode) == (last.toe, last.iode)]
     by_now = [e for e in repeats if sent(e) <= 0.0]
     return max(reversed(by_now), key=sent) if by_now else min(repeats, key=sent)
