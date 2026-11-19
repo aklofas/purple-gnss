@@ -480,11 +480,13 @@ def _galileo_record(r, prn, toc) -> Ephemeris | None:
         return None
     f = {ours: float(r[theirs].values) for theirs, ours in _GAL_NAMES.items()}
     iodnav = int(r["IODnav"].values)
+    sisa = float(r["SISA"].values)  # m; negative for no accuracy prediction available
     return Ephemeris(
         prn=prn,
         wn=int(r["GALWeek"].values) % 1024,
         code_l2=0,
-        ura=ura_index(float(r["SISA"].values)),
+        # RTKLIB reads no prediction and an SISA over 6 m alike, as an accuracy it excludes
+        ura=ura_index(sisa) if 0.0 <= sisa <= 6.0 else 15,
         health=int(r["health"].values),
         iodc=iodnav,
         iode=iodnav,

@@ -11,7 +11,7 @@ from pyrx.ephemeris import URA_BOUNDS, Ionosphere, ura_index, ura_metres
 from pyrx.gpstime import gps_datetime
 from pyrx.lnav import assemble_ephemeris, decode_subframe, encode_subframe
 from pyrx.observations import Epoch, Observation
-from pyrx.orbits import sat_id
+from pyrx.orbits import sat_id, usable
 from pyrx.rinex import (
     read_rinex_header,
     read_rinex_nav,
@@ -255,6 +255,20 @@ def test_read_rinex_nav_galileo_record(tmp_path):
     (tmp_path / "u.nav").write_text(GAL_NAV.replace(" 1.775000000000e+03", " 9.999000000000e+08"))
     unknown = read_rinex_nav(tmp_path / "u.nav")[0]
     assert [e.ttr for e in unknown if e.system == "E"] == [None]  # a writer's "not known"
+
+
+@pytest.mark.parametrize(
+    "sisa,ura,ok",
+    [("-1.000000000000e+00", 15, False), (" 6.000000000000e+00", 3, True),
+     (" 6.010000000000e+00", 15, False), (" 3.120000000000e+00", 1, True)],
+)  # fmt: skip
+def test_a_galileo_record_without_an_accuracy_prediction_is_not_usable(tmp_path, sisa, ura, ok):
+    # SISA -1 is "no accuracy prediction available": it once read as the best URA index.
+    # RTKLIB excludes it, and an SISA over 6 m, in the single-point and the relative solution
+    assert GAL_NAV.count(" 3.120000000000e+00") == 2
+    (tmp_path / "m.nav").write_text(GAL_NAV.replace(" 3.120000000000e+00", sisa))
+    (e,) = [e for e in read_rinex_nav(tmp_path / "m.nav")[0] if e.system == "E"]
+    assert e.health == 0 and e.ura == ura and usable(e) is ok
 
 
 def test_read_rinex_nav_galileo_records_with_and_without_the_spare_field(tmp_path):
