@@ -153,6 +153,11 @@ def test_an_issue_broadcast_again_is_taken_as_last_transmitted_by_the_time():
     first, again = replace(first, ttr=None), replace(again, ttr=None)
     assert select_ephemeris([first, again], 1, 2000.0, system="E") is again
     assert select_ephemeris([again, first], 1, 2000.0, system="E") is first
+    # one without a time beside one with: on the air before it, wherever it is listed
+    dated = replace(again, ttr=2375.0)
+    for ephs in ([first, dated], [dated, first]):
+        assert select_ephemeris(ephs, 1, 2374.0, system="E") is first
+        assert select_ephemeris(ephs, 1, 2375.0, system="E") is dated
 
 
 def test_satellite_state_uses_galileo_constants():
