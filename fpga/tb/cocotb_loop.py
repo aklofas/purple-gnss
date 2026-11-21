@@ -56,6 +56,7 @@ async def closed_loop_rtl(dut):
     cocotb.start_soon(Clock(dut.clk, CLK_NS, unit="ns").start())
     dut.load.value = 0
     dut.stream_en.value = 0
+    dut.evt_in.value = 0
     dut.n_samples.value = len(codes)
     spi = SpiMaster(dut)
     dut.rst.value = 1

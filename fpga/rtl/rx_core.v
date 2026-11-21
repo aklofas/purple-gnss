@@ -1,7 +1,9 @@
 `timescale 1ns/1ps
 // The receiver core: N tracking channels behind a 16-bit-address / 32-bit-data register
 // bus, with the global registers, the sample source mux (front-end pins or the playback
-// RAM) and a 48-bit count of the valid samples. The register map is documented in
+// RAM), a 48-bit count of the valid samples and an event input stamped with that count. The
+// link_* inputs are the SPI slave's error counters, read back as LINK_STATUS. The register
+// map is documented in
 // fpga/README.md and mirrored by fpgamodel.regmap.
 //
 // Bus: a write lands on the clock edge where bus_we is high; a read presents bus_rdata on
@@ -13,7 +15,7 @@ module rx_core #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
     parameter CODE_AW    = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,
-    parameter ACC_W      = 20,
+    parameter ACC_W      = 25,
     parameter PB_DEPTH   = 147456
 ) (
     input  wire        clk,
@@ -21,6 +23,10 @@ module rx_core #(
     input  wire        pin_valid,
     input  wire [1:0]  pin_sample,
     input  wire        pll_lock,
+    input  wire        evt_in,
+    input  wire [15:0] link_bad_frames,
+    input  wire [7:0]  link_overruns,
+    input  wire [7:0]  link_underruns,
     input  wire [15:0] bus_addr,
     input  wire [31:0] bus_wdata,
     input  wire        bus_we,
@@ -30,7 +36,8 @@ module rx_core #(
 );
     localparam PB_AW = $clog2(PB_DEPTH / 16);
     localparam [31:0] ID_VALUE = 32'h50474E53;
-    localparam [31:0] VERSION  = 32'h00010200;  // map 2.0, measurement latch present
+    localparam [31:0] VERSION  = 32'h000F0300;  // map 3.0; bits 16 to 19: measurement latch,
+                                                // CH_START_SAMPLE, quad SPI link, event stamp
 
     // register offsets, named as in fpgamodel.regmap (the bench checks the two agree)
     localparam [11:0] A_ID = 12'h000, A_VERSION = 12'h001, A_CTRL = 12'h002, A_STATUS = 12'h003,
@@ -38,13 +45,16 @@ module rx_core #(
                       A_DUMP_PENDING = 12'h006, A_DUMP_CLEAR = 12'h007, A_MEAS_TRIG = 12'h008,
                       A_MEAS_PERIOD = 12'h009, A_N_CHANNELS = 12'h00A, A_PLAYBACK_CTRL = 12'h00B,
                       A_PLAYBACK_LEN = 12'h00C, A_PB_DEPTH = 12'h00D, A_MEAS_SEQ = 12'h00E,
-                      A_PB_ADDR = 12'h100, A_PB_DATA = 12'h101;
+                      A_LINK_STATUS = 12'h00F, A_PB_ADDR = 12'h100, A_PB_DATA = 12'h101,
+                      A_EVT_CTRL = 12'h200, A_EVT_SEQ = 12'h201, A_EVT_SAMPLE_LO = 12'h202,
+                      A_EVT_SAMPLE_HI = 12'h203, A_EVT_MISSED = 12'h204;
     localparam [7:0] C_CH_CTRL = 8'h00, C_CH_START_SAMPLE_LO = 8'h01, C_CH_START_SAMPLE_HI = 8'h02,
                      C_CARR_STEP = 8'h03, C_CODE_STEP = 8'h04, C_CARR_PHASE = 8'h05,
                      C_CODE_PHASE_FRAC = 8'h06, C_CODE_CHIP = 8'h07, C_SPACING_Q = 8'h08,
                      C_CODE_WR_ADDR = 8'h09, C_CODE_WR_DATA = 8'h0A, C_EPOCH = 8'h0B,
-                     C_DUMP_MISSED = 8'h0C, C_IE = 8'h10, C_QE = 8'h11, C_IP = 8'h12, C_QP = 8'h13,
-                     C_IL = 8'h14, C_QL = 8'h15, C_MEAS_CODE_PHASE_FRAC = 8'h18,
+                     C_DUMP_MISSED = 8'h0C, C_CH_INTEG = 8'h0D, C_CODE_STEP_HI = 8'h0E,
+                     C_EPOCH_HEAD = 8'h0F, C_IE = 8'h10, C_QE = 8'h11, C_IP = 8'h12, C_QP = 8'h13,
+                     C_IL = 8'h14, C_QL = 8'h15, C_EPOCH_TAIL = 8'h16, C_MEAS_CODE_PHASE_FRAC = 8'h18,
                      C_MEAS_CODE_CHIP = 8'h19, C_MEAS_CARR_PHASE = 8'h1A, C_MEAS_EPOCH = 8'h1B,
                      C_MEAS_SAMPLE_LO = 8'h1C, C_MEAS_SAMPLE_HI = 8'h1D;
 
@@ -61,7 +71,7 @@ module rx_core #(
     // ---- global state --------------------------------------------------------------------
     reg soft_rst;
     wire rst_i = rst | soft_rst;
-    reg g_enable, source;
+    reg g_enable, source, evt_enable, evt_falling;
     reg [31:0] meas_period, pb_len, pb_addr;
     reg trig_pending;
     reg pb_start, pb_we;
@@ -75,7 +85,7 @@ module rx_core #(
         pb_start <= 1'b0;
         pb_we    <= 1'b0;
         if (rst_i) begin
-            g_enable <= 1'b0; source <= 1'b0;
+            g_enable <= 1'b0; source <= 1'b0; evt_enable <= 1'b0; evt_falling <= 1'b0;
             meas_period <= 32'd0; pb_len <= 32'd0; pb_addr <= 32'd0;
         end else if (wr_g) begin
             case (g_off)
@@ -84,6 +94,7 @@ module rx_core #(
                 A_PLAYBACK_CTRL: pb_start <= bus_wdata[0];
                 A_PLAYBACK_LEN: pb_len <= bus_wdata;
                 A_PB_ADDR: pb_addr <= bus_wdata;
+                A_EVT_CTRL: begin evt_enable <= bus_wdata[0]; evt_falling <= bus_wdata[1]; end
                 A_PB_DATA: if (pb_addr < PB_DEPTH / 16) begin  // past the RAM: dropped
                     pb_we <= 1'b1; pb_wdata <= bus_wdata; pb_waddr <= pb_addr[PB_AW-1:0];
                     pb_addr <= pb_addr + 32'd1;
@@ -108,6 +119,15 @@ module rx_core #(
         if (rst_i) sample_cnt <= 48'd0;
         else if (src_valid) sample_cnt <= sample_cnt + 48'd1;
     end
+
+    // ---- event stamp ----------------------------------------------------------------------
+    wire [31:0] evt_seq, evt_missed;
+    wire [47:0] evt_stamp;
+    event_stamp evt (
+        .clk(clk), .rst(rst_i), .enable(evt_enable), .falling(evt_falling), .evt_in(evt_in),
+        .sample_valid(src_valid), .sample_cnt(sample_cnt),
+        .seq(evt_seq), .stamp(evt_stamp), .missed(evt_missed)
+    );
 
     // ---- measurement strobe: with the next valid sample after MEAS_TRIG, or every
     // MEAS_PERIOD valid samples counted from the MEAS_PERIOD write; all channels latch at once ----
@@ -136,8 +156,11 @@ module rx_core #(
     localparam KW = (N_CHANNELS > 1) ? $clog2(N_CHANNELS) : 1;
     reg        ch_en        [0:N_CHANNELS-1];
     reg [31:0] ch_carr_step [0:N_CHANNELS-1];
-    reg [31:0] ch_carr_stage [0:N_CHANNELS-1];  // CARR_STEP waits here until CODE_STEP commits both
-    reg [31:0] ch_code_step [0:N_CHANNELS-1];
+    reg [31:0] ch_carr_stage [0:N_CHANNELS-1];  // CARR_STEP and CODE_STEP_HI wait here until
+    reg [1:0]  ch_code_hi_stage [0:N_CHANNELS-1];  // the CODE_STEP write commits all three
+    reg [33:0] ch_code_step [0:N_CHANNELS-1];
+    reg [4:0]  ch_integ     [0:N_CHANNELS-1];
+    reg [47:0] ch_start     [0:N_CHANNELS-1];   // sample count at the first accepted sample
     reg [31:0] ch_carr_ph   [0:N_CHANNELS-1];
     reg [31:0] ch_code_frac [0:N_CHANNELS-1];
     reg [CODE_AW+1:0] ch_chip_q [0:N_CHANNELS-1];
@@ -156,7 +179,6 @@ module rx_core #(
     end
 
     wire [N_CHANNELS-1:0]       ch_dump, ch_started;
-    wire _unused_started = &{1'b0, ch_started};  // until the first-sample latch reads it
     wire [32*N_CHANNELS-1:0]    ch_epoch, ch_meas_carr, ch_meas_frac, ch_meas_epoch;
     wire [(CODE_AW+2)*N_CHANNELS-1:0] ch_meas_chip;
     wire [ACC_W*N_CHANNELS-1:0] ch_ie, ch_qe, ch_ip, ch_qp, ch_il, ch_ql;
@@ -169,17 +191,21 @@ module rx_core #(
             ch_load[k]    <= 1'b0;
             ch_code_we[k] <= 1'b0;
             if (rst_i) begin
-                ch_en[k] <= 1'b0; ch_carr_step[k] <= 32'd0; ch_code_step[k] <= 32'd0;
-                ch_carr_stage[k] <= 32'd0;
+                ch_en[k] <= 1'b0; ch_carr_step[k] <= 32'd0; ch_code_step[k] <= 34'd0;
+                ch_carr_stage[k] <= 32'd0; ch_code_hi_stage[k] <= 2'd0; ch_integ[k] <= 5'd1;
                 ch_carr_ph[k] <= 32'd0; ch_code_frac[k] <= 32'd0; ch_chip_q[k] <= {(CODE_AW+2){1'b0}};
                 ch_spacing[k] <= 2'd1; ch_code_addr[k] <= {(CODE_AW-5){1'b0}};
             end else if (sel) begin
                 case (ch_off)
                     C_CH_CTRL: ch_en[k] <= bus_wdata[0];
                     C_CARR_STEP: ch_carr_stage[k] <= bus_wdata;
-                    C_CODE_STEP: begin  // the pair lands together, as the model's set_steps
-                        ch_carr_step[k] <= ch_carr_stage[k]; ch_code_step[k] <= bus_wdata;
+                    C_CODE_STEP_HI: ch_code_hi_stage[k] <= bus_wdata[1:0];
+                    C_CODE_STEP: begin  // the steps land together, as the model's set_steps
+                        ch_carr_step[k] <= ch_carr_stage[k];
+                        ch_code_step[k] <= {ch_code_hi_stage[k], bus_wdata};
                     end
+                    C_CH_INTEG: ch_integ[k] <= (bus_wdata == 32'd0) ? 5'd1 :
+                                               (bus_wdata > 32'd20) ? 5'd20 : bus_wdata[4:0];
                     C_CARR_PHASE: if (!ch_en[k]) begin
                         ch_carr_ph[k] <= bus_wdata; ch_load[k] <= 1'b1;
                     end
@@ -190,8 +216,6 @@ module rx_core #(
                         ch_chip_q[k] <= bus_wdata[CODE_AW+1:0]; ch_load[k] <= 1'b1;
                     end
                     C_SPACING_Q: ch_spacing[k] <= bus_wdata[1:0];
-                    // placeholders until a live sample source exists
-                    C_CH_START_SAMPLE_LO, C_CH_START_SAMPLE_HI: ;
                     C_CODE_WR_ADDR: ch_code_addr[k] <= bus_wdata[CODE_AW-6:0];
                     C_CODE_WR_DATA: if (!ch_en[k]) begin  // the chip cache refreshes while disabled
                         ch_code_we[k] <= 1'b1;
@@ -213,12 +237,18 @@ module rx_core #(
         end
         always @* pending_vec[k] = pending[k];
 
+        // sample_cnt on the clock the first sample goes in is that sample's index
+        always @(posedge clk) begin
+            if (rst_i) ch_start[k] <= 48'd0;
+            else if (ch_started[k]) ch_start[k] <= sample_cnt;
+        end
+
         channel #(.CODE_LEN(CODE_LEN), .CODE_AW(CODE_AW), .ACC_W(ACC_W)) ch (
             .clk(clk), .rst(rst_i),
             .sample_valid(src_valid), .sample(src_sample),
             .enable(ch_en[k]),  // the global enable gates src_valid instead, so it never restarts the channel's enable guard
-            .integ(5'd1), .started(ch_started[k]),
-            .carr_step(ch_carr_step[k]), .code_step({2'b00, ch_code_step[k]}), .spacing_q(ch_spacing[k]),
+            .integ(ch_integ[k]), .started(ch_started[k]),
+            .carr_step(ch_carr_step[k]), .code_step(ch_code_step[k]), .spacing_q(ch_spacing[k]),
             .load_phase(ch_load[k]), .carr_phase_in(ch_carr_ph[k]), .code_frac_in(ch_code_frac[k]),
             .chip_q_in(ch_chip_q[k]),
             .code_we(ch_code_we[k]), .code_waddr(code_waddr_r), .code_wdata(code_wdata_r),
@@ -259,18 +289,28 @@ module rx_core #(
                     A_PLAYBACK_LEN: bus_rdata <= pb_len;
                     A_PB_DEPTH: bus_rdata <= PB_DEPTH;
                     A_MEAS_SEQ: bus_rdata <= meas_seq;
+                    A_LINK_STATUS: bus_rdata <= {link_underruns, link_overruns, link_bad_frames};
                     A_PB_ADDR: bus_rdata <= pb_addr;
+                    A_EVT_CTRL: bus_rdata <= {30'd0, evt_falling, evt_enable};
+                    A_EVT_SEQ: bus_rdata <= evt_seq;
+                    A_EVT_SAMPLE_LO: bus_rdata <= evt_stamp[31:0];
+                    A_EVT_SAMPLE_HI: bus_rdata <= {16'd0, evt_stamp[47:32]};
+                    A_EVT_MISSED: bus_rdata <= evt_missed;
                     default: ;
                 endcase
             end else if (ch_valid) begin
                 case (ch_off)
                     C_CH_CTRL: bus_rdata <= {31'd0, ch_en[rk]};
+                    C_CH_START_SAMPLE_LO: bus_rdata <= ch_start[rk][31:0];
+                    C_CH_START_SAMPLE_HI: bus_rdata <= {16'd0, ch_start[rk][47:32]};
                     // the step and phase words are write-only: the live phase is read through
                     // the measurement latch, and their readback was a third of the channel's mux
                     C_SPACING_Q: bus_rdata <= {30'd0, ch_spacing[rk]};
                     C_CODE_WR_ADDR: bus_rdata <= {{(37-CODE_AW){1'b0}}, ch_code_addr[rk]};
-                    C_EPOCH: bus_rdata <= ch_epoch[rk*32 +: 32];
+                    // EPOCH again on both sides of the sums: one burst brackets them
+                    C_EPOCH, C_EPOCH_HEAD, C_EPOCH_TAIL: bus_rdata <= ch_epoch[rk*32 +: 32];
                     C_DUMP_MISSED: bus_rdata <= {16'd0, missed[rk]};
+                    C_CH_INTEG: bus_rdata <= {27'd0, ch_integ[rk]};
                     C_IE: bus_rdata <= sext(ch_ie[rk*ACC_W +: ACC_W]);
                     C_QE: bus_rdata <= sext(ch_qe[rk*ACC_W +: ACC_W]);
                     C_IP: bus_rdata <= sext(ch_ip[rk*ACC_W +: ACC_W]);
@@ -285,7 +325,7 @@ module rx_core #(
                     C_MEAS_EPOCH: bus_rdata <= ch_meas_epoch[rk*32 +: 32];
                     C_MEAS_SAMPLE_LO: bus_rdata <= meas_sample[31:0];
                     C_MEAS_SAMPLE_HI: bus_rdata <= {16'd0, meas_sample[47:32]};
-                    default: ;   // CH_START_SAMPLE reads zero until built
+                    default: ;
                 endcase
             end
         end

@@ -8,12 +8,14 @@ from tb.conftest import RTL
 GLOBAL = [
     "ID", "VERSION", "CTRL", "STATUS", "SAMPLE_CNT_LO", "SAMPLE_CNT_HI", "DUMP_PENDING",
     "DUMP_CLEAR", "MEAS_TRIG", "MEAS_PERIOD", "N_CHANNELS", "PLAYBACK_CTRL", "PLAYBACK_LEN",
-    "PB_DEPTH", "MEAS_SEQ", "PB_ADDR", "PB_DATA",
+    "PB_DEPTH", "MEAS_SEQ", "LINK_STATUS", "PB_ADDR", "PB_DATA", "EVT_CTRL", "EVT_SEQ",
+    "EVT_SAMPLE_LO", "EVT_SAMPLE_HI", "EVT_MISSED",
 ]  # fmt: skip
 CHANNEL = [
     "CH_CTRL", "CH_START_SAMPLE_LO", "CH_START_SAMPLE_HI", "CARR_STEP", "CODE_STEP", "CARR_PHASE",
     "CODE_PHASE_FRAC", "CODE_CHIP", "SPACING_Q", "CODE_WR_ADDR", "CODE_WR_DATA", "EPOCH",
-    "DUMP_MISSED", "IE", "QE", "IP", "QP", "IL", "QL", "MEAS_CODE_PHASE_FRAC", "MEAS_CODE_CHIP",
+    "DUMP_MISSED", "CH_INTEG", "CODE_STEP_HI", "EPOCH_HEAD", "IE", "QE", "IP", "QP", "IL", "QL",
+    "EPOCH_TAIL", "MEAS_CODE_PHASE_FRAC", "MEAS_CODE_CHIP",
     "MEAS_CARR_PHASE", "MEAS_EPOCH", "MEAS_SAMPLE_LO", "MEAS_SAMPLE_HI",
 ]  # fmt: skip
 
@@ -37,4 +39,4 @@ def test_channel_offsets_match_regmap():
 def test_id_and_version_match_regmap():
     assert int(re.search(r"ID_VALUE\s*=\s*32'h([0-9A-Fa-f]+)", SOURCE)[1], 16) == R.ID_VALUE
     version = int(re.search(r"VERSION\s*=\s*32'h([0-9A-Fa-f]+)", SOURCE)[1], 16)
-    assert version == R.VERSION_BASE | R.VERSION_LATCH
+    assert version == R.VERSION_ALL == 0x000F0300

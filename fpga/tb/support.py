@@ -196,6 +196,8 @@ class RegAccess(Protocol):
 
     async def read(self, addr: int) -> int: ...
 
+    async def read_words(self, addr: int, n: int) -> list[int]: ...
+
 
 class BusDriver:
     """Drives rx_core's register bus directly: one write per clock, reads return the word
@@ -227,6 +229,10 @@ class BusDriver:
         await RisingEdge(dut.clk)
         return value
 
+    async def read_words(self, addr: int, n: int) -> list[int]:
+        """`n` consecutive registers from `addr`, as an auto-increment burst reads them."""
+        return [await self.read(addr + i) for i in range(n)]
+
 
 def signed32(v: int) -> int:
     return v - (1 << 32) if v & (1 << 31) else v
@@ -248,7 +254,8 @@ async def configure_channel(bus: RegAccess, k: int, carr_step: int, code_step: i
                             carr_phase: int = 0, code_frac: int = 0, chip_q: int = 0,
                             spacing_q: int = 1) -> None:
     await bus.write(R.ch(k, R.CARR_STEP), carr_step)
-    await bus.write(R.ch(k, R.CODE_STEP), code_step)
+    await bus.write(R.ch(k, R.CODE_STEP_HI), code_step >> 32)
+    await bus.write(R.ch(k, R.CODE_STEP), code_step & 0xFFFF_FFFF)  # commits all three
     await bus.write(R.ch(k, R.CARR_PHASE), carr_phase)
     await bus.write(R.ch(k, R.CODE_PHASE_FRAC), code_frac)
     await bus.write(R.ch(k, R.CODE_CHIP), chip_q)
@@ -271,18 +278,29 @@ async def read_dump(bus: RegAccess, k: int) -> tuple[Dump | None, bool]:
     cleared, and whether to read again at once.
 
     A dump that lands during the read replaces the registers the moment it does, EPOCH with
-    them. EPOCH is read before and after the sums: a change means the sums could mix two
-    periods, so the result is (None, True), nothing is cleared (the new dump is pending, and
-    DUMP_MISSED counted the one it replaced) and the caller reads again. Otherwise the clear
-    goes out and EPOCH is read a third time: a change there means a dump landed around the
-    clear and sits in the registers, acknowledged or not, so the dump read is good and the
-    caller must read again at once, whatever DUMP_PENDING says."""
-    epoch = await bus.read(R.ch(k, R.EPOCH))
-    sums = [signed32(await bus.read(R.ch(k, off))) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
-    if await bus.read(R.ch(k, R.EPOCH)) != epoch:
+    them. One burst of eight words reads EPOCH, the six sums and EPOCH again: a change means
+    the sums could mix two dumps, so the result is (None, True), nothing is cleared (the new
+    dump is pending, and DUMP_MISSED counted the one it replaced) and the caller reads again.
+    Otherwise the clear goes out and EPOCH is read a third time: a change there means a dump
+    landed around the clear and sits in the registers, acknowledged or not, so the dump read
+    is good and the caller must read again at once, whatever DUMP_PENDING says."""
+    words = await bus.read_words(R.ch(k, R.DUMP_BURST), R.DUMP_BURST_WORDS)
+    epoch = words[0]
+    if words[-1] != epoch:
         return None, True
     await bus.write(R.DUMP_CLEAR, 1 << k)
-    return Dump(epoch, *sums, -1), await bus.read(R.ch(k, R.EPOCH)) != epoch
+    return Dump(epoch, *map(signed32, words[1:-1]), -1), await bus.read(R.ch(k, R.EPOCH)) != epoch
+
+
+async def read_event(bus: RegAccess) -> tuple[int, int]:
+    """(events stamped so far, sample count at the latest one), read again if an event
+    landed during the read."""
+    while True:
+        seq = await bus.read(R.EVT_SEQ)
+        lo = await bus.read(R.EVT_SAMPLE_LO)
+        hi = await bus.read(R.EVT_SAMPLE_HI)
+        if await bus.read(R.EVT_SEQ) == seq:
+            return seq, (hi << 32) | lo
 
 
 async def read_dumps_now(bus: RegAccess, k: int) -> list[Dump]:

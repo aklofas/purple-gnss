@@ -22,7 +22,7 @@ CASES = [
 def spi_build():
     return build(
         "rx_spi",
-        [RTL / "channel.v", RTL / "playback.v", RTL / "rx_core.v", RTL / "spi_slave.v", RTL / "rx_spi.v"],
+        [RTL / name for name in ("channel.v", "playback.v", "event_stamp.v", "rx_core.v", "spi_slave.v", "rx_spi.v")],
         {"N_CHANNELS": 1},
     )
 

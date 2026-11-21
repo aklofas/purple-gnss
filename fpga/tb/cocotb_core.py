@@ -8,7 +8,7 @@ N_CHANNELS = 2, except for the one case the 12-channel build runs.
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge
+from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge, Timer
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
@@ -28,6 +28,8 @@ from tb.support import (
     load_playback,
     read_dump,
     read_dumps_now,
+    read_event,
+    signed32,
     start_playback,
 )
 
@@ -65,6 +67,10 @@ async def start(dut) -> BusDriver:
     dut.pin_valid.value = 0
     dut.pin_sample.value = 0
     dut.pll_lock.value = 1
+    dut.evt_in.value = 0
+    dut.link_bad_frames.value = 0
+    dut.link_overruns.value = 0
+    dut.link_underruns.value = 0
     bus = BusDriver(dut)
     dut.rst.value = 1
     await ClockCycles(dut.clk, 4)
@@ -91,7 +97,7 @@ async def run_playback(bus, codes):
 async def id_version_and_constants(dut):
     bus = await start(dut)
     assert await bus.read(R.ID) == R.ID_VALUE
-    assert await bus.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
+    assert await bus.read(R.VERSION) == R.VERSION_ALL == 0x000F0300
     assert await bus.read(R.N_CHANNELS) == N_CHANNELS
     assert await bus.read(R.PB_DEPTH) == PB_DEPTH
     assert await bus.read(R.STATUS) == R.STATUS_PLL_LOCK
@@ -103,7 +109,7 @@ async def id_version_and_constants(dut):
 @cocotb.test()
 async def unmapped_reads_zero_writes_ignored(dut):
     bus = await start(dut)
-    for addr in (0x0FFF, 0x0F, 0x102, R.ch(N_CHANNELS, 0), R.ch(0, 0xFF), R.ch(0, 0x16), 0x2000, 0xFFFF):
+    for addr in (0x0FFF, 0x10, 0x102, 0x205, R.ch(N_CHANNELS, 0), R.ch(0, 0xFF), R.ch(0, 0x17), 0x2000, 0xFFFF):
         await bus.write(addr, 0xDEADBEEF)
         assert await bus.read(addr) == 0, hex(addr)
     assert await bus.read(R.ID) == R.ID_VALUE  # nothing hung
@@ -518,3 +524,350 @@ async def code_write_address_wraps_at_32_words(dut):
     assert await bus.read(R.ch(0, R.CODE_WR_ADDR)) == 0
     await bus.write(R.ch(0, R.CODE_WR_ADDR), 33)
     assert await bus.read(R.ch(0, R.CODE_WR_ADDR)) == 1
+
+
+# ---- map 0x0300: integration length, dump burst, first-sample latch, wide code step ------
+PERIOD = 2000  # samples per code period in the cases below: 45 periods fit the playback RAM
+FAST_STEP = round(1023 / PERIOD * 2**34)
+FAST_CARR = round(0.3 * 2**32)
+
+
+def random_words(seed: int) -> np.ndarray:
+    return np.random.default_rng(seed).integers(0, 2**32, size=32, dtype=np.uint64)
+
+
+def random_samples(n: int, seed: int = 0) -> np.ndarray:
+    return np.random.default_rng(seed).integers(0, 4, size=n, dtype=np.uint8)
+
+
+def fast_model(words, code_step_word=FAST_STEP, integ=1, carr_step=FAST_CARR, carr_phase=0) -> Channel:
+    ch = Channel(words)
+    ch.set_steps(carr_step, code_step_word)
+    ch.set_phase(carr_phase, 0, 0)
+    ch.set_integ(integ)
+    ch.enabled = True
+    return ch
+
+
+async def set_up_fast_channel(bus, k, words, code_step_word=FAST_STEP, integ=None,
+                              carr_step=FAST_CARR, carr_phase=0, enable=True):
+    await bus.write(R.ch(k, R.CODE_WR_ADDR), 0)
+    for word in words:
+        await bus.write(R.ch(k, R.CODE_WR_DATA), int(word))
+    await configure_channel(bus, k, carr_step, code_step_word, carr_phase)
+    if integ is not None:
+        await bus.write(R.ch(k, R.CH_INTEG), integ)
+    if enable:
+        await enable_channel(bus, k)
+
+
+@cocotb.test()
+async def dump_burst_brackets_epoch(dut):
+    bus = await start(dut)
+    words, codes = random_words(1), random_samples(3 * PERIOD + 100)
+    await set_up_fast_channel(bus, 0, words)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, len(codes) + 20)
+    burst = await bus.read_words(R.ch(0, R.DUMP_BURST), R.DUMP_BURST_WORDS)
+    last = fast_model(words).run(codes)[-1]
+    assert last.epoch == 3
+    assert burst[0] == burst[7] == last.epoch == await bus.read(R.ch(0, R.EPOCH))
+    assert [signed32(w) for w in burst[1:7]] == [last.ie, last.qe, last.ip, last.qp, last.il, last.ql]
+    assert burst[1:7] == [await bus.read(R.ch(0, off)) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
+
+
+@cocotb.test()
+async def integ_register_reads_back_and_clamps(dut):
+    bus = await start(dut)
+    assert await bus.read(R.ch(0, R.CH_INTEG)) == 1  # its reset value
+    for written, read in ((7, 7), (0, 1), (20, 20), (21, 20), (99, 20), (0x100, 20), (1, 1)):
+        await bus.write(R.ch(0, R.CH_INTEG), written)
+        assert await bus.read(R.ch(0, R.CH_INTEG)) == read, written
+    assert await bus.read(R.ch(1, R.CH_INTEG)) == 1  # the other channel's is its own
+
+
+@cocotb.test()
+async def meas_epoch_counts_dumps_at_integ_20(dut):
+    bus = await start(dut)
+    words, codes = random_words(2), random_samples(45 * PERIOD)
+    await set_up_fast_channel(bus, 0, words, integ=20)
+    dumps = (await run_playback(bus, codes))[0]
+    expected = fast_model(words, integ=20).run(codes)
+    assert [d.epoch for d in expected] == [1, 2]
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
+    assert await bus.read(R.ch(0, R.EPOCH)) == 2
+    await latch_after_strobe(bus, 0)
+    assert await bus.read(R.ch(0, R.MEAS_EPOCH)) == 2  # dumps, not the 45 code periods
+
+
+@cocotb.test()
+async def sums_at_integ_20_are_sign_extended_from_25_bits(dut):
+    # all chips +1, every sample +3 and the LO held at cos = -2: 20 periods of 6000 samples
+    # sum to -720 000, past the 20 bits one period needs
+    bus = await start(dut)
+    words = np.zeros(32, dtype=np.uint64)
+    step = round(1023 / 6000 * 2**34)
+    codes = np.full(20 * 6000 + 50, 0b01, dtype=np.uint8)
+    await set_up_fast_channel(bus, 0, words, step, integ=20, carr_step=0, carr_phase=3 << 29)
+    dumps = (await run_playback(bus, codes))[0]
+    expected = fast_model(words, step, integ=20, carr_step=0, carr_phase=3 << 29).run(codes)
+    assert len(expected) == 1 and expected[0].ip == -6 * expected[0].sample < -(2**19)
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
+
+
+async def start_sample(bus, k) -> int:
+    lo = await bus.read(R.ch(k, R.CH_START_SAMPLE_LO))
+    return (await bus.read(R.ch(k, R.CH_START_SAMPLE_HI)) << 32) | lo
+
+
+@cocotb.test()
+async def ch_start_sample_is_the_first_accepted_sample(dut):
+    # a channel enabled while samples flow: its carrier phase at a measurement strobe is the
+    # loaded phase plus one step per sample from CH_START_SAMPLE to MEAS_SAMPLE
+    bus = await start(dut)
+    words, codes = random_words(3), random_samples(20_000)
+    carr_phase = 0x1234_5678
+    await set_up_fast_channel(bus, 0, words)
+    await set_up_fast_channel(bus, 1, words, carr_phase=carr_phase, enable=False)
+    assert await start_sample(bus, 0) == 0 and await start_sample(bus, 1) == 0  # nothing yet
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 3000)
+    await bus.write(R.ch(1, R.CH_CTRL), 1)
+    await ClockCycles(dut.clk, 3000)
+    await bus.write(R.MEAS_TRIG, 1)
+    await ClockCycles(dut.clk, 20)
+    m = await read_measurement(bus, 1)
+    n0 = await start_sample(bus, 1)
+    assert 3000 < n0 < 3100 and await start_sample(bus, 0) == 0  # channel 0 took sample 0
+    assert m.carr_phase == (carr_phase + FAST_CARR * (m.sample - n0)) % 2**32
+    reference = fast_model(words, carr_phase=carr_phase)
+    reference.run(codes[n0 : m.sample])
+    assert (m.code_frac, m.chip_q) == (reference.code_acc, reference.chip_q)
+
+
+@cocotb.test()
+async def ch_start_sample_relatches_on_each_enable(dut):
+    bus = await start(dut)
+    words, codes = random_words(4), random_samples(20_000)
+    await set_up_fast_channel(bus, 0, words, enable=False)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    await ClockCycles(dut.clk, 2000)
+    await bus.write(R.ch(0, R.CH_CTRL), 1)
+    await ClockCycles(dut.clk, 2000)
+    first = await start_sample(bus, 0)
+    await bus.write(R.ch(0, R.CH_CTRL), 0)
+    await ClockCycles(dut.clk, 2000)
+    assert await start_sample(bus, 0) == first  # a disabled channel keeps its last value
+    await bus.write(R.ch(0, R.CH_CTRL), 1)
+    await ClockCycles(dut.clk, 2000)
+    second = await start_sample(bus, 0)
+    assert 2000 < first < 2100 and 6000 < second < 6100
+    await bus.write(R.ch(0, R.CH_START_SAMPLE_LO), 5)  # read-only
+    assert await start_sample(bus, 0) == second
+
+
+@cocotb.test()
+async def code_step_hi_commits_with_the_code_step_write(dut):
+    # CODE_STEP_HI holds bits 33:32 of the step and waits, as CARR_STEP does, for the
+    # CODE_STEP write: alone it changes nothing, then all three words land together
+    bus = await start(dut)
+    words, codes = random_words(5), random_samples(60_000)
+    l5 = code_step(10.23e6, 38.4e6)  # 0.266 chips per sample: bit 32 set
+    assert l5 >> 32 == 1
+    await set_up_fast_channel(bus, 0, words)
+    await load_playback(bus, codes)
+    await bus.write(R.CTRL, R.CTRL_ENABLE | R.CTRL_SOURCE_PLAYBACK)
+    await start_playback(bus, len(codes))
+    dumps = []
+    budget = 40 * len(codes)
+    while not (await bus.read(R.STATUS) & R.STATUS_PB_DONE and not await bus.read(R.DUMP_PENDING)):
+        assert budget > 0
+        budget -= 20
+        if await bus.read(R.DUMP_PENDING) & 1:
+            before = len(dumps)
+            dumps.extend(await read_dumps_now(bus, 0))
+            if before < 3 <= len(dumps):
+                await bus.write(R.ch(0, R.CODE_STEP_HI), 1)  # alone: nothing changes
+            if before < 6 <= len(dumps):
+                await bus.write(R.ch(0, R.CODE_STEP), l5 & 0xFFFF_FFFF)  # all three land
+        else:
+            await ClockCycles(dut.clk, 20)
+    assert await bus.read(R.ch(0, R.DUMP_MISSED)) == 0
+    m = fast_model(words)
+    expected = m.run(codes, max_dumps=6)
+    m.set_steps(FAST_CARR, l5)
+    expected += m.run(codes[m.sample_count :])
+    lengths = np.diff([d.sample for d in expected])
+    assert (lengths[:6] > 1990).all() and (lengths[7:] > 3830).all()  # 2000, then 3840 samples
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
+    assert await bus.read(R.ch(0, R.CODE_STEP_HI)) == 0  # write-only, like the other step words
+
+
+@cocotb.test()
+async def soft_reset_clears_the_map_0300_registers(dut):
+    bus = await start(dut)
+    words, codes = random_words(6), random_samples(16_000)
+    slow = round(1023 / 5000 * 2**34)  # under a quarter chip per sample: the high bits are 0
+    assert slow >> 32 == 0
+    await set_up_fast_channel(bus, 0, words, integ=5)
+    await bus.write(R.ch(0, R.CODE_STEP_HI), 1)  # staged, never committed
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE | R.EVT_FALLING)
+    await bus.write(R.CTRL, R.CTRL_RESET)
+    await ClockCycles(dut.clk, 4)
+    assert await bus.read(R.ch(0, R.CH_INTEG)) == 1 and await bus.read(R.EVT_CTRL) == 0
+    # the staged high bits are gone: CARR_STEP and CODE_STEP alone give the plain step
+    await bus.write(R.ch(0, R.CARR_STEP), FAST_CARR)
+    await bus.write(R.ch(0, R.CODE_STEP), slow)
+    await enable_channel(bus, 0)
+    dumps = (await run_playback(bus, codes))[0]
+    expected = fast_model(words, slow).run(codes)
+    assert len(expected) == 3
+    assert_dumps_equal(dumps, expected, ignore_sample=True)
+
+
+# ---- event stamp and link status --------------------------------------------------------
+SYNC_CLOCKS = 2  # an edge is stamped with the sample going in two clocks after the pin changes
+
+
+async def start_pins(dut):
+    """The pins as the sample source with a sample on every clock."""
+    bus = await start(dut)
+    await bus.write(R.CTRL, R.CTRL_ENABLE)
+    dut.pin_valid.value = 1
+    await ClockCycles(dut.clk, 50)
+    return bus
+
+
+async def set_evt(dut, level: int) -> int:
+    """Change the event pin right after a clock edge; returns the index of the sample that
+    goes in on the next edge."""
+    await RisingEdge(dut.clk)
+    await Timer(1, unit="ns")  # past the edge's updates: the count includes its sample
+    n = int(dut.sample_cnt.value)
+    dut.evt_in.value = level
+    return n
+
+
+@cocotb.test()
+async def event_stamp_latches_sample_count(dut):
+    bus = await start_pins(dut)
+    assert await read_event(bus) == (0, 0)
+    await set_evt(dut, 1)  # not enabled yet: nothing is stamped
+    await ClockCycles(dut.clk, 30)
+    await set_evt(dut, 0)
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE)
+    assert await bus.read(R.EVT_CTRL) == R.EVT_ENABLE and await read_event(bus) == (0, 0)
+    n1 = await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (1, n1 + SYNC_CLOCKS)
+    await set_evt(dut, 0)  # the other edge: ignored
+    await ClockCycles(dut.clk, 40)
+    n2 = await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (2, n2 + SYNC_CLOCKS) and n2 > n1 + 16
+    assert await bus.read(R.EVT_MISSED) == 0
+
+
+@cocotb.test()
+async def event_stamp_counts_close_events_as_missed(dut):
+    # a second edge before 16 samples have passed since the last stamp is dropped and
+    # counted, so the stamp words hold still while they are read; the sixteenth sample is
+    # far enough
+    bus = await start_pins(dut)
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE)
+    n1 = await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 1)
+    await set_evt(dut, 0)
+    await ClockCycles(dut.clk, 1)
+    await set_evt(dut, 1)  # 4 samples after the first edge
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (1, n1 + SYNC_CLOCKS) and await bus.read(R.EVT_MISSED) == 1
+    for spacing, stamped in ((15, False), (16, True)):
+        await set_evt(dut, 0)
+        await ClockCycles(dut.clk, 40)
+        seq, _ = await read_event(bus)
+        missed = await bus.read(R.EVT_MISSED)
+        n_a = await set_evt(dut, 1)
+        await ClockCycles(dut.clk, 3)
+        await set_evt(dut, 0)
+        await ClockCycles(dut.clk, spacing - 5)
+        n_b = await set_evt(dut, 1)
+        assert n_b - n_a == spacing
+        await ClockCycles(dut.clk, 40)
+        if stamped:
+            assert await read_event(bus) == (seq + 2, n_b + SYNC_CLOCKS)
+            assert await bus.read(R.EVT_MISSED) == missed
+        else:
+            assert await read_event(bus) == (seq + 1, n_a + SYNC_CLOCKS)
+            assert await bus.read(R.EVT_MISSED) == missed + 1
+
+
+@cocotb.test()
+async def event_stamp_falling_edge_and_disable(dut):
+    bus = await start_pins(dut)
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE | R.EVT_FALLING)
+    await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (0, 0)  # the rising edge is not the chosen one
+    n = await set_evt(dut, 0)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (1, n + SYNC_CLOCKS)
+    await bus.write(R.EVT_CTRL, R.EVT_FALLING)  # disabled
+    await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 40)
+    await set_evt(dut, 0)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (1, n + SYNC_CLOCKS) and await bus.read(R.EVT_MISSED) == 0
+    # enabling for the rising edge with the pin already high stamps nothing
+    await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 40)
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE)
+    await ClockCycles(dut.clk, 40)
+    assert await read_event(bus) == (1, n + SYNC_CLOCKS)
+
+
+@cocotb.test()
+async def event_stamp_counts_samples_not_clocks(dut):
+    # with a sample on every third clock the stamp is still the index of the sample going
+    # in, and the minimum spacing is counted in samples
+    bus = await start(dut)
+    await bus.write(R.CTRL, R.CTRL_ENABLE)
+    await bus.write(R.EVT_CTRL, R.EVT_ENABLE)
+
+    async def feed():
+        while True:
+            dut.pin_valid.value = 1
+            await RisingEdge(dut.clk)
+            dut.pin_valid.value = 0
+            await ClockCycles(dut.clk, 2)
+
+    cocotb.start_soon(feed())
+    await ClockCycles(dut.clk, 60)
+    await set_evt(dut, 1)
+    await ClockCycles(dut.clk, 6)
+    seq, stamp = await read_event(bus)
+    assert seq == 1 and 18 <= stamp <= 23  # near clock 60 / 3
+    await set_evt(dut, 0)
+    await ClockCycles(dut.clk, 20)
+    await set_evt(dut, 1)  # some 10 samples after the stamp, 30 clocks
+    await ClockCycles(dut.clk, 60)
+    assert await read_event(bus) == (1, stamp) and await bus.read(R.EVT_MISSED) == 1
+
+
+@cocotb.test()
+async def link_status_reads_the_slave_counters(dut):
+    bus = await start(dut)
+    assert await bus.read(R.LINK_STATUS) == 0
+    dut.link_bad_frames.value = 0x1234
+    dut.link_overruns.value = 0x56
+    dut.link_underruns.value = 0x78
+    await RisingEdge(dut.clk)
+    assert await bus.read(R.LINK_STATUS) == 0x7856_1234
+    await bus.write(R.LINK_STATUS, 0)  # read-only
+    assert await bus.read(R.LINK_STATUS) == 0x7856_1234

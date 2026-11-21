@@ -23,10 +23,23 @@ CASES = [
     "meas_period_written_mid_run_counts_from_the_write",
     "meas_seq_counts_strobes_and_guards_the_latch_read",
     "code_write_address_wraps_at_32_words",
+    "dump_burst_brackets_epoch",
+    "integ_register_reads_back_and_clamps",
+    "meas_epoch_counts_dumps_at_integ_20",
+    "sums_at_integ_20_are_sign_extended_from_25_bits",
+    "ch_start_sample_is_the_first_accepted_sample",
+    "ch_start_sample_relatches_on_each_enable",
+    "code_step_hi_commits_with_the_code_step_write",
+    "soft_reset_clears_the_map_0300_registers",
+    "event_stamp_latches_sample_count",
+    "event_stamp_counts_close_events_as_missed",
+    "event_stamp_falling_edge_and_disable",
+    "event_stamp_counts_samples_not_clocks",
+    "link_status_reads_the_slave_counters",
 ]
 
 
-SOURCES = [RTL / "channel.v", RTL / "playback.v", RTL / "rx_core.v"]
+SOURCES = [RTL / "channel.v", RTL / "playback.v", RTL / "event_stamp.v", RTL / "rx_core.v"]
 
 
 @pytest.fixture(scope="module")
