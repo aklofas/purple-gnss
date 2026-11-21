@@ -1,4 +1,5 @@
-"""Print the utilization and the fabric clock's fmax from a nextpnr --report JSON file."""
+"""Print the utilization and the fmax of the fabric clock and of the SPI clock domain from a
+nextpnr --report JSON file."""
 
 import json
 import sys
@@ -8,8 +9,10 @@ report = json.loads(Path(sys.argv[1]).read_text())
 used = {k: v.get("used", 0) for k, v in report["utilization"].items()}
 dsp = sum(used.get(k, 0) for k in ("MULT18_CORE", "MULT18X36_CORE", "MULT36_CORE"))
 clk = report["fmax"]["clk$glb_clk"]  # the fabric clock; the PLL output only toggles a counter
+sck = report["fmax"]["rx.spi.sck$glb_clk"]  # the SPI slave's frame logic, clocked by SCK
 print(
     f"N_CHANNELS={sys.argv[2]}: LUT4 {used.get('OXIDE_COMB', 0)}  FF {used.get('OXIDE_FF', 0)}  "
     f"EBR {used.get('OXIDE_EBR', 0)}  DSP {dsp}  "
-    f"fmax {clk['achieved']:.1f} MHz on clk (constraint {clk['constraint']:.1f} MHz)"
+    f"fmax {clk['achieved']:.1f} MHz on clk (constraint {clk['constraint']:.1f} MHz), "
+    f"{sck['achieved']:.1f} MHz on spi_sck (constraint {sck['constraint']:.1f} MHz)"
 )

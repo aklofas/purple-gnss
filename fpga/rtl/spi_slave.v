@@ -1,115 +1,263 @@
 `timescale 1ns/1ps
-// Single-lane SPI slave (mode 0, MSB first, CS active low) driving the register bus.
+// SPI slave (mode 0, MSB first, CS active low) driving the register bus, clocked by SCK.
 //
-// Transaction: command byte (bit 7 = write, bit 6 = auto-increment the word address),
-// two address bytes, then 32-bit words. A write commits each word to the bus as its last
-// bit arrives; a read inserts one dummy byte after the address while the first word is
-// fetched, and fetches each following word while the previous one is shifting out. CS
-// rising ends the transaction and drops any partial word.
+// Frame: a command byte and a 16-bit word address on lane 0, then 32-bit words, high byte
+// first, for as long as CS stays low. Command bit 7 is write, bit 6 auto-increments the word
+// address, bit 5 puts the data on all four lanes (high nibble first, lane 3 the most
+// significant bit) instead of lane 0 in and lane 1 out, and bits 4:0 must be the signature
+// 10110: a frame without it, as one shifted by a stray clock almost always is, is ignored
+// and counted. A read has eight dummy clocks between the address and the data, in which
+// nobody drives. The slave drives lane 1, or all four, only while it sends read data.
 //
-// SCK, MOSI and CS are oversampled through two-flop synchronizers; MISO takes its next bit
-// right after a detected SCK rising edge, so it is stable long before the master's next
-// sample. In fabric clocks the slave needs: SCK high and low at least 2 each; MOSI held at
-// least 2 after the SCK rise; CS low at least 2 before the first SCK rise and at least 2 after
-// the last (a CS rise within one clock of the last SCK rise drops that word); CS high at least
-// 2 between transactions. SCK at the fabric clock divided by 8 with equal high and low times
-// meets all of these.
+// The frame logic runs on SCK itself (inputs taken on the rising edge, outputs changed on
+// the falling edge) and CS high holds it in reset, which ends a frame and drops a partial
+// word. Two small FIFOs cross to the fabric clock. Requests carry the frame's command and
+// address, then each write word; the fabric side issues the writes in order. For a read
+// the fabric side fetches the word at the address as soon as the request arrives and keeps
+// the response FIFO filled, the address advancing per word in auto-increment mode, so a
+// read fetches up to two words past its last one: nothing on the bus may react to a read.
+//
+// Rates. The first read word has to cross within the eight dummy clocks: up to five fabric
+// clocks for the request to cross and the bus to answer, then two SCK clocks for the
+// answer to cross back, so six SCK periods must be longer than five fabric clock periods. A word that is not there in time is sent as zero, with every word
+// after it in that frame, and the frame is counted as an underrun. A write word finding the
+// request FIFO full (the fabric takes one per clock, so only a stalled fabric clock does
+// this) is dropped and counted as an overrun. CS must stay high for at least three fabric
+// clocks between frames, so the fabric side sees every frame end.
+//
+// bad_frames, overruns and underruns saturate; clr zeroes them. rst is the power-on reset
+// only: it must not come while a frame is in flight.
 module spi_slave (
     input  wire        clk,
     input  wire        rst,
+    input  wire        clr,
     input  wire        sck,
-    input  wire        mosi,
     input  wire        cs_n,
-    output reg         miso,
+    input  wire [3:0]  io_i,
+    output wire [3:0]  io_o,
+    output wire [3:0]  io_oe,
     output reg  [15:0] bus_addr,
     output reg  [31:0] bus_wdata,
     output reg         bus_we,
     output reg         bus_re,
-    input  wire [31:0] bus_rdata
+    input  wire [31:0] bus_rdata,
+    output reg  [15:0] bad_frames,
+    output reg  [7:0]  overruns,
+    output reg  [7:0]  underruns
 );
-    // ---- synchronizers and edge detection ----
-    reg [1:0] sck_q, mosi_q, cs_q;
-    reg sck_q3;
-    always @(posedge clk) begin
-        sck_q  <= {sck_q[0], sck};
-        mosi_q <= {mosi_q[0], mosi};
-        cs_q   <= {cs_q[0], cs_n};
-        sck_q3 <= sck_q[1];
-    end
-    wire rise     = sck_q[1] && !sck_q3;
-    wire selected = !cs_q[1];
-    wire mosi_s   = mosi_q[1];
+    // CS is the frame reset of the SCK domain and a level the fabric side watches; rst resets
+    // both domains.
+    /* verilator lint_off SYNCASYNCNET */
+    wire frame_rst = cs_n | rst;
 
-    // ---- transaction state ----
-    reg [7:0]  nbit;        // rising edges seen in the command, address and dummy bytes (at most 32)
-    reg        is_write, incr;
-    /* verilator lint_off UNUSEDSIGNAL */
-    reg [31:0] shift;       // bits shifted in (command/address/write data) or out (read data);
-                            // on reads bit 31 is the bit already on MISO
-    /* verilator lint_on UNUSEDSIGNAL */
-    reg [31:0] rd_word;
-    reg        rd_pend;
-    reg [4:0]  wbit;        // bit index within the current data word
-    reg        in_data;     // past command, address (and dummy for reads)
+    wire        req_full, req_empty, resp_full, resp_empty;
+    wire [32:0] req_rdata;
+    wire [31:0] resp_rdata;
 
-    wire [31:0] shift_in = {shift[30:0], mosi_s};
+    // ================= SCK domain =================================================
+    localparam [2:0] P_HEADER = 3'd0, P_DUMMY = 3'd1, P_READ = 3'd2, P_WRITE = 3'd3,
+                     P_IGNORE = 3'd4;
+    reg [2:0]  phase;
+    reg [4:0]  cnt;       // clocks into the header, the dummy phase or the current word
+    reg [30:0] sh;
+    reg        c_read, c_incr, c_quad;
+    reg        starved;   // a read word was not there: zeros until the frame ends
+    reg [31:0] hold;      // the next word to send, taken over on the falling edge
+    reg        load, drive;
 
-    always @(posedge clk) begin
-        bus_we  <= 1'b0;
-        bus_re  <= 1'b0;
-        rd_pend <= bus_re;
-        if (rd_pend) rd_word <= bus_rdata;
-        if (bus_we) bus_addr <= bus_addr + {15'd0, incr};  // after the word has landed
+    wire [7:0]  cmd_now   = {sh[6:0], io_i[0]};
+    wire        sig_bad   = (phase == P_HEADER) && (cnt == 5'd7) && (cmd_now[4:0] != 5'b10110);
+    wire [31:0] word_now  = c_quad ? {sh[27:0], io_i} : {sh[30:0], io_i[0]};
+    wire        word_last = c_quad ? (cnt[2:0] == 3'd7) : (cnt == 5'd31);
+    wire        hdr_done  = (phase == P_HEADER) && (cnt == 5'd23);
+    wire        wr_word   = (phase == P_WRITE) && word_last;
+    wire        rd_pop    = ((phase == P_DUMMY) && (cnt[2:0] == 3'd7)) || ((phase == P_READ) && word_last);
 
-        if (rst || !selected) begin
-            nbit <= 8'd0; wbit <= 5'd0; in_data <= 1'b0; miso <= 1'b0;
-            is_write <= 1'b0; incr <= 1'b0;
-        end else if (rise) begin
-            if (!in_data) begin
-                shift <= shift_in;
-                nbit  <= nbit + 8'd1;
-                if (nbit == 8'd7) begin
-                    is_write <= shift_in[7];
-                    incr     <= shift_in[6];
-                end
-                if (nbit == 8'd23) begin
-                    bus_addr <= shift_in[15:0];
-                    if (is_write) begin
-                        in_data <= 1'b1;
-                        wbit    <= 5'd0;
-                    end else begin
-                        bus_re <= 1'b1;    // first word fetched during the dummy byte
+    // a request is written on the very edge that brings its last bit
+    wire        req_we    = hdr_done || wr_word;
+    wire [32:0] req_wdata = hdr_done ? {1'b1, 14'd0, c_read, c_incr, sh[14:0], io_i[0]}
+                                     : {1'b0, word_now};
+
+    always @(posedge sck or posedge frame_rst) begin
+        if (frame_rst) begin
+            phase <= P_HEADER; cnt <= 5'd0;
+            c_read <= 1'b0; c_incr <= 1'b0; c_quad <= 1'b0;
+            starved <= 1'b0; load <= 1'b0; drive <= 1'b0;
+        end else begin
+            load <= 1'b0;
+            case (phase)
+                P_HEADER: begin
+                    sh  <= {sh[29:0], io_i[0]};
+                    cnt <= cnt + 5'd1;
+                    if (cnt == 5'd7) begin
+                        c_read <= !cmd_now[7]; c_incr <= cmd_now[6]; c_quad <= cmd_now[5];
+                        if (sig_bad) phase <= P_IGNORE;
+                    end
+                    if (hdr_done) begin
+                        phase <= c_read ? P_DUMMY : P_WRITE;
+                        cnt   <= 5'd0;
                     end
                 end
-                if (nbit == 8'd31 && !is_write) begin
-                    // last dummy bit: present the first data bit
-                    shift   <= rd_word;
-                    miso    <= rd_word[31];
-                    in_data <= 1'b1;
-                    wbit    <= 5'd0;
+                P_WRITE: begin
+                    sh  <= word_now[30:0];
+                    cnt <= word_last ? 5'd0 : cnt + 5'd1;
                 end
-            end else if (is_write) begin
-                shift <= shift_in;
-                wbit  <= wbit + 5'd1;
-                if (wbit == 5'd31) begin
-                    bus_wdata <= shift_in;
-                    bus_we    <= 1'b1;
+                P_DUMMY, P_READ: begin
+                    cnt <= rd_pop ? 5'd0 : cnt + 5'd1;
+                    if (rd_pop) begin
+                        phase <= P_READ;
+                        drive <= 1'b1;
+                        load  <= 1'b1;
+                        if (resp_empty || starved) begin
+                            hold    <= 32'd0;
+                            starved <= 1'b1;
+                        end else begin
+                            hold <= resp_rdata;
+                        end
+                    end
                 end
-            end else begin
-                // read: the master just sampled shift[31]; present the next bit
-                wbit <= wbit + 5'd1;
-                if (wbit == 5'd23) begin
-                    bus_addr <= bus_addr + {15'd0, incr};
-                    bus_re   <= 1'b1;    // next word, ready long before it is needed
-                end
-                if (wbit == 5'd31) begin
-                    shift <= rd_word;
-                    miso  <= rd_word[31];
-                end else begin
-                    shift <= {shift[30:0], 1'b0};
-                    miso  <= shift[30];
-                end
+                default: ;  // P_IGNORE: until CS rises
+            endcase
+        end
+    end
+
+    // read data out, changed on the falling edge
+    reg [31:0] osr;
+    reg        oe_r;
+    always @(negedge sck or posedge frame_rst) begin
+        if (frame_rst) begin
+            oe_r <= 1'b0;
+        end else begin
+            oe_r <= drive;
+            if (load) osr <= hold;
+            else      osr <= c_quad ? {osr[27:0], 4'b0000} : {osr[30:0], 1'b0};
+        end
+    end
+    assign io_o  = c_quad ? osr[31:28] : {2'b00, osr[31], 1'b0};
+    assign io_oe = !oe_r ? 4'b0000 : c_quad ? 4'b1111 : 4'b0010;
+
+    // events, counted in gray code for the fabric side to follow; they outlive the frame
+    reg [3:0] bad_bin, bad_gray;
+    reg [7:0] ovr_bin, ovr_gray, und_bin, und_gray;
+    wire [3:0] bad_next = bad_bin + 4'd1;
+    wire [7:0] ovr_next = ovr_bin + 8'd1;
+    wire [7:0] und_next = und_bin + 8'd1;
+    always @(posedge sck or posedge rst) begin
+        if (rst) begin
+            bad_bin <= 4'd0; bad_gray <= 4'd0; ovr_bin <= 8'd0; ovr_gray <= 8'd0;
+            und_bin <= 8'd0; und_gray <= 8'd0;
+        end else begin
+            if (sig_bad) begin
+                bad_bin <= bad_next; bad_gray <= (bad_next >> 1) ^ bad_next;
+            end
+            if (req_we && req_full) begin
+                ovr_bin <= ovr_next; ovr_gray <= (ovr_next >> 1) ^ ovr_next;
+            end
+            if (rd_pop && resp_empty && !starved) begin
+                und_bin <= und_next; und_gray <= (und_next >> 1) ^ und_next;
             end
         end
     end
+
+    // ================= fabric domain ==============================================
+    reg [1:0] cs_q;
+    always @(posedge clk) cs_q <= {cs_q[0], cs_n};
+    wire cs_high = cs_q[1];
+
+    reg        rd_open, incr_r;
+    reg [15:0] addr_r;
+    reg [1:0]  fetch;     // 0 idle, 1 bus_re is out, 2 the word is on bus_rdata
+    wire       req_re  = !req_empty;
+    wire       resp_we = rd_open && (fetch == 2'd2) && !cs_high;
+
+    always @(posedge clk) begin
+        bus_we <= 1'b0;
+        bus_re <= 1'b0;
+        if (rst) begin
+            rd_open <= 1'b0; incr_r <= 1'b0; addr_r <= 16'd0; fetch <= 2'd0;
+        end else if (req_re) begin
+            if (req_rdata[32]) begin          // a frame's command and address
+                addr_r  <= req_rdata[15:0];
+                incr_r  <= req_rdata[16];
+                rd_open <= req_rdata[17];
+                fetch   <= 2'd0;
+                if (req_rdata[17]) begin      // a read: its first fetch goes out at once
+                    bus_re   <= 1'b1;
+                    bus_addr <= req_rdata[15:0];
+                    fetch    <= 2'd1;
+                end
+            end else begin                    // a write word
+                bus_we    <= 1'b1;
+                bus_addr  <= addr_r;
+                bus_wdata <= req_rdata[31:0];
+                if (incr_r) addr_r <= addr_r + 16'd1;
+            end
+        end else if (cs_high) begin           // the frame is over: stop fetching (a read whose
+                                              // request arrives after its end stops here too)
+            rd_open <= 1'b0;
+            fetch   <= 2'd0;
+        end else if (rd_open) begin
+            case (fetch)
+                2'd0: if (!resp_full) begin
+                    bus_re   <= 1'b1;
+                    bus_addr <= addr_r;
+                    fetch    <= 2'd1;
+                end
+                2'd1: fetch <= 2'd2;
+                default: begin
+                    fetch <= 2'd0;
+                    if (incr_r) addr_r <= addr_r + 16'd1;
+                end
+            endcase
+        end
+    end
+
+    cdc_fifo #(.WIDTH(33), .DEPTH_LOG2(2)) req (
+        .wclk(sck), .wrst(rst), .we(req_we), .wdata(req_wdata), .full(req_full),
+        .rclk(clk), .rrst(rst), .re(req_re), .rdata(req_rdata), .empty(req_empty)
+    );
+    // emptied between frames from both sides: words fetched for a read that ended are gone
+    // before the next one starts
+    wire resp_wrst = rst | cs_high;
+    cdc_fifo #(.WIDTH(32), .DEPTH_LOG2(1)) resp (
+        .wclk(clk), .wrst(resp_wrst), .we(resp_we), .wdata(bus_rdata), .full(resp_full),
+        .rclk(sck), .rrst(frame_rst), .re(rd_pop && !starved), .rdata(resp_rdata), .empty(resp_empty)
+    );
+
+    // the event counts, followed from the SCK domain and added up with saturation
+    function [7:0] gray_to_bin(input [7:0] g);
+        gray_to_bin = g ^ (g >> 1) ^ (g >> 2) ^ (g >> 3) ^ (g >> 4) ^ (g >> 5) ^ (g >> 6) ^ (g >> 7);
+    endfunction
+    reg [3:0] bad_s1, bad_s2, bad_seen;
+    reg [7:0] ovr_s1, ovr_s2, ovr_seen, und_s1, und_s2, und_seen;
+    wire [3:0] bad_now = bad_s2 ^ (bad_s2 >> 1) ^ (bad_s2 >> 2) ^ (bad_s2 >> 3);
+    wire [3:0] bad_new = bad_now - bad_seen;
+    wire [7:0] ovr_now = gray_to_bin(ovr_s2);
+    wire [7:0] und_now = gray_to_bin(und_s2);
+    wire [7:0] ovr_new = ovr_now - ovr_seen;
+    wire [7:0] und_new = und_now - und_seen;
+    wire [16:0] bad_sum = {1'b0, bad_frames} + {13'd0, bad_new};
+    wire [8:0]  ovr_sum = {1'b0, overruns} + {1'b0, ovr_new};
+    wire [8:0]  und_sum = {1'b0, underruns} + {1'b0, und_new};
+    always @(posedge clk) begin
+        bad_s1 <= bad_gray; bad_s2 <= bad_s1;
+        ovr_s1 <= ovr_gray; ovr_s2 <= ovr_s1;
+        und_s1 <= und_gray; und_s2 <= und_s1;
+        if (rst) begin
+            bad_seen <= 4'd0; ovr_seen <= 8'd0; und_seen <= 8'd0;
+            bad_frames <= 16'd0; overruns <= 8'd0; underruns <= 8'd0;
+        end else begin
+            bad_seen <= bad_now;
+            ovr_seen <= ovr_now;
+            und_seen <= und_now;
+            if (clr) begin
+                bad_frames <= 16'd0; overruns <= 8'd0; underruns <= 8'd0;
+            end else begin
+                bad_frames <= bad_sum[16] ? 16'hFFFF : bad_sum[15:0];
+                overruns   <= ovr_sum[8] ? 8'hFF : ovr_sum[7:0];
+                underruns  <= und_sum[8] ? 8'hFF : und_sum[7:0];
+            end
+        end
+    end
+    /* verilator lint_on SYNCASYNCNET */
 endmodule

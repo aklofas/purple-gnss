@@ -25,16 +25,16 @@ module rx_spi #(
     wire [31:0] bus_wdata, bus_rdata;
     wire        bus_we, bus_re;
 
-    wire miso;
-    assign spi_io_o  = {2'b00, miso, 1'b0};
-    assign spi_io_oe = {2'b00, !spi_cs_n, 1'b0};
-    wire _unused = &{1'b0, spi_io_i[3:1]};
+    wire [15:0] bad_frames;
+    wire [7:0]  overruns, underruns;
+    wire        link_clear;
 
     spi_slave spi (
-        .clk(clk), .rst(rst),
-        .sck(spi_sck), .mosi(spi_io_i[0]), .cs_n(spi_cs_n), .miso(miso),
+        .clk(clk), .rst(rst), .clr(link_clear),
+        .sck(spi_sck), .cs_n(spi_cs_n), .io_i(spi_io_i), .io_o(spi_io_o), .io_oe(spi_io_oe),
         .bus_addr(bus_addr), .bus_wdata(bus_wdata), .bus_we(bus_we), .bus_re(bus_re),
-        .bus_rdata(bus_rdata)
+        .bus_rdata(bus_rdata),
+        .bad_frames(bad_frames), .overruns(overruns), .underruns(underruns)
     );
 
     rx_core #(
@@ -42,8 +42,8 @@ module rx_spi #(
     ) core (
         .clk(clk), .rst(rst),
         .pin_valid(pin_valid), .pin_sample(pin_sample), .pll_lock(pll_lock), .evt_in(evt_in),
-        .link_bad_frames(16'd0), .link_overruns(8'd0), .link_underruns(8'd0),
+        .link_bad_frames(bad_frames), .link_overruns(overruns), .link_underruns(underruns),
         .bus_addr(bus_addr), .bus_wdata(bus_wdata), .bus_we(bus_we), .bus_re(bus_re),
-        .bus_rdata(bus_rdata), .dump_irq(dump_irq)
+        .bus_rdata(bus_rdata), .link_clear(link_clear), .dump_irq(dump_irq)
     );
 endmodule

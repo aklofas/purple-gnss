@@ -8,7 +8,7 @@ RTL=../../rtl
 rm -rf "$OUT"   # a failed run must not leave the previous run's bitstream behind
 mkdir -p "$OUT"
 
-SOURCES="$RTL/channel.v $RTL/playback.v $RTL/event_stamp.v $RTL/rx_core.v $RTL/spi_slave.v $RTL/rx_spi.v"
+SOURCES="$RTL/channel.v $RTL/playback.v $RTL/event_stamp.v $RTL/rx_core.v $RTL/cdc_fifo.v $RTL/spi_slave.v $RTL/rx_spi.v"
 yosys -q -l "$OUT/yosys.log" -p "
     read_verilog $SOURCES top.v;
     chparam -set N_CHANNELS $N top;
