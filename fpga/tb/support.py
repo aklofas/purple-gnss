@@ -13,7 +13,7 @@ from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 
 from fpgamodel import regmap as R
-from fpgamodel.channel import Dump, nco_step
+from fpgamodel.channel import Dump, code_step, nco_step
 from fpgamodel.quantize import code_bits, pack_words
 
 RECORDING = "L1_20211226_082401_24MHz_I.bin"
@@ -30,7 +30,7 @@ def captures_dir() -> Path | None:
 
 def channel_steps(doppler: float, fs: float = FS, f_if: float = F_IF) -> tuple[int, int]:
     """(carrier step, code step) words for a Doppler at a sample rate and IF."""
-    return nco_step(f_if + doppler, fs), nco_step(4 * CA_CHIP_RATE * (1 + doppler / L1_FREQ), fs)
+    return nco_step(f_if + doppler, fs), code_step(CA_CHIP_RATE * (1 + doppler / L1_FREQ), fs)
 
 
 def write_hex(path: Path, codes: np.ndarray) -> None:

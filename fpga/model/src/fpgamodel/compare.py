@@ -17,7 +17,7 @@ from pyrx.codes import CA_CHIP_RATE, CA_PERIOD, gps_ca
 from pyrx.correlator import correlate
 from pyrx.signals import L1_FREQ
 
-from fpgamodel.channel import Channel, nco_step
+from fpgamodel.channel import Channel, code_step, nco_step
 from fpgamodel.quantize import code_bits
 
 PROMPT = np.array([0.0])
@@ -64,7 +64,7 @@ def prompt_snr_model(codes, fs, f_if, doppler, code_offset_s, prn, wrong_prns, n
     power = {}
     for code_prn in (prn, *wrong_prns):
         ch = Channel(code_bits(gps_ca(code_prn)))
-        ch.set_steps(nco_step(f_if + doppler, fs), nco_step(4.0 * chip_rate, fs))
+        ch.set_steps(nco_step(f_if + doppler, fs), code_step(chip_rate, fs))
         ch.set_phase(0, frac, chip_q)
         ch.enabled = True
         dumps = ch.run(codes)[:n_ms]
