@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 // One GNSS tracking channel: carrier wipe-off with a 3-level local oscillator, early /
-// prompt / late code correlation at quarter-chip tap spacing, integrate-and-dump once per
-// code period. Everything with a feedback loop lives in software.
+// prompt / late code correlation at quarter-chip tap spacing, integrate-and-dump every
+// integ code periods (1 to 20). Everything with a feedback loop lives in software.
 //
 // Samples are 2-bit {sign, mag} (values +/-1, +/-3) and count only while sample_valid is high
 // and the channel is active: enable takes effect eight clocks after it rises, and the channel
@@ -10,11 +10,14 @@
 // cached chips stale, so the core only passes code writes to a disabled channel. The code is
 // held as CODE_LEN bits in 32-bit words (bit set = chip value -1), written over code_we. The
 // code NCO counts quarter chips (index 0 to 4 * CODE_LEN - 1) and ticks at most once per
-// sample, so the sample rate must exceed four times the chip rate; the index wrapping dumps
-// the six sums into ie..ql, raises dump for one clock, increments epoch and copies the step
-// inputs into the active NCO steps (while not active, disabled or in the eight clocks after
-// enable rises, the inputs are copied every clock, so a value there takes effect at once; a
-// bus write reaches the inputs a clock late, so seven clocks from the bus).
+// sample, so the sample rate must exceed four times the chip rate; the index wrapping ends a
+// code period and copies the step inputs into the active NCO steps, and every integ periods
+// it also dumps the six sums into ie..ql, raises dump for one clock, increments epoch and
+// takes a new integ (0 acts as 1, more than 20 as 20). While not active, disabled or in the
+// eight clocks after enable rises, the step and integ inputs are copied every clock, so a
+// value there takes effect at once; a bus write reaches the inputs a clock late, so seven
+// clocks from the bus. started is high with the first sample the channel accepts after each
+// enable.
 // load_phase, honored only while disabled, sets the NCO accumulators directly and leaves the
 // six running sums alone, so the first dump after a phase load on a channel that ran before
 // carries that earlier partial period.
@@ -28,13 +31,15 @@ module channel #(
     parameter CODE_LEN = 1023,
     parameter CODE_AW  = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,  // chip index width, at least
                                                                          // one 32-chip word's worth
-    parameter ACC_W    = 20
+    parameter ACC_W    = 25                  // 20 code periods of full-scale input do not wrap
 ) (
     input  wire        clk,
     input  wire        rst,
     input  wire        sample_valid,
     input  wire [1:0]  sample,            // {sign, mag}
     input  wire        enable,
+    input  wire [4:0]  integ,             // code periods per dump
+    output wire        started,
     input  wire [31:0] carr_step,
     input  wire [31:0] code_step,         // quarter chips per sample, x 2^32
     input  wire [1:0]  spacing_q,         // early/late offset in quarter chips: 1 or 2
@@ -73,6 +78,8 @@ module channel #(
     reg [31:0] carr_acc, code_acc, carr_step_a, code_step_a;
     reg [CODE_AW+1:0] chip_q;
     reg [31:0] epoch0;  // dumps so far, counted where the wrap happens (epoch lags it by the pipeline)
+    reg [4:0]  integ_a, period_cnt;  // active periods per dump; periods done since the last dump
+    wire [4:0] integ_c = (integ == 5'd0) ? 5'd1 : (integ > 5'd20) ? 5'd20 : integ;
     wire [CODE_AW-1:0] chip_idx = chip_q[CODE_AW+1:2];
     wire [CODE_AW-1:0] idx_prev  = (chip_idx == 0) ? CODE_LEN - 1 : chip_idx - 1;
     wire [CODE_AW-1:0] idx_next  = (chip_idx == CODE_LEN - 1) ? 0 : chip_idx + 1;
@@ -82,6 +89,7 @@ module channel #(
     wire tick     = code_sum[32];
     wire chip_inc = tick && (chip_q[1:0] == 2'b11);
     wire wrap     = tick && ({1'b0, chip_q} == N_Q - 1);
+    wire dump_now = wrap && (period_cnt + 5'd1 >= integ_a);
 
     // enable is honored READY_CLOCKS after it rises; until then the chip neighbors refresh
     reg [3:0] ready_cnt;
@@ -92,6 +100,13 @@ module channel #(
     end
     wire active = enable && (ready_cnt == READY_CLOCKS);
     wire v0     = sample_valid && active;
+
+    reg accepted;  // a sample went in since the channel became active
+    always @(posedge clk) begin
+        if (rst || !active) accepted <= 1'b0;
+        else if (v0) accepted <= 1'b1;
+    end
+    assign started = v0 && !accepted;
 
     // c_prev / c_cur / c_next hold the chips at chip_idx - 1, chip_idx, chip_idx + 1. While
     // active, a chip increment shifts them and prefetches the new next chip; while not active
@@ -140,20 +155,22 @@ module channel #(
     wire tap_e = (qf_plus > 3'd3) ? c_next : c_cur;
     wire tap_l = (chip_q[1:0] < sp) ? c_prev : c_cur;
 
-    reg        s1_v, s1_wrap;
+    reg        s1_v, s1_dump;
     reg [2:0]  s1_ph;
     reg [1:0]  s1_sample;
     reg        s1_e, s1_p, s1_l;
     always @(posedge clk) begin
         s1_v    <= 1'b0;
-        s1_wrap <= 1'b0;
+        s1_dump <= 1'b0;
         if (rst) begin
             carr_acc <= 32'd0; code_acc <= 32'd0; chip_q <= {(CODE_AW+2){1'b0}};
             carr_step_a <= 32'd0; code_step_a <= 32'd0; epoch0 <= 32'd0;
+            integ_a <= 5'd1; period_cnt <= 5'd0;
         end else begin
             if (!active) begin
                 carr_step_a <= carr_step;
                 code_step_a <= code_step;
+                integ_a     <= integ_c;
             end
             if (load_phase && !enable) begin
                 carr_acc <= carr_phase_in;
@@ -161,7 +178,7 @@ module channel #(
                 chip_q   <= chip_q_in;
             end else if (v0) begin
                 s1_v      <= 1'b1;
-                s1_wrap   <= wrap;
+                s1_dump   <= dump_now;
                 s1_ph     <= carr_acc[31:29];
                 s1_sample <= sample;
                 s1_e      <= tap_e;
@@ -173,7 +190,11 @@ module channel #(
                 if (wrap) begin
                     carr_step_a <= carr_step;
                     code_step_a <= code_step;
-                    epoch0      <= epoch0 + 32'd1;
+                    period_cnt  <= dump_now ? 5'd0 : period_cnt + 5'd1;
+                end
+                if (dump_now) begin
+                    integ_a <= integ_c;
+                    epoch0  <= epoch0 + 32'd1;
                 end
             end
         end
@@ -202,11 +223,11 @@ module channel #(
         end
     endfunction
 
-    reg s2_v, s2_wrap, s2_e, s2_p, s2_l;
+    reg s2_v, s2_dump, s2_e, s2_p, s2_l;
     reg signed [4:0] mix_i, mix_q;
     always @(posedge clk) begin
         s2_v    <= s1_v && !rst;
-        s2_wrap <= s1_wrap;
+        s2_dump <= s1_dump;
         s2_e <= s1_e; s2_p <= s1_p; s2_l <= s1_l;
         mix_i <=  prod(s1_sample[1], s1_sample[0], lo_c_neg, lo_c_big);
         mix_q <= -prod(s1_sample[1], s1_sample[0], lo_s_neg, lo_s_big);  // replica exp(-j phase)
@@ -230,11 +251,11 @@ module channel #(
             ie <= 0; qe <= 0; ip <= 0; qp <= 0; il <= 0; ql <= 0;
             epoch <= 32'd0;
         end else if (s2_v) begin
-            if (s2_wrap) begin
+            if (s2_dump) begin
                 ie <= n_ie; qe <= n_qe; ip <= n_ip; qp <= n_qp; il <= n_il; ql <= n_ql;
                 a_ie <= 0; a_qe <= 0; a_ip <= 0; a_qp <= 0; a_il <= 0; a_ql <= 0;
                 dump  <= 1'b1;
-                epoch <= epoch0;  // counted at the wrap, two clocks ahead of this dump
+                epoch <= epoch0;  // counted at the dump's wrap, two clocks ahead of this dump
             end else begin
                 a_ie <= n_ie; a_qe <= n_qe; a_ip <= n_ip; a_qp <= n_qp; a_il <= n_il; a_ql <= n_ql;
             end

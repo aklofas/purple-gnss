@@ -54,6 +54,7 @@ class ChannelBench:
                      "chip_q_in", "code_we", "code_waddr", "code_wdata", "meas_strobe"):
             getattr(dut, name).value = 0
         dut.spacing_q.value = 1
+        dut.integ.value = 1
         dut.rst.value = 1
         await ClockCycles(dut.clk, 4)
         dut.rst.value = 0
@@ -95,6 +96,14 @@ class ChannelBench:
     def set_steps(self, carr_step: int, code_step: int) -> None:
         self.dut.carr_step.value = carr_step
         self.dut.code_step.value = code_step
+
+    def set_integ(self, n: int) -> None:
+        self.dut.integ.value = n
+
+    def started(self) -> tuple[int, int]:
+        """(pulses so far, index of the sample the latest one came with) of the channel's
+        first-accepted-sample flag."""
+        return int(self.dut.started_count.value), int(self.dut.started_at.value)
 
     async def load_phase(self, carr_phase: int, code_frac: int, chip_q: int) -> None:
         dut = self.dut

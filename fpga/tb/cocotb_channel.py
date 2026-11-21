@@ -31,11 +31,21 @@ def model(prn=PRN, doppler=0.0, spacing_q=1, phase=(0, 0, 0)) -> Channel:
     return ch
 
 
-async def setup(dut, prn=PRN, doppler=0.0, spacing_q=1, phase=(0, 0, 0)) -> ChannelBench:
+def model_integ(n: int, **kwargs) -> Channel:
+    """`model` with the integration length written before the enable."""
+    ch = model(**kwargs)
+    ch.enabled = False
+    ch.set_integ(n)
+    ch.enabled = True
+    return ch
+
+
+async def setup(dut, prn=PRN, doppler=0.0, spacing_q=1, phase=(0, 0, 0), integ=1) -> ChannelBench:
     bench = ChannelBench(dut)
     await bench.start()
     await bench.load_code(code_bits(gps_ca(prn)))
     bench.dut.spacing_q.value = spacing_q
+    bench.set_integ(integ)
     bench.set_steps(*channel_steps(doppler))
     await bench.load_phase(*phase)
     await bench.set_enable(True)
@@ -99,6 +109,101 @@ async def step_update_one_sample_before_dump(dut):
     expected += m.run(codes[k_wrap:])
     assert expected[:2] == ref_dumps[:2] and expected[2] != ref_dumps[2]
     assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def integ_20_dumps_match_model(dut):
+    doppler = 1000.0
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 24_000 * 45, 45.0)
+    bench = await setup(dut, doppler=doppler, integ=20)
+    await run_all(bench, codes)
+    expected = model_integ(20, doppler=doppler).run(codes)
+    assert [d.epoch for d in expected] == [1, 2]  # epochs count dumps, not code periods
+    assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def integ_0_acts_as_1_and_above_20_as_20(dut):
+    doppler = 1000.0
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 24_000 * 23, 45.0)
+    bench = await setup(dut, doppler=doppler, integ=0)
+    await bench.load_samples(codes)
+    bench.stream()
+    await bench.pause_at(24_000 * 2 + 100)  # two dumps of one period each
+    await bench.set_enable(False)
+    bench.set_integ(31)
+    await bench.set_enable(True)
+    bench.resume()
+    await bench.finish()
+    m = model(doppler=doppler)
+    expected = m.run(codes[: 24_000 * 2 + 100])
+    m.enabled = False
+    m.set_integ(31)
+    m.enabled = True
+    expected += m.run(codes[24_000 * 2 + 100 :])
+    lengths = np.diff([0] + [d.sample for d in expected])
+    assert len(expected) == 3 and lengths[1] < 24_010 and lengths[2] > 20 * 23_990
+    assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def integ_change_applies_at_next_dump(dut):
+    # written while enabled, a new length waits for the dump: the one in flight keeps the
+    # old length
+    doppler = 1000.0
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 24_000 * 9, 45.0)
+    k = 24_000 + 100  # just after the first dump
+    bench = await setup(dut, doppler=doppler)
+    await bench.load_samples(codes)
+    bench.stream()
+    await bench.pause_at(k)
+    bench.set_integ(3)
+    bench.resume()
+    await bench.finish()
+    m = model(doppler=doppler)
+    expected = m.run(codes[:k])
+    m.set_integ(3)
+    expected += m.run(codes[k:])
+    lengths = np.diff([d.sample for d in expected])
+    assert len(expected) == 4 and lengths[0] < 24_010 and (lengths[1:] > 3 * 23_990).all()
+    assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def started_flags_the_first_accepted_sample_of_each_enable(dut):
+    doppler = 1000.0
+    codes = synthetic_codes(PRN, FS, F_IF, doppler, 0, 72_000, 45.0)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(code_bits(gps_ca(PRN)))
+    bench.set_steps(*channel_steps(doppler))
+    await bench.load_samples(codes)
+    bench.stream()
+    assert bench.started() == (0, 0)  # samples pass a disabled channel unflagged
+    await bench.pause_at(5000)
+    dut.enable.value = 1
+    bench.resume()
+    await bench.pause_at(30_000)
+    # the eight-clock guard, then the first sample the channel takes (as the dumps show in
+    # enable_right_after_phase_load)
+    assert bench.started() == (1, 5008)
+    dut.enable.value = 0
+    bench.resume()
+    await bench.pause_at(40_000)
+    dut.enable.value = 1
+    bench.resume()
+    await bench.finish()
+    assert bench.started() == (2, 40_008)
+    m = model(doppler=doppler)
+    expected = m.run(codes[5008:30_000])
+    m.enabled = False
+    m.enabled = True
+    expected += m.run(codes[40_008:])
+    shifted = [
+        Dump(d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample + (5008 if d.sample <= 24_992 else 15_016))
+        for d in expected
+    ]
+    assert_dumps_equal(bench.dumps, shifted)
 
 
 @cocotb.test()
@@ -188,6 +293,21 @@ async def recording_200ms(dut):
     await run_all(bench, codes)
     expected = model(prn=best.prn, doppler=best.doppler, phase=(0, frac, chip_q)).run(codes)
     assert len(expected) >= 199
+    assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def recording_200ms_integ_20(dut):
+    x = read_samples(captures_dir() / RECORDING, FS, iq=False, duration=0.2).real
+    results = [acquire_l1ca(x[: round(FS * 0.01)], FS, F_IF, prn) for prn in range(1, 33)]
+    best = max(results, key=lambda a: a.cn0 if a.detected else -1.0)
+    assert best.detected
+    chip_q, frac = start_phase(best.code_offset, 1.023e6 * (1 + best.doppler / 1575.42e6))
+    codes = to_sign_mag(x)
+    bench = await setup(dut, prn=best.prn, doppler=best.doppler, phase=(0, frac, chip_q), integ=20)
+    await run_all(bench, codes)
+    expected = model_integ(20, prn=best.prn, doppler=best.doppler, phase=(0, frac, chip_q)).run(codes)
+    assert len(expected) == 10  # the sums span data-bit edges wherever they fall
     assert_dumps_equal(bench.dumps, expected)
 
 
