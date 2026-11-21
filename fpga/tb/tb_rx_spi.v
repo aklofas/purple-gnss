@@ -13,9 +13,10 @@ module tb_rx_spi #(
     output reg  [31:0] consumed,
     output wire        done,
     input  wire        spi_sck,
-    input  wire        spi_mosi,
     input  wire        spi_cs_n,
-    output wire        spi_miso,
+    input  wire [3:0]  spi_io_i,
+    output wire [3:0]  spi_io_o,
+    output wire [3:0]  spi_io_oe,
     input  wire        evt_in,
     output wire        dump_irq
 );
@@ -33,7 +34,8 @@ module tb_rx_spi #(
 
     rx_spi #(.N_CHANNELS(N_CHANNELS)) rx (
         .clk(clk), .rst(rst),
-        .spi_sck(spi_sck), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n), .spi_miso(spi_miso),
+        .spi_sck(spi_sck), .spi_cs_n(spi_cs_n),
+        .spi_io_i(spi_io_i), .spi_io_o(spi_io_o), .spi_io_oe(spi_io_oe),
         .pin_valid(valid), .pin_sample(sample), .pll_lock(1'b1), .evt_in(evt_in),
         .dump_irq(dump_irq)
     );

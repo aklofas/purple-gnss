@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-// rx_core behind the single-lane SPI slave: the bring-up interface for the EVN.
+// rx_core behind the SPI slave. The four data lanes come as input, output and output-enable
+// buses, so a top level wraps them in tristate buffers and a bench can see when the slave
+// drives; lane 0 is MOSI and lane 1 MISO of a single-lane master.
 module rx_spi #(
     parameter N_CHANNELS = 1,
     parameter CODE_LEN   = 1023,
@@ -9,9 +11,10 @@ module rx_spi #(
     input  wire       clk,
     input  wire       rst,
     input  wire       spi_sck,
-    input  wire       spi_mosi,
     input  wire       spi_cs_n,
-    output wire       spi_miso,
+    input  wire [3:0] spi_io_i,
+    output wire [3:0] spi_io_o,
+    output wire [3:0] spi_io_oe,
     input  wire       pin_valid,
     input  wire [1:0] pin_sample,
     input  wire       pll_lock,
@@ -22,9 +25,14 @@ module rx_spi #(
     wire [31:0] bus_wdata, bus_rdata;
     wire        bus_we, bus_re;
 
+    wire miso;
+    assign spi_io_o  = {2'b00, miso, 1'b0};
+    assign spi_io_oe = {2'b00, !spi_cs_n, 1'b0};
+    wire _unused = &{1'b0, spi_io_i[3:1]};
+
     spi_slave spi (
         .clk(clk), .rst(rst),
-        .sck(spi_sck), .mosi(spi_mosi), .cs_n(spi_cs_n), .miso(spi_miso),
+        .sck(spi_sck), .mosi(spi_io_i[0]), .cs_n(spi_cs_n), .miso(miso),
         .bus_addr(bus_addr), .bus_wdata(bus_wdata), .bus_we(bus_we), .bus_re(bus_re),
         .bus_rdata(bus_rdata)
     );
