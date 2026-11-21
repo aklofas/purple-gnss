@@ -1,9 +1,10 @@
-"""rx_spi: the single-lane SPI slave in front of rx_core (N_CHANNELS = 1, default RAM)."""
+"""rx_spi: the SPI slave in front of rx_core, on one data lane and on four (N_CHANNELS = 1,
+default RAM)."""
 
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, Timer
+from cocotb.triggers import ClockCycles, RisingEdge, Timer
 from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import gps_ca
 from pyrx.samples import read_samples
@@ -229,15 +230,18 @@ async def cs_rise_mid_word_drops_it_and_clears(dut):
     await spi.write(R.MEAS_PERIOD, 0x12345678)
     await spi.abort_mid_word(R.MEAS_PERIOD, 0xFFFFFFFF)
     assert await spi.read(R.MEAS_PERIOD) == 0x12345678
-    # in a quad burst: two whole words, then five nibbles of a third
+    # in a quad burst from DUMP_CLEAR: two whole words, then five nibbles of a third, which
+    # would be MEAS_PERIOD's
     quad = SpiMaster(dut, quad=True)
-    await quad._begin(R.CMD_WRITE | R.CMD_INCR | R.CMD_QUAD, R.MEAS_PERIOD)
-    for word in (0xA5A5A5A5, 0):
+    await quad._begin(R.CMD_WRITE | R.CMD_INCR | R.CMD_QUAD, R.DUMP_CLEAR)
+    for word in (0, 0):
         await quad._word_out(word, True)
     for nibble in (0xF, 0xF, 0xF, 0xF, 0xF):
         await quad._clock(nibble)
     await quad._end()
-    assert await spi.read_words(R.MEAS_PERIOD, 4) == [0xA5A5A5A5, 1, 0, 0]
+    assert await spi.read(R.MEAS_PERIOD) == 0x12345678
+    await quad.write_words(R.DUMP_CLEAR, [0, 0, 0xA5A5A5A5])  # the same burst whole: it lands
+    assert await spi.read(R.MEAS_PERIOD) == 0xA5A5A5A5
     await spi.write(R.PLAYBACK_LEN, 77)  # the next frame parses cleanly
     assert await spi.read(R.PLAYBACK_LEN) == 77
     assert await link_status(spi) == (0, 0, 0)
@@ -261,10 +265,91 @@ async def write_overrun_is_counted_not_corrupted(dut):
     await spi._end()
     await ClockCycles(dut.clk, 20)
     accepted = await spi.read(R.PB_ADDR)
-    bad, overruns, underruns = await link_status(spi)
-    assert accepted == 6 and overruns == 6 and (bad, underruns) == (0, 0)  # two, then a queue of four
+    assert accepted == 6  # two, then a queue of four
+    assert await link_status(spi) == (0, 1, 0)  # one frame lost words
     assert [int(dut.core.pb.mem[i].value) for i in range(accepted)] == words[:accepted]
     assert await spi.read(R.ID) == R.ID_VALUE
+
+
+async def watch_bus_writes(dut, log: list) -> None:
+    """Append (address, data) of every write the slave puts on the register bus."""
+    while True:
+        await RisingEdge(dut.clk)
+        if int(dut.bus_we.value):
+            log.append((int(dut.bus_addr.value), int(dut.bus_wdata.value)))
+
+
+def fabric_clock(dut):
+    return cocotb.start_soon(Clock(dut.clk, CLK_NS, unit="ns").start())
+
+
+@cocotb.test()
+async def write_overrun_drops_the_rest_of_the_frame(dut):
+    # the fabric clock stalls inside an auto-increment burst and comes back before the burst
+    # ends: once a word was dropped, a later word of that frame would land on an earlier
+    # address, so none of them may be written
+    spi = await start(dut)
+    writes: list = []
+    cocotb.start_soon(watch_bus_writes(dut, writes))
+    base = 0x4000  # unmapped: the bus sees the writes, no register takes them
+    words = [int(w) for w in np.random.default_rng(4).integers(0, 2**32, size=12)]
+    await spi._begin(R.CMD_WRITE | R.CMD_INCR, base)
+    for word in words[:2]:
+        await spi._word_out(word, False)
+    await Timer(5 * CLK_NS, unit="ns")
+    spi.clock.cancel()
+    for word in words[2:8]:  # four queue up, two find the queue full
+        await spi._word_out(word, False)
+    spi.clock = fabric_clock(dut)
+    await ClockCycles(dut.clk, 12)  # the queue has room again
+    for word in words[8:]:
+        await spi._word_out(word, False)
+    await spi._end()
+    await ClockCycles(dut.clk, 20)
+    assert writes == [(base + i, words[i]) for i in range(6)]
+    assert await link_status(spi) == (0, 1, 0)
+    # the next frame is whole again
+    writes.clear()
+    await spi.write_words(base, words[:3])
+    await ClockCycles(dut.clk, 20)
+    assert writes == [(base + i, words[i]) for i in range(3)]
+
+
+@cocotb.test()
+async def frame_whose_header_finds_the_queue_full_is_dropped_whole(dut):
+    # with the fabric clock stalled, one frame fills the queue and the next one's command and
+    # address are refused: its words must not be written at the first frame's address
+    spi = await start(dut)
+    writes: list = []
+    cocotb.start_soon(watch_bus_writes(dut, writes))
+    await ClockCycles(dut.clk, 4)
+    spi.clock.cancel()
+    await spi.write_words(0x4000, [0x11, 0x22, 0x33])  # header and three words: the queue is full
+    await spi.write_words(0x5000, [0x44, 0x55])
+    spi.clock = fabric_clock(dut)
+    await ClockCycles(dut.clk, 20)
+    assert writes == [(0x4000, 0x11), (0x4001, 0x22), (0x4002, 0x33)]
+    assert await link_status(spi) == (0, 1, 0)
+    writes.clear()
+    await spi.write_words(0x5000, [0x44, 0x55])
+    await ClockCycles(dut.clk, 20)
+    assert writes == [(0x5000, 0x44), (0x5001, 0x55)]
+
+
+@cocotb.test()
+async def events_during_a_fabric_stall_are_all_counted(dut):
+    # the counts cross from the SCK domain, so they must survive a stretch in which the
+    # fabric clock does not run: 40 rejected frames and one long dropped burst
+    spi = await start(dut)
+    await ClockCycles(dut.clk, 4)
+    spi.clock.cancel()
+    for _ in range(40):
+        await spi.raw_frame(bytes([0x80, 0x00, R.MEAS_PERIOD, 0, 0, 0, 1]))
+    await spi.write_words(R.PB_DATA, range(300), increment=False, quad=True)
+    spi.clock = fabric_clock(dut)
+    await ClockCycles(dut.clk, 20)
+    assert await link_status(spi) == (40, 1, 0)
+    assert await spi.read(R.PB_ADDR) == 3  # the three words the queue held
 
 
 @cocotb.test()
@@ -364,7 +449,7 @@ async def cs_glitch_restarts_the_framing(dut):
 
 @cocotb.test()
 async def sample_count_words_are_live(dut):
-    # neither count word reacts to a read (every read fetches one word past its end, so a
+    # neither count word reacts to a read (every read fetches past its end, so a
     # read side effect would fire from reads of other registers); a coherent 48-bit value
     # comes from the measurement latch, taken on a write
     spi = await start(dut)
