@@ -6,7 +6,7 @@ from pyrx.acquisition import acquire_l1ca
 from pyrx.codes import gps_ca
 from pyrx.samples import read_samples
 
-from fpgamodel.channel import Channel, Dump, Measurement, synthetic_codes
+from fpgamodel.channel import Channel, Dump, Measurement, code_step, synthetic_codes
 from fpgamodel.compare import start_phase
 from fpgamodel.quantize import code_bits, to_sign_mag
 from tb.support import (
@@ -432,6 +432,127 @@ async def random_code_high_rate_half_chip(dut):
 async def random_code_high_rate_half_chip_1024(dut):
     # built with CODE_LEN = 1024
     await _random_code_high_rate(dut, 1024)
+
+
+JUST_UNDER_A_CHIP = 2**34 - 1  # the chip index advances on every sample but one in 2^34
+L5_AT_38_4_MSPS = code_step(10.23e6, 38.4e6)  # 0.266 chips per sample
+L5_AT_24_MSPS = code_step(10.23e6, 24e6)  # 0.426 chips per sample
+CARR_STEP = round(0.3 * 2**32)
+
+
+def _code_len(dut) -> int:
+    return int(dut.CODE_LEN.value)
+
+
+def _random_code(dut) -> np.ndarray:
+    return np.random.default_rng(_code_len(dut)).integers(0, 2**32, size=32, dtype=np.uint64)
+
+
+def _random_code_model(dut, step: int, spacing_q: int, phase=(0, 0, 0)) -> Channel:
+    m = Channel(_random_code(dut), code_len=_code_len(dut))
+    m.spacing_q = spacing_q
+    m.set_steps(CARR_STEP, step)
+    m.set_phase(*phase)
+    m.enabled = True
+    return m
+
+
+async def _high_code_rate(dut, step: int, n: int, gaps=(0,)) -> None:
+    # a random code and random samples at both tap spacings: the RTL's dumps are the model's
+    # (the same in a build with CODE_LEN = 1024)
+    codes = np.random.default_rng(step % 1000).integers(0, 4, size=n, dtype=np.uint8)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(_random_code(dut))
+    for spacing_q in (1, 2):
+        for gap in gaps:
+            await bench.restart()
+            dut.spacing_q.value = spacing_q
+            bench.set_steps(CARR_STEP, step)
+            await bench.load_phase(0, 0, 0)
+            await bench.set_enable(True)
+            await run_all(bench, codes, gap)
+            expected = _random_code_model(dut, step, spacing_q).run(codes)
+            assert len(expected) >= 3
+            assert_dumps_equal(bench.dumps, expected)
+
+
+@cocotb.test()
+async def code_step_just_under_one_chip_per_sample(dut):
+    await _high_code_rate(dut, JUST_UNDER_A_CHIP, 6000)
+
+
+@cocotb.test()
+async def l5_ratio_at_38_4_msps(dut):
+    await _high_code_rate(dut, L5_AT_38_4_MSPS, 16_000)
+
+
+@cocotb.test()
+async def l5_ratio_at_24_msps(dut):
+    await _high_code_rate(dut, L5_AT_24_MSPS, 10_000)
+
+
+@cocotb.test()
+async def l5_ratio_with_valid_gaps(dut):
+    await _high_code_rate(dut, L5_AT_24_MSPS, 10_000, gaps=(1, 3))
+
+
+@cocotb.test()
+async def enable_right_after_phase_load_at_high_code_rates(dut):
+    # the phase lands two chips before the code's end and the enable follows on the next
+    # clock: the first samples after the guard already advance the chip index across the
+    # end of the code, and every tap must hold the right chip
+    codes = np.random.default_rng(5).integers(0, 4, size=14_000, dtype=np.uint8)
+    phase = (0x1234_5678, 0xF000_0000, 4 * (_code_len(dut) - 2) + 3)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(_random_code(dut))
+    for step in (JUST_UNDER_A_CHIP, L5_AT_24_MSPS):
+        await bench.restart()
+        dut.spacing_q.value = 2
+        bench.set_steps(CARR_STEP, step)
+        await bench.load_samples(codes)
+        bench.stream()
+        await bench.pause_at(5000)
+        dut.carr_phase_in.value, dut.code_frac_in.value, dut.chip_q_in.value = phase
+        dut.load_phase.value = 1
+        bench.resume()
+        await cocotb.triggers.RisingEdge(dut.clk)
+        dut.load_phase.value = 0
+        dut.enable.value = 1  # no wait for the chips around the new phase
+        await bench.finish()
+        k0 = bench.started()[1]
+        assert k0 == 5009, k0  # the eight-clock guard, then the first sample it accepts
+        expected = _random_code_model(dut, step, 2, phase).run(codes[k0:])
+        assert len(expected) >= 3
+        shifted = [Dump(d.epoch, d.ie, d.qe, d.ip, d.qp, d.il, d.ql, d.sample + k0) for d in expected]
+        assert_dumps_equal(bench.dumps, shifted)
+
+
+@cocotb.test()
+async def measurement_latch_at_l5_ratio(dut):
+    # the latch splits the code phase as the register map does: the quarter-chip index (chip
+    # index and the top two fraction bits) and the low 32 fraction bits; strobes on the
+    # sample that ends a code period, the one after it and a later one
+    codes = np.random.default_rng(6).integers(0, 4, size=16_000, dtype=np.uint8)
+    phase = (0x0F0F_0F0F, 0x1357_9BDF, 2601)
+    bench = ChannelBench(dut)
+    await bench.start()
+    await bench.load_code(_random_code(dut))
+    dut.spacing_q.value = 1
+    bench.set_steps(CARR_STEP, L5_AT_38_4_MSPS)
+    await bench.load_phase(*phase)
+    await bench.set_enable(True)
+    await bench.load_samples(codes)
+    bench.stream()
+    wrap = _random_code_model(dut, L5_AT_38_4_MSPS, 1, phase).run(codes)[0].sample - 1
+    m = _random_code_model(dut, L5_AT_38_4_MSPS, 1, phase)
+    for k in (wrap, wrap + 1, wrap + 1001):
+        await bench.strobe_with_sample(k)
+        m.run(codes[m.sample_count : k])  # up to the strobed sample
+        assert await bench.latched() == _latch_of(m.measurement()), k
+    assert m.epoch == 1 and m.chip_q != 0
+    await bench.finish()
 
 
 @cocotb.test()

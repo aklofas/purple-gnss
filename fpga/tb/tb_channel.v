@@ -28,7 +28,7 @@ module tb_channel #(
     input  wire        enable,
     input  wire [4:0]  integ,
     input  wire [31:0] carr_step,
-    input  wire [31:0] code_step,
+    input  wire [33:0] code_step,
     input  wire [1:0]  spacing_q,
     input  wire        load_phase,
     input  wire [31:0] carr_phase_in,
