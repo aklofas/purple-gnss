@@ -2,11 +2,12 @@
 // Bench wrapper around one channel: streams 2-bit samples from samples.hex (read when
 // `load` rises), one per clock with `gap` idle cycles between them, holds the stream
 // while `pause_en` and consumed == pause_at, and reports the consumed-sample count as it
-// stood when each dump's last sample went in (dump_sample). Test-only.
+// stood when each dump's last sample went in (dump_sample) and when the channel flagged
+// its first accepted sample (started_at, with started_count pulses so far). Test-only.
 module tb_channel #(
     parameter CODE_LEN = 1023,
     parameter CODE_AW = ($clog2(CODE_LEN) > 6) ? $clog2(CODE_LEN) : 6,
-    parameter ACC_W = 20,
+    parameter ACC_W = 25,
     parameter MAX_SAMPLES = 5_000_000,
     parameter DUMP_LATENCY = 2   // clock edges from the one taking the wrap sample to dump high
 ) (
@@ -22,7 +23,10 @@ module tb_channel #(
     output wire        paused,
     output wire        done,
     output wire [31:0] dump_sample,
+    output reg  [31:0] started_at,
+    output reg  [31:0] started_count,
     input  wire        enable,
+    input  wire [4:0]  integ,
     input  wire [31:0] carr_step,
     input  wire [31:0] code_step,
     input  wire [1:0]  spacing_q,
@@ -71,10 +75,22 @@ module tb_channel #(
     end
     assign dump_sample = consumed_d[DUMP_LATENCY];
 
+    wire started;
+    always @(posedge clk) begin
+        if (rst) begin
+            started_at <= 0;
+            started_count <= 0;
+        end else if (started) begin
+            started_at <= consumed;   // the index of the sample going in on this edge
+            started_count <= started_count + 1;
+        end
+    end
+
     channel #(.CODE_LEN(CODE_LEN), .CODE_AW(CODE_AW), .ACC_W(ACC_W)) ch (
         .clk(clk), .rst(rst),
         .sample_valid(valid), .sample(sample),
-        .enable(enable), .carr_step(carr_step), .code_step(code_step), .spacing_q(spacing_q),
+        .enable(enable), .integ(integ), .started(started),
+        .carr_step(carr_step), .code_step(code_step), .spacing_q(spacing_q),
         .load_phase(load_phase), .carr_phase_in(carr_phase_in), .code_frac_in(code_frac_in),
         .chip_q_in(chip_q_in),
         .code_we(code_we), .code_waddr(code_waddr), .code_wdata(code_wdata),

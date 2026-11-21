@@ -155,7 +155,8 @@ module rx_core #(
         code_waddr_r <= ch_code_addr[ch_k[KW-1:0]];
     end
 
-    wire [N_CHANNELS-1:0]       ch_dump;
+    wire [N_CHANNELS-1:0]       ch_dump, ch_started;
+    wire _unused_started = &{1'b0, ch_started};  // until the first-sample latch reads it
     wire [32*N_CHANNELS-1:0]    ch_epoch, ch_meas_carr, ch_meas_frac, ch_meas_epoch;
     wire [(CODE_AW+2)*N_CHANNELS-1:0] ch_meas_chip;
     wire [ACC_W*N_CHANNELS-1:0] ch_ie, ch_qe, ch_ip, ch_qp, ch_il, ch_ql;
@@ -216,6 +217,7 @@ module rx_core #(
             .clk(clk), .rst(rst_i),
             .sample_valid(src_valid), .sample(src_sample),
             .enable(ch_en[k]),  // the global enable gates src_valid instead, so it never restarts the channel's enable guard
+            .integ(5'd1), .started(ch_started[k]),
             .carr_step(ch_carr_step[k]), .code_step(ch_code_step[k]), .spacing_q(ch_spacing[k]),
             .load_phase(ch_load[k]), .carr_phase_in(ch_carr_ph[k]), .code_frac_in(ch_code_frac[k]),
             .chip_q_in(ch_chip_q[k]),
