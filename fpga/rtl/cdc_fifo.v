@@ -4,9 +4,10 @@
 // its write pointer has crossed, long after the data settled).
 //
 // A write with the FIFO full and a read with it empty are ignored. Each side has its own
-// asynchronous reset, which also clears that side's copy of the other pointer; resetting one
-// side alone leaves the pointers apart, so both are reset together (not necessarily at the
-// same instant) while neither side is in use.
+// asynchronous reset, which also clears that side's copy of the other pointer. Resetting one
+// side alone leaves the pointers apart, so both are reset, not necessarily at the same
+// instant: between the two resets the FIFO's contents and flags mean nothing, and the side
+// reset later must not rely on them.
 module cdc_fifo #(
     parameter WIDTH      = 32,
     parameter DEPTH_LOG2 = 2
@@ -24,7 +25,7 @@ module cdc_fifo #(
 );
     localparam AW = DEPTH_LOG2;
     localparam [AW:0] ONE = 1;
-    localparam [AW:0] FULL_DIFF = {(AW+1){1'b1}} << (AW - 1);  // the two top bits: pointers a lap apart
+    localparam [AW:0] FULL_DIFF = {(AW+1){1'b1}} << (AW - 1);  // the top two bits: a lap apart
 
     reg [WIDTH-1:0] mem [0:(1 << AW) - 1];
     reg [AW:0] wbin, wgray, rgray_w1, rgray_w2;  // write side, with its copy of the read pointer

@@ -193,7 +193,7 @@ class Channel:
         self.carr_acc = (self.carr_acc + self.carr_step) & MASK32
         total = self.code_acc + self.code_step
         self.code_acc = total & MASK32
-        self.chip_q += total >> 32  # up to three quarter chips
+        self.chip_q += total >> 32  # up to four quarter chips
         if self.chip_q >= self.n_q:
             self.chip_q -= self.n_q
             return self._period_end()

@@ -107,7 +107,7 @@ samples and 3-level oscillator against a float correlator is measured below.
 `rx_core` exposes everything on a 16-bit word-address, 32-bit data bus (`fpgamodel.regmap`
 holds the same constants). A write lands on the clock where `bus_we` is high; a read returns
 its word the clock after `bus_re`. Unmapped addresses read zero and ignore writes. Reads have
-no side effects: the SPI slave fetches up to two words past every read, so no register
+no side effects: the SPI slave fetches up to three words past every read, so no register
 snapshots, latches or clears on a read; anything that needs a snapshot takes it on a write.
 
 Global block at `0x0000`:
@@ -129,7 +129,7 @@ Global block at `0x0000`:
 | 0x0C | `PLAYBACK_LEN` | RW | samples; clamped to `PB_DEPTH`, 0 is done at once |
 | 0x0D | `PB_DEPTH` | R | playback RAM size in samples |
 | 0x0E | `MEAS_SEQ` | R | measurement strobes since reset; read it before and after a channel's `MEAS_*` words and read again if it changed |
-| 0x0F | `LINK_STATUS` | R | the SPI slave's error counters, saturating, zeroed by a soft reset: bits 15:0 frames rejected for a command byte without the signature, bits 23:16 write words dropped because the fabric side had not taken the ones before (only a stalled fabric clock does this), bits 31:24 read frames whose data was clocked out before it arrived (such a frame returns zeros from the missing word on) |
+| 0x0F | `LINK_STATUS` | R | the SPI slave's error counters, saturating, zeroed by a soft reset: bits 15:0 frames rejected for a command byte without the signature, bits 23:16 write frames that lost words because the fabric side had not taken the ones before (only a stalled fabric clock does this; from the first lost word on, the rest of the frame is dropped too), bits 31:24 read frames whose data was clocked out before it arrived (such a frame returns zeros from the missing word on) |
 | 0x100 | `PB_ADDR` | RW | playback word index; a `PB_DATA` write at or past the end (`PB_DEPTH` / 16 words) is dropped and leaves it there |
 | 0x101 | `PB_DATA` | W | 16 samples, bits [2i+1:2i] = sample 16·addr+i; auto-increments `PB_ADDR`; burst it with a fixed address (command bit 6 = 0) |
 
@@ -202,9 +202,8 @@ per second, on the bench a timer output of the MCU. The `evt_in` pin passes a tw
 synchronizer, and the chosen edge latches the count of the sample then going in, two clocks
 after the pin changed; `EVT_SEQ` counts the stamps. Read `EVT_SEQ`, the two sample words and
 `EVT_SEQ` again, and read again when it changed. An edge that comes before 16 samples have
-passed since the last stamp is not stamped but counted in `EVT_MISSED`, so the words hold
-still for that long; the spacing is counted in samples, so with no samples flowing only the
-first edge is stamped.
+passed since the last stamp is not stamped but counted in `EVT_MISSED`; the spacing is counted
+in samples, so with no samples flowing only the first edge is stamped.
 
 Three things to know when driving the bus. A channel's enable takes effect eight clocks after
 it is written (the channel spends them re-reading the chips around its code phase, so a phase
@@ -256,9 +255,12 @@ the slowest on the EVN); in simulation the first word is in time at every phase 
 1.1 times the fabric clock, and at 40 MHz against 34.9 MHz every word of a long burst was
 right. A read that outruns its data returns zeros from the missing word on and is counted in
 `LINK_STATUS`. Later words have a whole word time to arrive. Writes are taken at one word per
-fabric clock, far faster than a link can send them. CS must stay high for at least three fabric
-clocks between frames. A read fetches ahead of what it sends, up to two words past its last
-one (the same address again in fixed mode), which is why no register reacts to a read.
+fabric clock, far faster than a link can send them; if the fabric clock stalls and a word finds
+no room, that word and the rest of its frame are dropped and the frame is counted. CS must
+stay high for at least three fabric clocks between frames: after a shorter gap a read can
+return words fetched for the frame before it, with nothing counted. A read fetches ahead of
+what it sends, up to three words past its last one (the same address again in fixed mode),
+which is why no register reacts to a read.
 
 The shape (command, address, dummy cycles, data, burst) is the STM32 OCTOSPI's indirect mode:
 instruction 8 bits on one line, address 16 bits on one line, 8 dummy cycles on reads and 0 on

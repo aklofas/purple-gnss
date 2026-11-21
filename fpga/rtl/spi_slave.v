@@ -15,18 +15,25 @@
 // address, then each write word; the fabric side issues the writes in order. For a read
 // the fabric side fetches the word at the address as soon as the request arrives and keeps
 // the response FIFO filled, the address advancing per word in auto-increment mode, so a
-// read fetches up to two words past its last one: nothing on the bus may react to a read.
+// read fetches up to three words past its last one: nothing on the bus may react to a read.
 //
 // Rates. The first read word has to cross within the eight dummy clocks: up to five fabric
 // clocks for the request to cross and the bus to answer, then two SCK clocks for the
-// answer to cross back, so six SCK periods must be longer than five fabric clock periods. A word that is not there in time is sent as zero, with every word
-// after it in that frame, and the frame is counted as an underrun. A write word finding the
-// request FIFO full (the fabric takes one per clock, so only a stalled fabric clock does
-// this) is dropped and counted as an overrun. CS must stay high for at least three fabric
-// clocks between frames, so the fabric side sees every frame end.
+// answer to cross back, so six SCK periods must be longer than five fabric clock periods. A
+// word that is not there in time is sent as zero, with every word after it in that frame,
+// and the frame is counted as an underrun. A request finding its
+// FIFO full (the fabric takes one per clock, so only a stalled fabric clock does this) is
+// dropped with every later request of that frame, since a later word would land on an
+// earlier one's address, and the frame is counted as an overrun.
 //
-// bad_frames, overruns and underruns saturate; clr zeroes them. rst is the power-on reset
-// only: it must not come while a frame is in flight.
+// CS must stay high for at least three fabric clocks between frames, so the fabric side
+// sees every frame end; after a shorter gap a read can return words fetched for the frame
+// before it, and nothing counts that. CS must also stay low for half an SCK period after the
+// last rising edge, as any master in mode 0 holds it: the request written on that edge is
+// taken by flops that CS resets.
+//
+// bad_frames, overruns and underruns count frames and saturate; clr zeroes them. rst resets
+// both clock domains and must not come while a frame is in flight.
 module spi_slave (
     input  wire        clk,
     input  wire        rst,
@@ -62,6 +69,7 @@ module spi_slave (
     reg [30:0] sh;
     reg        c_read, c_incr, c_quad;
     reg        starved;   // a read word was not there: zeros until the frame ends
+    reg        dropped;   // a request found its FIFO full: none after it until the frame ends
     reg [31:0] hold;      // the next word to send, taken over on the falling edge
     reg        load, drive;
 
@@ -71,10 +79,11 @@ module spi_slave (
     wire        word_last = c_quad ? (cnt[2:0] == 3'd7) : (cnt == 5'd31);
     wire        hdr_done  = (phase == P_HEADER) && (cnt == 5'd23);
     wire        wr_word   = (phase == P_WRITE) && word_last;
-    wire        rd_pop    = ((phase == P_DUMMY) && (cnt[2:0] == 3'd7)) || ((phase == P_READ) && word_last);
+    wire        rd_pop    = ((phase == P_DUMMY) && (cnt[2:0] == 3'd7))
+                         || ((phase == P_READ) && word_last);
 
     // a request is written on the very edge that brings its last bit
-    wire        req_we    = hdr_done || wr_word;
+    wire        req_we    = (hdr_done || wr_word) && !dropped;
     wire [32:0] req_wdata = hdr_done ? {1'b1, 14'd0, c_read, c_incr, sh[14:0], io_i[0]}
                                      : {1'b0, word_now};
 
@@ -82,9 +91,10 @@ module spi_slave (
         if (frame_rst) begin
             phase <= P_HEADER; cnt <= 5'd0;
             c_read <= 1'b0; c_incr <= 1'b0; c_quad <= 1'b0;
-            starved <= 1'b0; load <= 1'b0; drive <= 1'b0;
+            starved <= 1'b0; dropped <= 1'b0; load <= 1'b0; drive <= 1'b0;
         end else begin
             load <= 1'b0;
+            if (req_we && req_full) dropped <= 1'b1;
             case (phase)
                 P_HEADER: begin
                     sh  <= {sh[29:0], io_i[0]};
@@ -136,15 +146,15 @@ module spi_slave (
     assign io_o  = c_quad ? osr[31:28] : {2'b00, osr[31], 1'b0};
     assign io_oe = !oe_r ? 4'b0000 : c_quad ? 4'b1111 : 4'b0010;
 
-    // events, counted in gray code for the fabric side to follow; they outlive the frame
-    reg [3:0] bad_bin, bad_gray;
-    reg [7:0] ovr_bin, ovr_gray, und_bin, und_gray;
-    wire [3:0] bad_next = bad_bin + 4'd1;
+    // events, counted per frame in gray code for the fabric side to follow (exact for up to
+    // 255 of a kind between two fabric clock edges); they outlive the frame
+    reg [7:0] bad_bin, bad_gray, ovr_bin, ovr_gray, und_bin, und_gray;
+    wire [7:0] bad_next = bad_bin + 8'd1;
     wire [7:0] ovr_next = ovr_bin + 8'd1;
     wire [7:0] und_next = und_bin + 8'd1;
     always @(posedge sck or posedge rst) begin
         if (rst) begin
-            bad_bin <= 4'd0; bad_gray <= 4'd0; ovr_bin <= 8'd0; ovr_gray <= 8'd0;
+            bad_bin <= 8'd0; bad_gray <= 8'd0; ovr_bin <= 8'd0; ovr_gray <= 8'd0;
             und_bin <= 8'd0; und_gray <= 8'd0;
         end else begin
             if (sig_bad) begin
@@ -221,22 +231,23 @@ module spi_slave (
     wire resp_wrst = rst | cs_high;
     cdc_fifo #(.WIDTH(32), .DEPTH_LOG2(1)) resp (
         .wclk(clk), .wrst(resp_wrst), .we(resp_we), .wdata(bus_rdata), .full(resp_full),
-        .rclk(sck), .rrst(frame_rst), .re(rd_pop && !starved), .rdata(resp_rdata), .empty(resp_empty)
+        .rclk(sck), .rrst(frame_rst), .re(rd_pop && !starved), .rdata(resp_rdata),
+        .empty(resp_empty)
     );
 
     // the event counts, followed from the SCK domain and added up with saturation
     function [7:0] gray_to_bin(input [7:0] g);
-        gray_to_bin = g ^ (g >> 1) ^ (g >> 2) ^ (g >> 3) ^ (g >> 4) ^ (g >> 5) ^ (g >> 6) ^ (g >> 7);
+        gray_to_bin = g ^ (g >> 1) ^ (g >> 2) ^ (g >> 3) ^ (g >> 4) ^ (g >> 5) ^ (g >> 6)
+                    ^ (g >> 7);
     endfunction
-    reg [3:0] bad_s1, bad_s2, bad_seen;
-    reg [7:0] ovr_s1, ovr_s2, ovr_seen, und_s1, und_s2, und_seen;
-    wire [3:0] bad_now = bad_s2 ^ (bad_s2 >> 1) ^ (bad_s2 >> 2) ^ (bad_s2 >> 3);
-    wire [3:0] bad_new = bad_now - bad_seen;
+    reg [7:0] bad_s1, bad_s2, bad_seen, ovr_s1, ovr_s2, ovr_seen, und_s1, und_s2, und_seen;
+    wire [7:0] bad_now = gray_to_bin(bad_s2);
+    wire [7:0] bad_new = bad_now - bad_seen;
     wire [7:0] ovr_now = gray_to_bin(ovr_s2);
     wire [7:0] und_now = gray_to_bin(und_s2);
     wire [7:0] ovr_new = ovr_now - ovr_seen;
     wire [7:0] und_new = und_now - und_seen;
-    wire [16:0] bad_sum = {1'b0, bad_frames} + {13'd0, bad_new};
+    wire [16:0] bad_sum = {1'b0, bad_frames} + {9'd0, bad_new};
     wire [8:0]  ovr_sum = {1'b0, overruns} + {1'b0, ovr_new};
     wire [8:0]  und_sum = {1'b0, underruns} + {1'b0, und_new};
     always @(posedge clk) begin
@@ -244,7 +255,7 @@ module spi_slave (
         ovr_s1 <= ovr_gray; ovr_s2 <= ovr_s1;
         und_s1 <= und_gray; und_s2 <= und_s1;
         if (rst) begin
-            bad_seen <= 4'd0; ovr_seen <= 8'd0; und_seen <= 8'd0;
+            bad_seen <= 8'd0; ovr_seen <= 8'd0; und_seen <= 8'd0;
             bad_frames <= 16'd0; overruns <= 8'd0; underruns <= 8'd0;
         end else begin
             bad_seen <= bad_now;

@@ -400,8 +400,8 @@ async def measurement_latch_at_load_guard_and_wrap(dut):
 
 
 async def _random_code_high_rate(dut, code_len: int) -> None:
-    # a random code at a code step of 0.99 (the NCO ticks on 99 % of the samples) and
-    # half-chip spacing: the next chip is needed three clocks after its prefetch is issued
+    # a random code at a quarter chip per sample less one percent (a quarter-chip boundary on
+    # 99 % of the samples) and half-chip spacing
     rng = np.random.default_rng(code_len)
     words = rng.integers(0, 2**32, size=32, dtype=np.uint64)
     codes = rng.integers(0, 4, size=60_000, dtype=np.uint8)
