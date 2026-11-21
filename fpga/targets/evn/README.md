@@ -1,8 +1,8 @@
 # LIFCL-40-EVN target
 
-`top.v` wraps `rx_spi` for the Lattice CrossLink-NX evaluation board (FPGA-EB-02028): SPI and
-the dump interrupt on the Raspberry Pi header JP5, two sample pins on PMOD header J17, five
-LEDs, SW2 as reset.
+`top.v` wraps `rx_spi` for the Lattice CrossLink-NX evaluation board (FPGA-EB-02028): SPI with
+four data lanes, the dump interrupt and the event input on the Raspberry Pi header JP5, two
+sample pins on PMOD header J17, five LEDs, SW2 as reset.
 
 ## Build and load
 
@@ -18,8 +18,9 @@ nextpnr can abort while writing the PLL parameters and leave a truncated FASM th
 packs without complaint, so the script also requires nextpnr's closing log line and the FASM's
 PLL and oscillator sections; and because nextpnr drops a port constraint whose selector matches
 nothing without a warning, it counts the pull-ups and pull-downs in the FASM against the ones
-`evn.pdc` asks for. `report.py` prints the utilization and the fabric clock's fmax; `report.txt`
-also records the source commit.
+`evn.pdc` asks for. `report.py` prints the utilization and the fmax of the fabric clock and of
+the SPI clock domain (SCK reaches a global clock net from N7 over general routing, N7 not
+being a clock pin); `report.txt` also records the source commit.
 
 Lint, with `lint_stubs.v` standing in for the two Lattice primitives and allowing their many
 unused ports and the registers that start from an initial value at configuration:
@@ -36,7 +37,8 @@ minimum reference (data sheet fIN), and the 125 and 200 MHz oscillators reach on
 reference pins. The fabric therefore runs from the device's internal oscillator, 450 MHz / 12
 = 37.5 MHz nominal; the oscillator is specified at 418.5 to 481.5 MHz, so the fabric runs
 between 34.9 and 40.1 MHz (the receiver does not depend on the rate: NCO step words absorb it
-and SPI is asynchronous). A GPLL referenced from the same oscillator runs
+and the SPI slave runs on SCK); on one board the oscillator measured 463 MHz, 38.6 MHz in the
+fabric. A GPLL referenced from the same oscillator runs
 alongside, 37.5 MHz × 3 = 112.5 MHz on CLKOP with a 1125 MHz VCO, only to check that a
 bitstream from the open toolchain configures a PLL that locks. For a precise clock later,
 J17 pins 1 and 2 (D10, D9) are the GPLL0 dedicated inputs and are left free.
@@ -72,26 +74,32 @@ Pins 1 and 2 carry 3.3 V and 5 V only with JP3 and JP4 closed, and both are open
 (leave them open), so tell the orientation from the grounds instead: with the board
 unpowered, pins 6, 9, 14, 20 and 25 ring through to the board's ground on a continuity
 meter and their neighbors do not. The SPI lines sit
-on the Pi's SPI0 positions. The board test drives them from the NUCLEO-H723ZG's OCTOSPI1 in
-single-line indirect mode, the peripheral the later quad-SPI link uses, so the register driver
-written for the board test carries over. Every solder bridge on the Nucleo stays at its default
-(SB59 and SB63 route NCS and CLK to CN10).
+on the Pi's SPI0 positions, the two further data lanes and the event input on free pins beside
+them. A NUCLEO-H723ZG drives them from OCTOSPI1 in indirect mode, with the data on one line
+(the first four rows and a ground are enough) or on four. Every solder bridge on the Nucleo
+stays at its default (SB59 and SB63 route NCS and CLK to CN10; SB67 also takes PE2 to CN9
+pin 14, which stays unconnected).
 
 | JP5 pin | Ball | Signal | Direction | Nucleo CN10 pin | STM32 pin | OCTOSPI1 signal |
 |---|---|---|---|---|---|---|
 | 23 | N7 | SPI SCK (pulled down) | in | 15 | PB2 | CLK |
-| 19 | N4 | SPI MOSI (pulled down) | in | 23 | PD11 | IO0 |
-| 21 | K6 | SPI MISO | out | 21 | PD12 | IO1 |
+| 19 | N4 | SPI lane 0, MOSI (pulled down) | in / out | 23 | PD11 | IO0 |
+| 21 | K6 | SPI lane 1, MISO (pulled down) | in / out | 21 | PD12 | IO1 |
+| 26 | N5 | SPI lane 2 (pulled down) | in / out | 25 | PE2 | IO2 |
+| 18 | K7 | SPI lane 3 (pulled down) | in / out | 19 | PD13 | IO3 |
 | 24 | P6 | SPI CS (active low, pulled up) | in | 13 | PG6 | NCS |
-| 22 | K5 | DUMP_IRQ (high while any dump is unread) | out | any free GPIO | | |
+| 22 | K5 | DUMP_IRQ (high while any dump is unread) | out | 20 | PE7 | a GPIO input |
+| 29 | K8 | event input (pulled down) | in | 24 | PE10 | TIM1_CH2N, as a test pulse |
 | 25 | | GND | | 17 | GND | |
 
-Join the grounds; do not join the two boards' 3.3 V supplies. The fallback, if the OCTOSPI does
-not come up, is SPI1 on the CN7 Arduino header (SCK D13 / PA5, MISO D12 / PA6, MOSI D11 / PB5
-or PA7 by SB33/SB35, CS D10 / PD14 as a GPIO). Its HAL driver releases SCK and MOSI between
-calls and can shorten the last clock pulse when it disables the peripheral (ES0491 2.21.5), so
-with it send each transaction as one call and check on a logic analyzer that the last SCK high
-time and the CS hold after it are both at least two fabric clocks (57 ns at 34.9 MHz).
+Join the grounds; do not join the two boards' 3.3 V supplies. The slave releases every lane
+when it is not sending read data, so a read with the FPGA not loaded, or with a wire off,
+returns whatever the line floats to (zeros with the FPGA's pull-downs in place), never a
+driven idle level.
+
+The configuration pins this target does not use are free for a design: with a bitstream from
+this toolchain, ball D14 (MSPI DQ2, pin 11 of the parallel configuration header J20) was seen
+toggling as an ordinary output, 0 V to 3.3 V.
 
 J17 (PMOD0) pins 3 and 4 (D7, D8) are the live sample input `{sign, mag}`; nothing drives them
 on the EVN, so they are pulled down, and `pin_valid` is tied high, so select the playback source
@@ -113,27 +121,29 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    LED0 on with LED4 blinking shows the PLL locked. If LED0 stays off, check that the PLL
    settings above reached the bitstream (`grep IP_PLL_ build/n1/top.fasm` shows `PLLPD_N` and
    `FBK_MASK`) and whether LED4 runs at all, and note what was seen.
-2. Configure OCTOSPI1 for indirect mode on one line (IMODE, ADMODE and DMODE = 1 line):
+2. Configure OCTOSPI1 for indirect mode (IMODE and ADMODE = 1 line, DMODE = 1 line or 4):
    instruction 8 bits, address 16 bits, 8 dummy cycles on reads and none on writes, DLR =
    4n − 1 for n words, CKMODE 0 (clock idle low), SSHIFT 0, DLYBYP 1 (no delay block), DEVSIZE
    31 (the address is a word index, so the OCTOSPI's byte-based size check must never bind),
-   and a prescaler that puts CLK just under 4.3 MHz, an eighth of the slowest fabric clock
-   (kernel clock / (PRESCALER + 1); 275 MHz / 64 = 4.3 MHz). Do not go much slower: a dump's
-   service in step 4 is nine reads and a write, about 630 CLK cycles plus the host's turnaround,
-   which is 150 µs of the 0.64 ms between dumps at 4.3 MHz and no longer fits below about 1 MHz
-   (`DUMP_MISSED` then counts up). The OCTOSPI keeps CLK low between
-   commands and holds NCS a full CLK cycle after the last edge, which meets the slave's timing
-   ([SPI transaction](../../README.md#spi-transaction)) at any such prescaler. Words go out
-   high byte first, so byte-swap each 32-bit word of a little-endian buffer. Read `ID`
-   (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x00010200` (register map 0x0200,
-   measurement latch present).
+   and a prescaler for a CLK of up to 25 MHz (kernel clock / (PRESCALER + 1)). Do not go
+   much below 1 MHz: a dump's service in step 4 is a burst of eight words, a write and a
+   read, about 420 CLK cycles on one line plus the host's turnaround, against 0.64 ms between
+   dumps (`DUMP_MISSED` counts up when it no longer fits). The OCTOSPI holds NCS high for at
+   least a CLK cycle between commands; the slave wants three fabric clocks, 86 ns at the
+   slowest, so above 11 MHz set CSHT for it
+   ([SPI transaction](../../README.md#spi-transaction)). Words go out high byte first, so
+   byte-swap each 32-bit word of a little-endian buffer. The command bytes are 0x16 read and
+   0x96 write, plus 0x40 to auto-increment the address and 0x20 for data on four lanes. Read
+   `ID` (0x0000) and expect `0x50474E53`, `VERSION` (0x0001) = `0x000F0300` (register map
+   0x0300), `LINK_STATUS` (0x000F) = 0.
 3. On the host, acquire the first 3 ms of the recording (`pyrx.acquisition.acquire_l1ca`,
    PRN 1 to 32, keep the strongest) and convert the samples with
    `fpgamodel.quantize.to_sign_mag`. With chip rate = 1.023 MHz × (1 + Doppler / 1575.42 MHz),
    `fpgamodel.compare.start_phase(code_offset, chip rate)` gives `CODE_CHIP` and
    `CODE_PHASE_FRAC`; `fpgamodel.channel.nco_step(6 MHz + Doppler, 24 MHz)` gives `CARR_STEP`
-   and `nco_step(4 × chip rate, 24 MHz)` gives `CODE_STEP`. Use 24 MHz in `nco_step` even
-   though playback runs at the EVN fabric clock: the step words are per sample. Then, over
+   and `fpgamodel.channel.code_step(chip rate, 24 MHz)` gives `CODE_STEP` (below 2^32 for
+   L1 C/A, so `CODE_STEP_HI` stays at its reset value 0). Use 24 MHz for both even though
+   playback runs at the EVN fabric clock: the step words are per sample. Then, over
    SPI and in this order: `CODE_WR_ADDR` (0x1009) = 0 and the PRN's 32 code words
    (`fpgamodel.quantize.code_bits(pyrx.codes.gps_ca(prn))`, also what `Channel` takes) to
    `CODE_WR_DATA` (0x100A) as two bursts of 16, reading `CODE_WR_ADDR` between them (expect
@@ -143,11 +153,11 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `CARR_STEP`, `CODE_STEP`, `CARR_PHASE` = 0, `CODE_PHASE_FRAC`, `CODE_CHIP` (0x1003 to
    0x1007); `CH_CTRL` (0x1000) = 1; `CTRL` = 5 (enable, playback source); `PLAYBACK_LEN` =
    72000 (samples); and `PLAYBACK_CTRL` = 1 last, since playback runs from that write.
-4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read `EPOCH` (0x100B), the signed 32-bit sums
-   `IE..QL` (0x1010 to 0x1015) and `EPOCH` again: if it changed, a dump landed during the
-   read, so discard what was read and read again without clearing. Otherwise write
-   `DUMP_CLEAR` = 1 and read `EPOCH` a third time: if that changed, keep the dump and read
-   again at once. Playback runs one sample per fabric clock, so a dump arrives
+4. Poll `DUMP_PENDING` or watch DUMP_IRQ; read eight words from 0x100F in one auto-increment
+   burst: `EPOCH`, the signed 32-bit sums `IE..QL` and `EPOCH` again. If the two `EPOCH`
+   words differ, a dump landed during the read, so discard what was read and read again
+   without clearing. Otherwise write `DUMP_CLEAR` = 1 and read `EPOCH` (0x100B): if that
+   changed, keep the dump and read again at once. Playback runs one sample per fabric clock, so a dump arrives
    about every 0.64 ms. When `STATUS` bit 2 (done) is set and nothing
    is pending, `DUMP_MISSED` (0x100C) must read 0 and `SAMPLE_CNT_LO` 72000 (a new run does
    not clear the count: soft-reset first if anything ran before, a previous playback run or
@@ -156,4 +166,5 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    (`set_steps`, `set_phase(0, CODE_PHASE_FRAC, CODE_CHIP)`, `enabled = True`, `run`): the
    board returns as many dumps as the model, and each dump's epoch and six sums equal the
    model's (the board reports no sample index, so the model's `sample` field is not compared).
-   `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this sequence in simulation.
+   `fpga/tb/cocotb_spi.py::board_sequence_over_spi` is this sequence in simulation, on one
+   lane and on four. At the end `LINK_STATUS` must still read 0.
