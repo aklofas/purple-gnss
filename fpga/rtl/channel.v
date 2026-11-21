@@ -9,8 +9,11 @@
 // followed at once by enable is still exact. A code write while enabled would leave those
 // cached chips stale, so the core only passes code writes to a disabled channel. The code is
 // held as CODE_LEN bits in 32-bit words (bit set = chip value -1), written over code_we. The
-// code NCO counts quarter chips (index 0 to 4 * CODE_LEN - 1) and ticks at most once per
-// sample, so the sample rate must exceed four times the chip rate; the index wrapping ends a
+// code phase is a chip index (0 to CODE_LEN - 1) and a 34-bit fraction of a chip; each sample
+// adds code_step, chips per sample x 2^34, so the index advances at most once per sample and
+// the sample rate must exceed the chip rate. On the ports the phase is split as the register
+// map has it: the quarter-chip index {chip index, top two fraction bits} and the low 32
+// fraction bits. The index passing the code's end ends a
 // code period and copies the step inputs into the active NCO steps, and every integ periods
 // it also dumps the six sums into ie..ql, raises dump for one clock, increments epoch and
 // takes a new integ (0 acts as 1, more than 20 as 20). While not active, disabled or in the
@@ -41,7 +44,7 @@ module channel #(
     input  wire [4:0]  integ,             // code periods per dump
     output wire        started,
     input  wire [31:0] carr_step,
-    input  wire [31:0] code_step,         // quarter chips per sample, x 2^32
+    input  wire [33:0] code_step,         // chips per sample, x 2^34
     input  wire [1:0]  spacing_q,         // early/late offset in quarter chips: 1 or 2
     input  wire        load_phase,
     input  wire [31:0] carr_phase_in,
@@ -59,36 +62,36 @@ module channel #(
     output wire [31:0] meas_epoch,
     output wire [CODE_AW+1:0] meas_chip_q
 );
-    localparam [CODE_AW+2:0] N_Q = 4 * CODE_LEN;  // one bit wider than chip_q: CODE_LEN may be 2^CODE_AW
     localparam CODE_WORDS = (CODE_LEN + 31) / 32;
 
     // ---- code memory and the chips around the current one ---------------------------
     (* syn_ramstyle = "block_ram" *) reg [31:0] code_mem [0:CODE_WORDS-1];
     always @(posedge clk) if (code_we) code_mem[code_waddr] <= code_wdata;
 
-    reg  [CODE_AW-1:0] rd_chip;
+    reg  [CODE_AW-1:0] rd_idx;  // combinational: the chip to read on this clock
     reg  [31:0] rd_word;
     reg  [4:0]  rd_bit;
     always @(posedge clk) begin
-        rd_word <= code_mem[rd_chip[CODE_AW-1:5]];
-        rd_bit  <= rd_chip[4:0];
+        rd_word <= code_mem[rd_idx[CODE_AW-1:5]];
+        rd_bit  <= rd_idx[4:0];
     end
-    wire rd_data = rd_word[rd_bit];
+    wire rd_data = rd_word[rd_bit];  // the chip at the index presented a clock earlier
 
-    reg [31:0] carr_acc, code_acc, carr_step_a, code_step_a;
-    reg [CODE_AW+1:0] chip_q;
+    reg [31:0] carr_acc, carr_step_a;
+    reg [33:0] code_frac, code_step_a;
+    reg [CODE_AW-1:0] chip_idx;
+    wire [CODE_AW+1:0] chip_q = {chip_idx, code_frac[33:32]};
     reg [31:0] epoch0;  // dumps so far, counted where the wrap happens (epoch lags it by the pipeline)
     reg [4:0]  integ_a, period_cnt;  // active periods per dump; periods done since the last dump
     wire [4:0] integ_c = (integ == 5'd0) ? 5'd1 : (integ > 5'd20) ? 5'd20 : integ;
-    wire [CODE_AW-1:0] chip_idx = chip_q[CODE_AW+1:2];
     wire [CODE_AW-1:0] idx_prev  = (chip_idx == 0) ? CODE_LEN - 1 : chip_idx - 1;
     wire [CODE_AW-1:0] idx_next  = (chip_idx == CODE_LEN - 1) ? 0 : chip_idx + 1;
     wire [CODE_AW-1:0] idx_next2 = (chip_idx >= CODE_LEN - 2) ? chip_idx + 2 - CODE_LEN : chip_idx + 2;
+    wire [CODE_AW-1:0] idx_next3 = (chip_idx >= CODE_LEN - 3) ? chip_idx + 3 - CODE_LEN : chip_idx + 3;
 
-    wire [32:0] code_sum = {1'b0, code_acc} + {1'b0, code_step_a};
-    wire tick     = code_sum[32];
-    wire chip_inc = tick && (chip_q[1:0] == 2'b11);
-    wire wrap     = tick && ({1'b0, chip_q} == N_Q - 1);
+    wire [34:0] code_sum = {1'b0, code_frac} + {1'b0, code_step_a};
+    wire chip_inc = code_sum[34];
+    wire wrap     = chip_inc && (chip_idx == CODE_LEN - 1);
     wire dump_now = wrap && (period_cnt + 5'd1 >= integ_a);
 
     // enable is honored READY_CLOCKS after it rises; until then the chip neighbors refresh
@@ -108,52 +111,43 @@ module channel #(
     end
     assign started = v0 && !accepted;
 
-    // c_prev / c_cur / c_next hold the chips at chip_idx - 1, chip_idx, chip_idx + 1. While
-    // active, a chip increment shifts them and prefetches the new next chip; while not active
-    // all three are re-read in rotation (reads issued then are dropped if they land once the
-    // channel is active, so a stale value never overwrites a shifted one).
+    // c_prev / c_cur / c_next hold the chips at chip_idx - 1, chip_idx, chip_idx + 1, and
+    // rd_data the one at chip_idx + 2: while active the code memory is read at two past the
+    // chip index as it will stand after this clock, so the chip that becomes c_next at an
+    // advance is there even when the index advances on every clock. In the eight clocks
+    // after enable rises the read walks chip_idx - 1, chip_idx and chip_idx + 1 into the
+    // three registers and then rests on chip_idx + 2.
     reg c_prev, c_cur, c_next;
-    reg [1:0] refill;
-    reg rd_pend, rd_pend_d, rd_rot, rd_rot_d;
-    reg [1:0] rd_tag, rd_tag_d;
+    wire advance = v0 && chip_inc;
+    always @* begin
+        if (active) rd_idx = advance ? idx_next3 : idx_next2;
+        else case (ready_cnt)
+            4'd0:    rd_idx = idx_prev;
+            4'd1:    rd_idx = chip_idx;
+            4'd2:    rd_idx = idx_next;
+            default: rd_idx = idx_next2;
+        endcase
+    end
     always @(posedge clk) begin
-        rd_pend   <= 1'b0;
-        rd_pend_d <= rd_pend;
-        rd_rot_d  <= rd_rot;
-        rd_tag_d  <= rd_tag;
-        if (rst) begin
-            refill <= 2'd0;
-            rd_pend_d <= 1'b0;
-        end else begin
-            if (!active) begin
-                rd_pend <= 1'b1;
-                rd_rot  <= 1'b1;
-                rd_tag  <= refill;
-                rd_chip <= (refill == 2'd0) ? idx_prev : (refill == 2'd1) ? chip_idx : idx_next;
-                refill  <= (refill == 2'd2) ? 2'd0 : refill + 2'd1;
-            end else if (v0 && chip_inc) begin
-                c_prev  <= c_cur;
-                c_cur   <= c_next;
-                rd_pend <= 1'b1;
-                rd_rot  <= 1'b0;
-                rd_tag  <= 2'd2;
-                rd_chip <= idx_next2;
-            end
-            if (rd_pend_d && !(rd_rot_d && active)) begin
-                case (rd_tag_d)
-                    2'd0: c_prev <= rd_data;
-                    2'd1: c_cur  <= rd_data;
-                    default: c_next <= rd_data;
-                endcase
-            end
+        if (advance) begin
+            c_prev <= c_cur;
+            c_cur  <= c_next;
+            c_next <= rd_data;
+        end else if (!active) begin
+            case (ready_cnt)
+                4'd1: c_prev <= rd_data;
+                4'd2: c_cur  <= rd_data;
+                4'd3: c_next <= rd_data;
+                default: ;
+            endcase
         end
     end
 
     // ---- stage 0: NCOs and tap selection ---------------------------------------------
     wire [1:0] sp = (spacing_q == 2'd2) ? 2'd2 : 2'd1;
-    wire [2:0] qf_plus  = {1'b0, chip_q[1:0]} + {1'b0, sp};
+    wire [2:0] qf_plus  = {1'b0, code_frac[33:32]} + {1'b0, sp};
     wire tap_e = (qf_plus > 3'd3) ? c_next : c_cur;
-    wire tap_l = (chip_q[1:0] < sp) ? c_prev : c_cur;
+    wire tap_l = (code_frac[33:32] < sp) ? c_prev : c_cur;
 
     reg        s1_v, s1_dump;
     reg [2:0]  s1_ph;
@@ -163,8 +157,8 @@ module channel #(
         s1_v    <= 1'b0;
         s1_dump <= 1'b0;
         if (rst) begin
-            carr_acc <= 32'd0; code_acc <= 32'd0; chip_q <= {(CODE_AW+2){1'b0}};
-            carr_step_a <= 32'd0; code_step_a <= 32'd0; epoch0 <= 32'd0;
+            carr_acc <= 32'd0; code_frac <= 34'd0; chip_idx <= {CODE_AW{1'b0}};
+            carr_step_a <= 32'd0; code_step_a <= 34'd0; epoch0 <= 32'd0;
             integ_a <= 5'd1; period_cnt <= 5'd0;
         end else begin
             if (!active) begin
@@ -174,8 +168,8 @@ module channel #(
             end
             if (load_phase && !enable) begin
                 carr_acc <= carr_phase_in;
-                code_acc <= code_frac_in;
-                chip_q   <= chip_q_in;
+                code_frac <= {chip_q_in[1:0], code_frac_in};
+                chip_idx  <= chip_q_in[CODE_AW+1:2];
             end else if (v0) begin
                 s1_v      <= 1'b1;
                 s1_dump   <= dump_now;
@@ -185,8 +179,8 @@ module channel #(
                 s1_p      <= c_cur;
                 s1_l      <= tap_l;
                 carr_acc  <= carr_acc + carr_step_a;
-                code_acc  <= code_sum[31:0];
-                chip_q    <= wrap ? {(CODE_AW+2){1'b0}} : chip_q + {{(CODE_AW+1){1'b0}}, tick};
+                code_frac <= code_sum[33:0];
+                if (chip_inc) chip_idx <= idx_next;
                 if (wrap) begin
                     carr_step_a <= carr_step;
                     code_step_a <= code_step;
@@ -271,7 +265,7 @@ module channel #(
             meas_chip_r <= {(CODE_AW+2){1'b0}};
         end else if (meas_strobe) begin
             meas_carr_r  <= carr_acc;
-            meas_frac_r  <= code_acc;
+            meas_frac_r  <= code_frac[31:0];
             meas_chip_r  <= chip_q;
             meas_epoch_r <= epoch0;
         end

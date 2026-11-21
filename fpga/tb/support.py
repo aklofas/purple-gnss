@@ -97,6 +97,18 @@ class ChannelBench:
         self.dut.carr_step.value = carr_step
         self.dut.code_step.value = code_step
 
+    async def restart(self) -> None:
+        """Reset the channel and the sample stream for another run in the same test; the code
+        memory keeps its contents."""
+        dut = self.dut
+        dut.stream_en.value = 0
+        dut.enable.value = 0
+        dut.rst.value = 1
+        await ClockCycles(dut.clk, 4)
+        dut.rst.value = 0
+        await ClockCycles(dut.clk, 2)
+        self.dumps.clear()  # the epoch returning to zero woke the monitor
+
     def set_integ(self, n: int) -> None:
         self.dut.integ.value = n
 

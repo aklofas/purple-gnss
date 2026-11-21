@@ -2,6 +2,13 @@ import pytest
 
 from tb.conftest import RTL, TB, build, needs_captures, run_cocotb
 
+HIGH_CODE_RATE = [
+    "code_step_just_under_one_chip_per_sample",
+    "l5_ratio_at_38_4_msps",
+    "l5_ratio_at_24_msps",
+    "enable_right_after_phase_load_at_high_code_rates",
+]
+
 CASES = [
     "aligned_clean",
     "doppler_and_noise",
@@ -20,6 +27,9 @@ CASES = [
     "disable_for_one_and_two_clocks",
     "measurement_latch_at_load_guard_and_wrap",
     "random_code_high_rate_half_chip",
+    "l5_ratio_with_valid_gaps",
+    "measurement_latch_at_l5_ratio",
+    *HIGH_CODE_RATE,
 ]
 
 
@@ -38,7 +48,9 @@ def test_channel_20_bit_accumulators_wrap():
     run_cocotb(runner, "tb_channel", "tb.cocotb_channel", "accumulator_wrap")
 
 
-@pytest.mark.parametrize("case", ["code_len_1024_dumps", "random_code_high_rate_half_chip_1024"])
+@pytest.mark.parametrize(
+    "case", ["code_len_1024_dumps", "random_code_high_rate_half_chip_1024", *HIGH_CODE_RATE]
+)
 def test_channel_code_len_1024(case):
     runner = build("tb_channel", [RTL / "channel.v", TB / "tb_channel.v"], {"CODE_LEN": 1024})
     run_cocotb(runner, "tb_channel", "tb.cocotb_channel", case)
