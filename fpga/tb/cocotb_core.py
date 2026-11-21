@@ -14,7 +14,7 @@ from pyrx.signals import L1_FREQ
 from pyrx.synth import synth_l1ca
 
 from fpgamodel import regmap as R
-from fpgamodel.channel import Channel, Measurement, nco_step
+from fpgamodel.channel import Channel, Measurement, code_step, nco_step
 from fpgamodel.compare import start_phase
 from fpgamodel.quantize import code_bits, to_sign_mag
 from tb.support import (
@@ -38,7 +38,7 @@ PRN = 7
 
 
 def steps(doppler):
-    return nco_step(F_IF + doppler, FS), nco_step(4 * CA_CHIP_RATE * (1 + doppler / L1_FREQ), FS)
+    return nco_step(F_IF + doppler, FS), code_step(CA_CHIP_RATE * (1 + doppler / L1_FREQ), FS)
 
 
 def signal(prn, doppler, code_offset, n_ms, cn0=45.0, seed=0):

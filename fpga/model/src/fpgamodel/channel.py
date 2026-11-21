@@ -8,8 +8,10 @@ processes a block the same way, vectorized segment by segment between dumps.
 Per valid sample the channel mixes the 2-bit sample with a 3-level local oscillator
 selected by the top three bits of a 32-bit carrier NCO, correlates the result with the
 early, prompt and late chips of a code held as 0/1 bits (1 = chip value -1), and
-accumulates six sums that wrap at `acc_w` bits. The code NCO counts quarter chips; the
-chip index wrapping at 4 * code_len ends a code period and applies the shadow step words,
+accumulates six sums that wrap at `acc_w` bits. The code phase is a chip index and a
+34-bit fraction of a chip, kept as a quarter-chip index and a 32-bit fraction; the step is
+34 bits, so the phase advances by less than one chip per sample. The chip index passing
+the code's end ends a code period and applies the shadow step words,
 and every `integ` periods (1 to 20) it also dumps the sums, increments the epoch counter
 and applies a new integration length. A disabled channel ignores samples altogether.
 """
@@ -22,6 +24,7 @@ from pyrx.synth import synth_l1ca
 from fpgamodel.quantize import to_sign_mag, values
 
 MASK32 = (1 << 32) - 1
+MASK34 = (1 << 34) - 1
 
 # (cos, sin) of the 8 LO phases, 3-level: phase p covers the octant centered on
 # (p + 0.5) * 45 degrees
@@ -31,15 +34,27 @@ _SIN = np.array([s for _, s in LO_TABLE], dtype=np.int64)
 
 
 def nco_step(freq: float, fs: float) -> int:
-    """32-bit NCO step word for `freq` Hz at `fs` samples per second.
+    """32-bit carrier NCO step word for `freq` Hz at `fs` samples per second.
 
-    An NCO advances at most one full turn per sample, so |freq| must be below `fs`; for the
-    code NCO, which counts quarter chips, that means the sample rate must exceed four times
-    the chip rate (4.092 MHz for L1 C/A).
+    The NCO advances at most one full turn per sample, so |freq| must be below `fs`.
     """
     if abs(freq) >= fs:
         raise ValueError(f"{freq} Hz cannot be stepped at {fs} samples/s")
     return round(freq / fs * 2**32) % 2**32
+
+
+def code_step(chip_rate: float, fs: float) -> int:
+    """34-bit code NCO step word, chips per sample times 2^34, for `chip_rate` chips per
+    second at `fs` samples per second.
+
+    The chip index advances at most once per sample, so the chip rate must be below the
+    sample rate. `CODE_STEP` holds bits 31:0 of the word and `CODE_STEP_HI` bits 33:32; below
+    a quarter chip per sample (L1 C/A at any rate the front end offers) the high bits are 0.
+    """
+    word = round(chip_rate / fs * 2**34) if 0 <= chip_rate < fs else 1 << 34
+    if word >> 34:
+        raise ValueError(f"{chip_rate} chips/s cannot be stepped at {fs} samples/s")
+    return word
 
 
 @dataclass(frozen=True)
@@ -115,7 +130,7 @@ class Channel:
 
     def set_steps(self, carr_step: int, code_step: int) -> None:
         """New NCO step words: applied at the end of the code period, or at once while disabled."""
-        self._shadow = (int(carr_step) & MASK32, int(code_step) & MASK32)  # ints, not numpy
+        self._shadow = (int(carr_step) & MASK32, int(code_step) & MASK34)  # ints, not numpy
         if not self.enabled:
             self.carr_step, self.code_step = self._shadow
 
@@ -178,11 +193,10 @@ class Channel:
         self.carr_acc = (self.carr_acc + self.carr_step) & MASK32
         total = self.code_acc + self.code_step
         self.code_acc = total & MASK32
-        if total >> 32:
-            self.chip_q += 1
-            if self.chip_q == self.n_q:
-                self.chip_q = 0
-                return self._period_end()
+        self.chip_q += total >> 32  # up to three quarter chips
+        if self.chip_q >= self.n_q:
+            self.chip_q -= self.n_q
+            return self._period_end()
         return None
 
     # ---- a block of samples, vectorized ------------------------------------------
@@ -196,7 +210,7 @@ class Channel:
             return dumps
         i, n = 0, len(codes)
         while i < n and (max_dumps is None or len(dumps) < max_dumps):
-            need = self.n_q - self.chip_q  # ticks until the chip index wraps
+            need = self.n_q - self.chip_q  # quarter chips until the chip index wraps
             if self.code_step == 0:
                 k = n - i
             else:
@@ -210,8 +224,8 @@ class Channel:
             self.chip_q += total >> 32
             i += k
             if self.chip_q >= self.n_q:
-                assert self.chip_q == self.n_q
-                self.chip_q = 0
+                self.chip_q -= self.n_q
+                assert self.chip_q < 4
                 if (d := self._period_end()) is not None:
                     dumps.append(d)
         return dumps

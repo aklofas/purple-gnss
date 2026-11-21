@@ -38,7 +38,7 @@ from pyrx.tracking import (
     dll_update,
 )
 
-from fpgamodel.channel import Channel, Dump, nco_step
+from fpgamodel.channel import Channel, Dump, code_step, nco_step
 
 B_FLL = (5.0, 2.0)  # Hz, halves of a 1 ms two-stage pull-in (pyrx sums 2 ms then 5 ms instead)
 
@@ -90,7 +90,7 @@ class Tracker:
         return CA_CHIP_RATE * (1.0 + self.doppler / L1_FREQ) + self.rate_offset
 
     def steps(self) -> tuple[int, int]:
-        return nco_step(self.f_if + self.doppler, self.fs), nco_step(4.0 * self.chip_rate(), self.fs)
+        return nco_step(self.f_if + self.doppler, self.fs), code_step(self.chip_rate(), self.fs)
 
     def update(self, dump: Dump) -> tuple[int, int]:
         """Take one dump, update the loops, return the next (carrier step, code step).

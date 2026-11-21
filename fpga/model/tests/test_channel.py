@@ -3,7 +3,15 @@ import pytest
 from pyrx.codes import CA_CHIP_RATE, gps_ca
 from pyrx.signals import L1_FREQ
 
-from fpgamodel.channel import LO_TABLE, Channel, Dump, Measurement, nco_step, synthetic_codes
+from fpgamodel.channel import (
+    LO_TABLE,
+    Channel,
+    Dump,
+    Measurement,
+    code_step,
+    nco_step,
+    synthetic_codes,
+)
 from fpgamodel.quantize import code_bits
 
 FS, F_IF = 24e6, 6.0e6
@@ -14,7 +22,7 @@ PHASE_ALIGNED = 0  # the synthetic carrier is a cosine with phase 0 at sample 0
 
 
 def _steps(doppler):
-    return nco_step(F_IF + doppler, FS), nco_step(4 * CA_CHIP_RATE * (1 + doppler / L1_FREQ), FS)
+    return nco_step(F_IF + doppler, FS), code_step(CA_CHIP_RATE * (1 + doppler / L1_FREQ), FS)
 
 
 def _channel(prn=7, doppler=DOPPLER, spacing_q=1):
@@ -37,12 +45,76 @@ def test_nco_step():
     assert nco_step(6.0e6, 24e6) == 1 << 30
 
 
-def test_nco_step_rejects_a_rate_the_nco_cannot_tick():
-    # the code NCO ticks at most once per sample: the sample rate must exceed 4 x chip rate
+def test_nco_step_rejects_a_full_turn_per_sample():
     with pytest.raises(ValueError):
-        nco_step(4 * CA_CHIP_RATE, 4e6)
+        nco_step(4e6, 4e6)
     with pytest.raises(ValueError):
         nco_step(-4e6, 4e6)
+
+
+def test_code_step_is_the_quarter_chip_word_for_l1():
+    # chips per sample x 2^34 is quarter chips per sample x 2^32: the L1 words do not change
+    for doppler in (0.0, 4321.0, -5000.0):
+        rate = CA_CHIP_RATE * (1 + doppler / L1_FREQ)
+        assert code_step(rate, FS) == nco_step(4 * rate, FS)
+
+
+def test_code_step_reaches_l5_and_stops_at_the_sample_rate():
+    w = code_step(10.23e6, 38.4e6)
+    assert w == round(10.23 / 38.4 * 2**34) and w >> 32 == 1
+    with pytest.raises(ValueError):
+        code_step(38.4e6, 38.4e6)  # the chip index advances at most once per sample
+    with pytest.raises(ValueError):
+        code_step(-1.0, 38.4e6)
+
+
+L5_AT_38_4, L5_AT_24 = round(10.23 / 38.4 * 2**34), round(10.23 / 24 * 2**34)
+
+
+def _random_code_channel(seed, code_len=1023):
+    words = np.random.default_rng(seed).integers(0, 2**32, size=32, dtype=np.uint64)
+    return Channel(words, code_len=code_len)
+
+
+@pytest.mark.parametrize("step", [2**34 - 1, L5_AT_38_4, L5_AT_24, 2**32, 2**32 - 1])
+def test_code_phase_follows_the_closed_form(step):
+    # chip index and 34-bit fraction after n samples are phase0 + n * step, modulo the code
+    # length, and the dumps so far are the code periods completed
+    ch = _random_code_channel(seed=1)
+    ch.set_steps(0, step)
+    ch.set_phase(0, 0x9ABCDEF0, 5)
+    ch.enabled = True
+    phase0, period, dumps = (5 << 32) | 0x9ABCDEF0, 1023 << 34, 0
+    for n in range(1, 5000):
+        dumps += ch.step(1) is not None
+        total = phase0 + n * step
+        assert (ch.chip_q << 32) | ch.code_acc == total % period
+        assert dumps == total // period == ch.epoch
+
+
+def test_set_steps_keeps_34_bits_of_the_code_step():
+    ch = _random_code_channel(seed=2)
+    ch.set_steps(2**32 + 5, 2**35 + 2**33 + 7)
+    assert (ch.carr_step, ch.code_step) == (5, 2**33 + 7)
+
+
+@pytest.mark.parametrize("step", [2**34 - 1, L5_AT_38_4])
+@pytest.mark.parametrize("spacing_q", [1, 2])
+def test_taps_at_a_high_code_rate_are_the_chips_a_quarter_or_half_chip_away(step, spacing_q):
+    # with a constant sample and a still LO each sum counts chip signs: early and late are
+    # the code at the phase plus and minus the spacing
+    ch = _random_code_channel(seed=3)
+    ch.spacing_q = spacing_q
+    ch.set_steps(0, step)
+    ch.enabled = True
+    n = 1000  # under one code period at either rate
+    for _ in range(n):
+        assert ch.step(0) is None
+    quarters = (np.arange(n) * step) >> 32
+    sign = 1 - 2 * ch.code
+    for i, d in enumerate((spacing_q, 0, -spacing_q)):
+        chips = ((quarters + d) % 4092) >> 2
+        assert ch._acc[2 * i] == 2 * int(sign[chips].sum())  # sample +1, LO cos = 2
 
 
 def test_lo_table_is_a_3_level_circle():
@@ -175,7 +247,7 @@ def test_integ_clamps_to_1_and_20():
 
 def test_accumulator_wraps_mod_2_20():
     ch = Channel(np.zeros(32, dtype=np.uint32), acc_w=20)  # all chips +1
-    ch.set_steps(0, nco_step(4092 / 100_000 * FS, FS))  # one period per 100 000 samples
+    ch.set_steps(0, code_step(1023 / 100_000 * FS, FS))  # one period per 100 000 samples
     ch.enabled = True
     dumps = ch.run(np.full(120_000, 0b01, dtype=np.uint8))  # constant +3, LO cos = 2: +6 each
     assert len(dumps) == 1
@@ -314,7 +386,7 @@ def test_run_matches_step_under_random_schedules(seed):
     n_q = 4 * code_len
 
     def random_steps():
-        code_step = 0 if rng.random() < 0.1 else int(rng.integers(1, 2**32))
+        code_step = 0 if rng.random() < 0.1 else int(rng.integers(1, 2 ** int(rng.choice([32, 34]))))
         return int(rng.integers(0, 2**32)), code_step
 
     def random_phase():
