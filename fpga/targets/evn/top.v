@@ -1,5 +1,6 @@
 `timescale 1ns/1ps
-// LIFCL-40-EVN top level: rx_spi behind the board's Raspberry Pi and PMOD headers.
+// LIFCL-40-EVN top level: rx_spi behind the board's Raspberry Pi and PMOD headers, its four
+// SPI data lanes on bidirectional pins.
 //
 // Clocking. The board's only fabric clock input is a 12 MHz oscillator, below the GPLL's
 // 18 MHz minimum reference (FPGA-DS-02049, fIN), so the fabric runs from the device's
@@ -18,9 +19,8 @@ module top #(
 ) (
     input  wire       btn_rst_n,
     input  wire       spi_sck,
-    input  wire       spi_mosi,
     input  wire       spi_cs_n,
-    output wire       spi_miso,
+    inout  wire [3:0] spi_io,             // lane 0 MOSI, lane 1 MISO of a single-lane master
     output wire       dump_irq,
     input  wire       evt_in,
     input  wire       sample_sign,
@@ -82,9 +82,16 @@ module top #(
     always @(posedge clk) lock_q <= {lock_q[0], pll_lock};
 
     // ---- receiver ----------------------------------------------------------------------------
+    wire [3:0] spi_io_o, spi_io_oe;
+    assign spi_io[0] = spi_io_oe[0] ? spi_io_o[0] : 1'bz;
+    assign spi_io[1] = spi_io_oe[1] ? spi_io_o[1] : 1'bz;
+    assign spi_io[2] = spi_io_oe[2] ? spi_io_o[2] : 1'bz;
+    assign spi_io[3] = spi_io_oe[3] ? spi_io_o[3] : 1'bz;
+
     rx_spi #(.N_CHANNELS(N_CHANNELS)) rx (
         .clk(clk), .rst(rst),
-        .spi_sck(spi_sck), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n), .spi_miso(spi_miso),
+        .spi_sck(spi_sck), .spi_cs_n(spi_cs_n),
+        .spi_io_i(spi_io), .spi_io_o(spi_io_o), .spi_io_oe(spi_io_oe),
         .pin_valid(1'b1), .pin_sample({sample_sign, sample_mag}),
         .pll_lock(lock_q[1]), .evt_in(evt_in), .dump_irq(dump_irq)
     );

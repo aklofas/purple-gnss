@@ -4,6 +4,7 @@ from tb.conftest import RTL, build, needs_captures, run_cocotb
 
 CASES = [
     "read_id_and_version",
+    "lanes_are_high_impedance_when_idle",
     "write_then_read_register",
     "burst_auto_increment_write_and_read",
     "fixed_address_mode",

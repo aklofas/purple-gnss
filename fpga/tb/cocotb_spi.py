@@ -52,6 +52,15 @@ async def read_id_and_version(dut):
 
 
 @cocotb.test()
+async def lanes_are_high_impedance_when_idle(dut):
+    # with chip select high the slave drives none of the four data lanes
+    spi = await start(dut)
+    assert int(dut.spi_io_oe.value) == 0
+    assert await spi.read(R.ID) == R.ID_VALUE  # the master checks the lanes around the frame
+    assert int(dut.spi_io_oe.value) == 0
+
+
+@cocotb.test()
 async def write_then_read_register(dut):
     spi = await start(dut)
     await spi.write(R.MEAS_PERIOD, 0xA5C3F00F)
