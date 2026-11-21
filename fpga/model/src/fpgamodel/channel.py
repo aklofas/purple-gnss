@@ -9,8 +9,9 @@ Per valid sample the channel mixes the 2-bit sample with a 3-level local oscilla
 selected by the top three bits of a 32-bit carrier NCO, correlates the result with the
 early, prompt and late chips of a code held as 0/1 bits (1 = chip value -1), and
 accumulates six sums that wrap at `acc_w` bits. The code NCO counts quarter chips; the
-chip index wrapping at 4 * code_len dumps the sums, increments the epoch counter and
-applies the shadow step words. A disabled channel ignores samples altogether.
+chip index wrapping at 4 * code_len ends a code period and applies the shadow step words,
+and every `integ` periods (1 to 20) it also dumps the sums, increments the epoch counter
+and applies a new integration length. A disabled channel ignores samples altogether.
 """
 
 from dataclasses import dataclass
@@ -43,8 +44,8 @@ def nco_step(freq: float, fs: float) -> int:
 
 @dataclass(frozen=True)
 class Dump:
-    """The six correlator sums of one code period; `sample` counts the samples this channel
-    processed while enabled, up to and including the one that completed the period (the
+    """The six correlator sums of one dump (`integ` code periods); `sample` counts the samples this channel
+    processed while enabled, up to and including the one that completed the dump (the
     channel's own count, not the core's global sample count)."""
 
     epoch: int
@@ -71,7 +72,7 @@ class Measurement:
 
 
 class Channel:
-    def __init__(self, code_bits: np.ndarray, *, acc_w: int = 20, code_len: int = 1023):
+    def __init__(self, code_bits: np.ndarray, *, acc_w: int = 25, code_len: int = 1023):
         words = np.asarray(code_bits, dtype=np.uint64)
         shifts = np.arange(32, dtype=np.uint64)
         bits = ((words[:, np.newaxis] >> shifts) & np.uint64(1)).reshape(-1)
@@ -91,6 +92,9 @@ class Channel:
         self.carr_step = 0
         self.code_step = 0
         self._shadow = (0, 0)
+        self.integ = 1  # code periods per dump
+        self._integ_shadow = 1
+        self._periods = 0  # code periods completed since the last dump
         self._acc = [0] * 6  # ie, qe, ip, qp, il, ql
         self.dump_code_frac = 0  # code NCO fraction right after the last dump's wrap
 
@@ -101,17 +105,26 @@ class Channel:
 
     @enabled.setter
     def enabled(self, on: bool) -> None:
-        # the hardware copies the step inputs into the active steps while disabled, so steps
-        # written while enabled take effect at a disable even if no dump came in between
+        # the hardware copies the step and integration-length inputs into the active ones
+        # while disabled, so values written while enabled take effect at a disable even if
+        # no period ended in between
         self._enabled = bool(on)
         if not on:
             self.carr_step, self.code_step = self._shadow
+            self.integ = self._integ_shadow
 
     def set_steps(self, carr_step: int, code_step: int) -> None:
-        """New NCO step words: applied at the next dump, or at once while disabled."""
+        """New NCO step words: applied at the end of the code period, or at once while disabled."""
         self._shadow = (int(carr_step) & MASK32, int(code_step) & MASK32)  # ints, not numpy
         if not self.enabled:
             self.carr_step, self.code_step = self._shadow
+
+    def set_integ(self, n: int) -> None:
+        """Code periods per dump, 1 to 20 (0 acts as 1, more as 20): applied at the next dump,
+        or at once while disabled."""
+        self._integ_shadow = min(max(int(n), 1), 20)
+        if not self.enabled:
+            self.integ = self._integ_shadow
 
     def set_phase(self, carr_phase: int, code_frac: int, chip_q: int) -> None:
         """Set the NCO accumulators directly; only while disabled."""
@@ -134,12 +147,18 @@ class Channel:
         half = 1 << (self.acc_w - 1)
         return (v + half) % (2 * half) - half
 
-    def _dump(self) -> Dump:
+    def _period_end(self) -> Dump | None:
+        """The chip index wrapped: take the shadow steps, and dump if `integ` periods are done."""
+        self.carr_step, self.code_step = self._shadow
+        self._periods += 1
+        if self._periods < self.integ:
+            return None
+        self._periods = 0
+        self.integ = self._integ_shadow
         self.dump_code_frac = self.code_acc
         self.epoch += 1
         d = Dump(self.epoch, *(self._wrap(a) for a in self._acc), self.sample_count)
         self._acc = [0] * 6
-        self.carr_step, self.code_step = self._shadow
         return d
 
     # ---- one sample: the definition ---------------------------------------------
@@ -163,13 +182,14 @@ class Channel:
             self.chip_q += 1
             if self.chip_q == self.n_q:
                 self.chip_q = 0
-                return self._dump()
+                return self._period_end()
         return None
 
     # ---- a block of samples, vectorized ------------------------------------------
     def run(self, codes: np.ndarray, max_dumps: int | None = None) -> list[Dump]:
         """Process `codes`, stopping right after the `max_dumps`-th dump when given; the
-        samples consumed show in `sample_count`."""
+        samples consumed show in `sample_count`. Each vectorized segment ends at a code
+        period's end, where the steps may change."""
         dumps: list[Dump] = []
         codes = np.asarray(codes, dtype=np.int64)
         if not self.enabled:
@@ -192,7 +212,8 @@ class Channel:
             if self.chip_q >= self.n_q:
                 assert self.chip_q == self.n_q
                 self.chip_q = 0
-                dumps.append(self._dump())
+                if (d := self._period_end()) is not None:
+                    dumps.append(d)
         return dumps
 
     def _accumulate(self, block: np.ndarray) -> None:

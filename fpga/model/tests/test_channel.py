@@ -118,8 +118,63 @@ def test_shadow_steps_apply_at_dump():
     assert (early + late)[2] != ref[2]
 
 
+def test_default_accumulator_width_is_25():
+    assert _channel().acc_w == 25
+
+
+def test_integ_n_dumps_every_n_periods():
+    one, codes = _aligned(n=24_000 * 45)
+    twenty = _channel()
+    twenty.enabled = False  # written while disabled, so the first dump already has it
+    twenty.set_integ(20)
+    twenty.enabled = True
+    d1, d20 = one.run(codes), twenty.run(codes)
+    assert len(d20) == len(d1) // 20 == 2
+    assert [d.epoch for d in d20] == [1, 2]
+    for name in ("ie", "qe", "ip", "qp", "il", "ql"):
+        assert getattr(d20[1], name) == sum(getattr(d, name) for d in d1[20:40])
+    assert d20[0].sample == d1[19].sample and d20[1].sample == d1[39].sample
+    assert twenty.epoch == 2
+
+
+def test_integ_change_while_enabled_applies_at_next_dump():
+    ch, codes = _aligned(n=24_000 * 10)
+    first = ch.run(codes, max_dumps=1)[0]
+    ch.set_integ(3)
+    assert ch.integ == 1
+    second = ch.run(codes[ch.sample_count :], max_dumps=1)[0]
+    assert ch.integ == 3
+    assert 23_990 < second.sample - first.sample < 24_010  # still one period
+    third = ch.run(codes[ch.sample_count :], max_dumps=1)[0]
+    assert 3 * 23_990 < third.sample - second.sample < 3 * 24_010
+
+
+def test_integ_written_while_disabled_applies_at_once():
+    ch = _channel()
+    ch.enabled = False
+    ch.set_integ(5)
+    assert ch.integ == 5
+
+
+def test_disabling_promotes_an_integ_written_while_enabled():
+    ch, codes = _aligned()
+    ch.run(codes[:1000])
+    ch.set_integ(4)
+    ch.enabled = False
+    assert ch.integ == 4
+
+
+def test_integ_clamps_to_1_and_20():
+    ch = _channel()
+    ch.set_integ(0)
+    ch.enabled = False
+    assert ch.integ == 1
+    ch.set_integ(99)
+    assert ch.integ == 20
+
+
 def test_accumulator_wraps_mod_2_20():
-    ch = Channel(np.zeros(32, dtype=np.uint32))  # all chips +1
+    ch = Channel(np.zeros(32, dtype=np.uint32), acc_w=20)  # all chips +1
     ch.set_steps(0, nco_step(4092 / 100_000 * FS, FS))  # one period per 100 000 samples
     ch.enabled = True
     dumps = ch.run(np.full(120_000, 0b01, dtype=np.uint8))  # constant +3, LO cos = 2: +6 each
@@ -242,14 +297,16 @@ def _state(ch: Channel) -> tuple:
     return (
         ch.carr_acc, ch.code_acc, ch.chip_q, ch.epoch, ch.sample_count, ch.carr_step,
         ch.code_step, ch.dump_code_frac, ch.measurement(), tuple(ch._acc), ch._shadow,
+        ch.integ, ch._integ_shadow, ch._periods,
     )  # fmt: skip
 
 
 @pytest.mark.parametrize("seed", range(8))
 def test_run_matches_step_under_random_schedules(seed):
     # `run` must equal `step` sample for sample whatever the code length, spacing, phase,
-    # step words (including a code step of 0), block boundaries, mid-run step writes,
-    # disable/phase/enable sequences and `max_dumps` stops: dumps and the whole state
+    # step words (including a code step of 0), block boundaries, mid-run step and
+    # integration-length writes, disable/phase/enable sequences and `max_dumps` stops:
+    # dumps and the whole state
     rng = np.random.default_rng(seed)
     code_len = int(rng.choice([1023, 1024, 37]))
     words = rng.integers(0, 2**32, size=32, dtype=np.uint64)
@@ -283,8 +340,12 @@ def test_run_matches_step_under_random_schedules(seed):
         assert got == expected
         assert _state(a) == _state(b)
         i += consumed
-        action = rng.integers(0, 4)
-        if action == 0:
+        action = rng.integers(0, 5)
+        if action == 4:
+            n = int(rng.integers(0, 4))
+            a.set_integ(n)
+            b.set_integ(n)
+        elif action == 0:
             steps = random_steps()
             a.set_steps(*steps)
             b.set_steps(*steps)

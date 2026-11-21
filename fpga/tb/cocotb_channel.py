@@ -112,7 +112,7 @@ async def accumulator_wrap(dut):
     await bench.set_enable(True)
     codes = np.full(120_000, 0b01, dtype=np.uint8)
     await run_all(bench, codes)
-    m = Channel(np.zeros(32, dtype=np.uint32))
+    m = Channel(np.zeros(32, dtype=np.uint32), acc_w=20)
     m.set_steps(0, code_step)
     m.enabled = True
     expected = m.run(codes)
