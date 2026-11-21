@@ -32,6 +32,7 @@ module rx_core #(
     input  wire        bus_we,
     input  wire        bus_re,
     output reg  [31:0] bus_rdata,
+    output wire        link_clear,   // a soft reset: the slave zeroes its error counters
     output wire        dump_irq
 );
     localparam PB_AW = $clog2(PB_DEPTH / 16);
@@ -71,6 +72,7 @@ module rx_core #(
     // ---- global state --------------------------------------------------------------------
     reg soft_rst;
     wire rst_i = rst | soft_rst;
+    assign link_clear = soft_rst;
     reg g_enable, source, evt_enable, evt_falling;
     reg [31:0] meas_period, pb_len, pb_addr;
     reg trig_pending;

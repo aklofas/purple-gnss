@@ -6,6 +6,9 @@
 # 23 SCK, 24 CS_N; 26 and 18 the two further lanes of a four-lane data phase; 22 DUMP_IRQ,
 # 29 the event input; 25 GND. Pins 8, 10, 11, 12 can be strapped to JTAG and are left free.
 ldc_set_location -site {N7} [get_ports spi_sck]
+# the slave's frame logic is clocked by SCK itself: 25 MHz is the rated rate (the constraint
+# goes on the net behind the input buffer, the one nextpnr times)
+create_clock -period 40 -name spi_sck [get_nets rx.spi.sck]
 ldc_set_location -site {N4} [get_ports {spi_io[0]}]
 ldc_set_location -site {K6} [get_ports {spi_io[1]}]
 ldc_set_location -site {N5} [get_ports {spi_io[2]}]

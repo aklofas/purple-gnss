@@ -340,14 +340,19 @@ class SpiMaster:
     comes back on lane 1, or with `quad` uses all four lanes, high nibble first with lane 3
     the most significant bit. The master is asynchronous to the fabric clock, as the board's
     is: every transaction starts at a random offset from the clock (seeded by cocotb) and
-    the default period, 82.6 ns, is not a multiple of it. It checks that the slave drives no
-    lane while chip select is high.
+    the default period, 82.6 ns, is not a multiple of it. On every clock it checks which
+    lanes the slave drives: none while chip select is high, during the command, the address,
+    the dummy clocks and a write's data; lane 1, or all four in a quad frame, during read
+    data.
     """
 
-    def __init__(self, dut, sck_period_ns: float = 82.6, quad: bool = False):
+    def __init__(self, dut, sck_period_ns: float = 82.6, quad: bool = False,
+                 cs_high_ns: float | None = None):
         self.dut = dut
         self.half_ns = sck_period_ns / 2
         self.quad = quad
+        # chip select stays high this long after a frame: by default four fabric clocks
+        self.cs_high_ns = max(4 * self.half_ns, 4 * CLK_NS) if cs_high_ns is None else cs_high_ns
         dut.spi_sck.value = 0
         dut.spi_io_i.value = 0
         dut.spi_cs_n.value = 1
@@ -356,27 +361,25 @@ class SpiMaster:
         driven = int(self.dut.spi_io_oe.value)
         assert driven == lanes, f"slave drives lanes {driven:04b}, expected {lanes:04b}"
 
-    async def _clock(self, out: int = 0):
+    async def _clock(self, out: int = 0, driven: int = 0):
         """One SCK cycle with `out` on the four lanes; returns the slave's lane outputs as
-        they stood just before the rising edge."""
+        they stood just before the rising edge, where it must drive exactly `driven`."""
         dut = self.dut
         dut.spi_io_i.value = out
         await Timer(self.half_ns, unit="ns")
+        self._expect_driven(driven)
         inp = dut.spi_io_o.value
         dut.spi_sck.value = 1
         await Timer(self.half_ns, unit="ns")
         dut.spi_sck.value = 0
         return inp
 
-    async def _bit(self, bit: int) -> int:
-        """One bit out on lane 0 and one in from lane 1."""
-        return int((await self._clock(bit))[1])
+    async def _bit(self, bit: int) -> None:
+        await self._clock(bit)
 
-    async def _byte(self, out: int) -> int:
-        inp = 0
+    async def _byte(self, out: int) -> None:
         for i in range(8):
-            inp = (inp << 1) | await self._bit((out >> (7 - i)) & 1)
-        return inp
+            await self._clock((out >> (7 - i)) & 1)
 
     async def _word_out(self, word: int, quad: bool) -> None:
         if quad:
@@ -390,10 +393,10 @@ class SpiMaster:
         word = 0
         if quad:
             for _ in range(8):
-                word = (word << 4) | int(await self._clock())
+                word = (word << 4) | int(await self._clock(driven=0b1111))
         else:
-            for _ in range(4):
-                word = (word << 8) | await self._byte(0)
+            for _ in range(32):
+                word = (word << 1) | int((await self._clock(driven=0b0010))[1])
         return word
 
     def _command(self, write: bool, increment: bool, quad: bool | None) -> tuple[int, bool]:
@@ -414,8 +417,7 @@ class SpiMaster:
         await Timer(self.half_ns, unit="ns")
         self.dut.spi_cs_n.value = 1
         self.dut.spi_io_i.value = 0
-        await Timer(max(4 * self.half_ns, 4 * CLK_NS), unit="ns")
-        await RisingEdge(self.dut.clk)
+        await Timer(self.cs_high_ns, unit="ns")
         self._expect_driven(0)
 
     async def write_words(self, addr: int, words, increment: bool = True, quad: bool | None = None) -> None:
@@ -462,10 +464,34 @@ class SpiMaster:
         await self._begin(R.CMD_READ | R.CMD_INCR, addr)
         await self._byte(0)
         words = [await self._word_in(False) for _ in range(n_full)]
-        for _ in range(extra_bytes):
-            await self._byte(0)
+        for _ in range(8 * extra_bytes):
+            await self._clock(driven=0b0010)
         await self._end()
         return words
+
+    async def read_header_only(self, addr: int, quad: bool = False) -> None:
+        """A read whose CS rises right after the address: no dummy clock, no data."""
+        await self._begin(self._command(False, True, quad)[0], addr)
+        await self._end()
+
+    async def write_with_slipped_clock(self, addr: int, data: int) -> None:
+        """A whole single-word write behind one stray clock: every bit lands a place late."""
+        await Timer(random.randint(1, 1000 * CLK_NS - 1), unit="ps")
+        self.dut.spi_cs_n.value = 0
+        await Timer(self.half_ns, unit="ns")
+        await self._clock(0)
+        for byte in (R.CMD_WRITE, addr >> 8, addr & 0xFF, *data.to_bytes(4, "big")):
+            await self._byte(byte)
+        await self._end()
+
+    async def raw_frame(self, data: bytes) -> None:
+        """Bytes on lane 0 in one chip-select assertion, the slave expected to drive nothing."""
+        await Timer(random.randint(1, 1000 * CLK_NS - 1), unit="ps")
+        self.dut.spi_cs_n.value = 0
+        await Timer(self.half_ns, unit="ns")
+        for byte in data:
+            await self._byte(byte)
+        await self._end()
 
     async def write_words_cs_glitch(self, addr: int, words, glitch_clocks: int) -> None:
         """An auto-increment write burst with CS pulsed high for `glitch_clocks` fabric clocks
@@ -480,22 +506,3 @@ class SpiMaster:
         for w in words[1:]:
             await self._word_out(int(w), False)
         await self._end()
-
-    async def write_with_cs_hold(self, addr: int, data: int, hold_clocks: int) -> None:
-        """A single-word write whose last SCK rise comes right after a fabric clock edge and
-        whose CS rises `hold_clocks` fabric clocks after that rise (0: in the same clock)."""
-        dut = self.dut
-        await self._begin(R.CMD_WRITE, addr)
-        for i in range(31):
-            await self._bit((data >> (31 - i)) & 1)
-        dut.spi_io_i.value = data & 1
-        await Timer(self.half_ns, unit="ns")
-        await RisingEdge(dut.clk)
-        dut.spi_sck.value = 1
-        if hold_clocks:
-            await ClockCycles(dut.clk, hold_clocks)
-        dut.spi_cs_n.value = 1  # SCK stays high past it: one timestep keeps only a last deposit
-        await Timer(self.half_ns, unit="ns")
-        dut.spi_sck.value = 0
-        await Timer(round(3 * self.half_ns * 1000), unit="ps")
-        await RisingEdge(dut.clk)
