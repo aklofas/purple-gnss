@@ -9,10 +9,11 @@ from tb.support import read_dump, read_dumps_now
 K = 1
 SUMS = {R.IE: 1, R.QE: -2, R.IP: 3, R.QP: -4, R.IL: 5, R.QL: -6}
 EPOCH = ("read", R.ch(K, R.EPOCH))
-SUM_READS = [("read", R.ch(K, off)) for off in (R.IE, R.QE, R.IP, R.QP, R.IL, R.QL)]
+EPOCH_ADDRS = {R.ch(K, off) for off in (R.EPOCH, R.EPOCH_HEAD, R.EPOCH_TAIL)}
+BURST = [("read", R.ch(K, R.DUMP_BURST) + i) for i in range(R.DUMP_BURST_WORDS)]
 CLEAR = ("write", R.DUMP_CLEAR)
-FULL = [EPOCH, *SUM_READS, EPOCH, CLEAR, EPOCH]  # a read with nothing landing on it
-TORN = [EPOCH, *SUM_READS, EPOCH]  # a dump replaced the registers: no clear
+FULL = [*BURST, CLEAR, EPOCH]  # a read with nothing landing on it
+TORN = BURST  # a dump replaced the registers: no clear
 
 
 class FakeBus:
@@ -24,9 +25,12 @@ class FakeBus:
 
     async def read(self, addr: int) -> int:
         self.log.append(("read", addr))
-        if addr == R.ch(K, R.EPOCH):
+        if addr in EPOCH_ADDRS:
             return self.epochs.pop(0)
         return SUMS[addr - R.ch(K, 0)] & 0xFFFF_FFFF
+
+    async def read_words(self, addr: int, n: int) -> list[int]:
+        return [await self.read(addr + i) for i in range(n)]
 
     async def write(self, addr: int, data: int) -> None:
         self.log.append(("write", addr))
@@ -62,3 +66,8 @@ def test_read_dumps_now_collects_until_the_registers_are_quiet():
     bus = FakeBus([7, 7, 8, 8, 8, 8])  # a dump around the clear: both come back
     assert asyncio.run(read_dumps_now(bus, K)) == [dump(7), dump(8)]
     assert bus.log == FULL + FULL
+
+
+def test_the_burst_is_epoch_the_six_sums_and_epoch():
+    offsets = [addr - R.ch(K, 0) for _, addr in BURST]
+    assert offsets == [R.EPOCH_HEAD, R.IE, R.QE, R.IP, R.QP, R.IL, R.QL, R.EPOCH_TAIL]

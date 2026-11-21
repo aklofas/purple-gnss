@@ -6,11 +6,17 @@ does not use them.
 """
 
 ID_VALUE = 0x50474E53  # "PGNS"
-VERSION_BASE = 0x0200  # 0x0100 had readable step and phase words, no MEAS_SEQ, a latched SAMPLE_CNT_HI
+# 0x0100 had readable step and phase words, no MEAS_SEQ, a latched SAMPLE_CNT_HI; 0x0200 an
+# oversampled single-lane slave with unsigned command bytes, a quarter-chip code NCO limited to
+# a quarter chip per sample, and one code period per dump
+VERSION_BASE = 0x0300
 VERSION_LATCH = 1 << 16  # measurement latch implemented
 VERSION_START_SAMPLE = 1 << 17  # CH_START_SAMPLE implemented
 VERSION_QUAD_LINK = 1 << 18  # SCK-clocked SPI slave with a four-lane data phase
 VERSION_EVENT_STAMP = 1 << 19  # event-stamp block present
+VERSION_ALL = (
+    VERSION_BASE | VERSION_LATCH | VERSION_START_SAMPLE | VERSION_QUAD_LINK | VERSION_EVENT_STAMP
+)
 
 # global block
 ID = 0x00
@@ -50,7 +56,7 @@ EVT_FALLING = 1 << 1
 CH_BASE = 0x1000
 CH_STRIDE = 0x100
 CH_CTRL = 0x00  # bit0 enable
-CH_START_SAMPLE_LO = 0x01
+CH_START_SAMPLE_LO = 0x01  # global sample count of the first sample accepted after the enable
 CH_START_SAMPLE_HI = 0x02
 CARR_STEP = 0x03
 CODE_STEP = 0x04  # bits 31:0 of the code step, chips per sample x 2^34; commits the step words

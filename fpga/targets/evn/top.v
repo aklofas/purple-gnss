@@ -22,6 +22,7 @@ module top #(
     input  wire       spi_cs_n,
     output wire       spi_miso,
     output wire       dump_irq,
+    input  wire       evt_in,
     input  wire       sample_sign,
     input  wire       sample_mag,
     output wire [4:0] led_n
@@ -85,7 +86,7 @@ module top #(
         .clk(clk), .rst(rst),
         .spi_sck(spi_sck), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n), .spi_miso(spi_miso),
         .pin_valid(1'b1), .pin_sample({sample_sign, sample_mag}),
-        .pll_lock(lock_q[1]), .dump_irq(dump_irq)
+        .pll_lock(lock_q[1]), .evt_in(evt_in), .dump_irq(dump_irq)
     );
 
     // ---- LEDs -----------------------------------------------------------------------------------

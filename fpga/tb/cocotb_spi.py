@@ -33,6 +33,7 @@ async def start(dut, sck_period_ns: float = 82.6) -> SpiMaster:
     dut.pin_valid.value = 0
     dut.pin_sample.value = 0
     dut.pll_lock.value = 1
+    dut.evt_in.value = 0
     spi = SpiMaster(dut, sck_period_ns)
     dut.rst.value = 1
     await ClockCycles(dut.clk, 4)
@@ -45,7 +46,7 @@ async def start(dut, sck_period_ns: float = 82.6) -> SpiMaster:
 async def read_id_and_version(dut):
     spi = await start(dut)
     assert await spi.read(R.ID) == R.ID_VALUE
-    version = R.VERSION_BASE | R.VERSION_LATCH
+    version = R.VERSION_ALL
     assert await spi.read(R.VERSION) == version
     assert await spi.read_words(R.ID, 2) == [R.ID_VALUE, version]
 
@@ -167,7 +168,7 @@ async def board_sequence(spi, prn: int, doppler: float, code_offset_s: float, co
     carr_step, code_step = channel_steps(doppler)
 
     assert await spi.read(R.ID) == R.ID_VALUE
-    assert await spi.read(R.VERSION) == R.VERSION_BASE | R.VERSION_LATCH
+    assert await spi.read(R.VERSION) == R.VERSION_ALL
     words = [int(w) for w in code_bits(gps_ca(prn))]
     await spi.write(R.ch(0, R.CODE_WR_ADDR), 0)
     await spi.write_words(R.ch(0, R.CODE_WR_DATA), words[:16], increment=False)

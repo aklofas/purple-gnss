@@ -16,6 +16,7 @@ module tb_rx_spi #(
     input  wire        spi_mosi,
     input  wire        spi_cs_n,
     output wire        spi_miso,
+    input  wire        evt_in,
     output wire        dump_irq
 );
     reg [31:0] mem [0:MAX_WORDS-1];
@@ -33,6 +34,7 @@ module tb_rx_spi #(
     rx_spi #(.N_CHANNELS(N_CHANNELS)) rx (
         .clk(clk), .rst(rst),
         .spi_sck(spi_sck), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n), .spi_miso(spi_miso),
-        .pin_valid(valid), .pin_sample(sample), .pll_lock(1'b1), .dump_irq(dump_irq)
+        .pin_valid(valid), .pin_sample(sample), .pll_lock(1'b1), .evt_in(evt_in),
+        .dump_irq(dump_irq)
     );
 endmodule
