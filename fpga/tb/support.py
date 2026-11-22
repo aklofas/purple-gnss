@@ -351,13 +351,15 @@ class SpiMaster:
         self.dut = dut
         self.half_ns = sck_period_ns / 2
         self.quad = quad
-        # chip select stays high this long after a frame: by default four fabric clocks
-        self.cs_high_ns = max(4 * self.half_ns, 4 * CLK_NS) if cs_high_ns is None else cs_high_ns
+        # chip select stays high this long after a frame: by default six fabric clocks
+        self.cs_high_ns = max(4 * self.half_ns, 6 * CLK_NS) if cs_high_ns is None else cs_high_ns
         dut.spi_sck.value = 0
         dut.spi_io_i.value = 0
         dut.spi_cs_n.value = 1
 
     def _expect_driven(self, lanes: int) -> None:
+        if int(self.dut.spi_cs_n.value):
+            lanes = 0  # chip select itself releases the lanes, for a glitch's length too
         driven = int(self.dut.spi_io_oe.value)
         assert driven == lanes, f"slave drives lanes {driven:04b}, expected {lanes:04b}"
 
@@ -417,6 +419,8 @@ class SpiMaster:
         await Timer(self.half_ns, unit="ns")
         self.dut.spi_cs_n.value = 1
         self.dut.spi_io_i.value = 0
+        await Timer(10, unit="ps")
+        self._expect_driven(0)  # the lanes are released by chip select itself, at once
         await Timer(self.cs_high_ns, unit="ns")
         self._expect_driven(0)
 

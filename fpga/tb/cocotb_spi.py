@@ -1,6 +1,8 @@
 """rx_spi: the SPI slave in front of rx_core, on one data lane and on four (N_CHANNELS = 1,
 default RAM)."""
 
+import random
+
 import cocotb
 import numpy as np
 from cocotb.clock import Clock
@@ -380,15 +382,68 @@ async def read_cut_short_after_the_header_leaves_the_next_read_clean(dut):
     assert await link_status(spi) == (0, 0, 0)
 
 
+async def glitch_cs(dut, active: list, widths_ns) -> int:
+    """While active[0] is set, pulse chip select high for a few nanoseconds at random times, as
+    ground bounce does when the data lanes switch; returns the number of pulses."""
+    n = 0
+    while active[0]:
+        await Timer(random.randint(20_000, 400_000), unit="ps")
+        if not active[0]:
+            break
+        dut.spi_cs_n.value = 1
+        await Timer(random.choice(widths_ns), unit="ns")
+        dut.spi_cs_n.value = 0
+        n += 1
+    return n
+
+
 @cocotb.test()
-async def three_fabric_clocks_of_cs_high_separate_frames(dut):
+async def cs_glitches_inside_a_frame_do_not_end_it(dut):
+    # chip select pulsing high for less than a fabric clock inside a frame: a frame ends only
+    # when the fabric clock has seen chip select high twice in a row, so every word of a long
+    # write burst lands and a read burst returns its words, on one lane and on four
+    spi = await start(dut)
+    words = [int(w) for w in np.random.default_rng(5).integers(0, 2**32, size=200)]
+    for quad in (False, True):
+        for period in (82.6, RATED_NS):
+            fast = SpiMaster(dut, period, quad)
+            await fast.write(R.PB_ADDR, 0)
+            active = [True]
+            glitcher = cocotb.start_soon(glitch_cs(dut, active, (1, 3, 8)))
+            await fast._begin(fast._command(True, False, quad)[0], R.PB_DATA)
+            for word in words:
+                await fast._word_out(word, quad)
+            active[0] = False
+            pulses = await glitcher
+            await Timer(20, unit="ns")
+            await fast._end()
+            assert pulses > 20, pulses
+            assert await spi.read(R.PB_ADDR) == len(words), (quad, period)
+            assert [int(dut.core.pb.mem[i].value) for i in range(len(words))] == words
+            await spi.write(R.MEAS_PERIOD, 0x0BADF00D)
+            active = [True]
+            glitcher = cocotb.start_soon(glitch_cs(dut, active, (1, 3, 8)))
+            await fast._begin(fast._command(False, False, quad)[0], R.MEAS_PERIOD)
+            for _ in range(8):
+                await fast._clock()
+            got = [await fast._word_in(quad) for _ in range(60)]
+            active[0] = False
+            await glitcher
+            await Timer(20, unit="ns")
+            await fast._end()
+            assert got == [0x0BADF00D] * 60, (quad, period)
+    assert await link_status(spi) == (0, 0, 0)
+
+
+@cocotb.test()
+async def five_fabric_clocks_of_cs_high_separate_frames(dut):
     # the documented minimum between frames, at any phase: reads of different registers back
     # to back, a read cut short among them, each returning its own word
     spi = await start(dut)
     await spi.write(R.MEAS_PERIOD, 0x0BADF00D)
     await spi.write(R.PLAYBACK_LEN, 77)
     for i in range(120):
-        tight = SpiMaster(dut, RATED_NS, quad=bool(i & 1), cs_high_ns=3 * CLK_NS)
+        tight = SpiMaster(dut, RATED_NS, quad=bool(i & 1), cs_high_ns=5 * CLK_NS)
         if i % 5 == 0:
             await tight.read_header_only(R.PLAYBACK_LEN)
         assert await tight.read(R.MEAS_PERIOD) == 0x0BADF00D, i
@@ -436,11 +491,11 @@ async def aborted_header_and_read_leave_no_trace(dut):
 
 @cocotb.test()
 async def cs_glitch_restarts_the_framing(dut):
-    # CS high for three fabric clocks inside a burst ends it: the word before the glitch is
+    # CS high for six fabric clocks inside a burst ends it: the word before the pulse is
     # written, the bytes after it are taken as a new header (here one without the signature:
     # nothing lands)
     spi = await start(dut)
-    await spi.write_words_cs_glitch(R.MEAS_PERIOD, [0xA5A5A5A5, 0x00123456, 0x789ABCDE], 3)
+    await spi.write_words_cs_glitch(R.MEAS_PERIOD, [0xA5A5A5A5, 0x00123456, 0x789ABCDE], 6)
     assert await spi.read(R.MEAS_PERIOD) == 0xA5A5A5A5
     assert await spi.read(R.PLAYBACK_LEN) == 0
     assert await spi.read(R.ID) == R.ID_VALUE

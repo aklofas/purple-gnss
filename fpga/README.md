@@ -246,6 +246,12 @@ The slave drives lane 1, or all four in a four-lane read, only while it sends re
 every other time, and whenever CS is high, all four lanes are high impedance, so a top level
 or a board pulls them to a level. Its outputs change on the falling edge of SCK.
 
+A frame ends when the fabric clock has seen CS high on two edges in a row, not on the CS edge
+itself, so a high pulse on CS shorter than a fabric clock period inside a frame does not end
+it. That matters on real wiring: with four lanes switching at once over a poor ground return,
+CS at the slave's pin shows such pulses, and a slave that ended the frame on each of them lost
+most of every long burst on a jumper-wire bench. SCK has no such protection, being the clock.
+
 The frame logic is clocked by SCK itself and crosses to the fabric clock through two small
 FIFOs, so SCK is not tied to the fabric clock by a ratio. What bounds it is the first word of
 a read: it has the eight dummy clocks to arrive, of which the way there and back takes up to
@@ -257,8 +263,9 @@ right. A read that outruns its data returns zeros from the missing word on and i
 `LINK_STATUS`. Later words have a whole word time to arrive. Writes are taken at one word per
 fabric clock, far faster than a link can send them; if the fabric clock stalls and a word finds
 no room, that word and the rest of its frame are dropped and the frame is counted. CS must
-stay high for at least three fabric clocks between frames: after a shorter gap a read can
-return words fetched for the frame before it, with nothing counted. A read fetches ahead of
+stay high for at least five fabric clocks between frames (143 ns at the slowest fabric clock),
+with SCK idle: after a shorter gap the frame before is not over, the next frame's bytes
+continue it, and nothing counts that. A read fetches ahead of
 what it sends, up to three words past its last one (the same address again in fixed mode),
 which is why no register reacts to a read.
 

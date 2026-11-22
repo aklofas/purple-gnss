@@ -92,7 +92,10 @@ pin 14, which stays unconnected).
 | 29 | K8 | event input (pulled down) | in | 24 | PE10 | TIM1_CH2N, as a test pulse |
 | 25 | | GND | | 17 | GND | |
 
-Join the grounds; do not join the two boards' 3.3 V supplies. The slave releases every lane
+Join the grounds with two wires, not one (JP5 pins 25 and 20 to CN10 pins 17 and 22), and do
+not join the two boards' 3.3 V supplies. With a single ground wire and the MCU's pins at
+their fastest drive setting, four lanes switching together put pulses on chip select at the
+FPGA; a moderate drive setting on the MCU's data pins is plenty for this link. The slave releases every lane
 when it is not sending read data, so a read with the FPGA not loaded, or with a wire off,
 returns whatever the line floats to (zeros with the FPGA's pull-downs in place), never a
 driven idle level.
@@ -129,8 +132,8 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    much below 1 MHz: a dump's service in step 4 is a burst of eight words, a write and a
    read, about 420 CLK cycles on one line plus the host's turnaround, against 0.64 ms between
    dumps (`DUMP_MISSED` counts up when it no longer fits). The OCTOSPI holds NCS high for at
-   least a CLK cycle between commands; the slave wants three fabric clocks, 86 ns at the
-   slowest, so above 11 MHz set CSHT for it
+   least a CLK cycle between commands; the slave wants five fabric clocks, 143 ns at the
+   slowest, so above 7 MHz set CSHT for it
    ([SPI transaction](../../README.md#spi-transaction)). Words go out high byte first, so
    byte-swap each 32-bit word of a little-endian buffer. The command bytes are 0x16 read and
    0x96 write, plus 0x40 to auto-increment the address and 0x20 for data on four lanes. Read
