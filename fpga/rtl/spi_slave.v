@@ -10,8 +10,11 @@
 // nobody drives. The slave drives lane 1, or all four, only while it sends read data.
 //
 // The frame logic runs on SCK itself (inputs taken on the rising edge, outputs changed on
-// the falling edge) and CS high holds it in reset, which ends a frame and drops a partial
-// word. Two small FIFOs cross to the fabric clock. Requests carry the frame's command and
+// the falling edge). A frame ends, and a partial word is dropped, when the fabric clock has
+// seen CS high on two edges in a row; the frame logic is then held in reset until CS falls.
+// A high pulse on CS shorter than a fabric clock period therefore does not end a frame:
+// with several lanes switching at once on a marginal ground, such pulses happen. CS falling
+// starts the next frame at once, and the lanes are released by CS itself, not by the reset. Two small FIFOs cross to the fabric clock. Requests carry the frame's command and
 // address, then each write word; the fabric side issues the writes in order. For a read
 // the fabric side fetches the word at the address as soon as the request arrives and keeps
 // the response FIFO filled, the address advancing per word in auto-increment mode, so a
@@ -26,11 +29,9 @@
 // dropped with every later request of that frame, since a later word would land on an
 // earlier one's address, and the frame is counted as an overrun.
 //
-// CS must stay high for at least three fabric clocks between frames, so the fabric side
-// sees every frame end; after a shorter gap a read can return words fetched for the frame
-// before it, and nothing counts that. CS must also stay low for half an SCK period after the
-// last rising edge, as any master in mode 0 holds it: the request written on that edge is
-// taken by flops that CS resets.
+// CS must stay high for at least five fabric clocks between frames, with SCK idle, so
+// that every frame end is seen: after a shorter gap the next frame's bytes continue the frame
+// before it (a write goes on writing), and nothing counts that.
 //
 // bad_frames, overruns and underruns count frames and saturate; clr zeroes them. rst resets
 // both clock domains and must not come while a frame is in flight.
@@ -52,10 +53,17 @@ module spi_slave (
     output reg  [7:0]  overruns,
     output reg  [7:0]  underruns
 );
-    // CS is the frame reset of the SCK domain and a level the fabric side watches; rst resets
-    // both domains.
+    // The frame end, as the fabric clock sees it: CS high on two consecutive edges behind a
+    // synchronizer. The SCK domain's reset is that flop gated by the pin, so it holds from the
+    // confirmed end until CS falls; rst resets both domains.
     /* verilator lint_off SYNCASYNCNET */
-    wire frame_rst = cs_n | rst;
+    reg [2:0] cs_q;
+    reg       frame_end;
+    always @(posedge clk) begin
+        cs_q      <= {cs_q[1:0], cs_n};
+        frame_end <= cs_q[1] && cs_q[2];
+    end
+    wire frame_rst = (frame_end && cs_n) | rst;
 
     wire        req_full, req_empty, resp_full, resp_empty;
     wire [32:0] req_rdata;
@@ -144,7 +152,7 @@ module spi_slave (
         end
     end
     assign io_o  = c_quad ? osr[31:28] : {2'b00, osr[31], 1'b0};
-    assign io_oe = !oe_r ? 4'b0000 : c_quad ? 4'b1111 : 4'b0010;
+    assign io_oe = (!oe_r || cs_n) ? 4'b0000 : c_quad ? 4'b1111 : 4'b0010;
 
     // events, counted per frame in gray code for the fabric side to follow (exact for up to
     // 255 of a kind between two fabric clock edges); they outlive the frame
@@ -170,9 +178,7 @@ module spi_slave (
     end
 
     // ================= fabric domain ==============================================
-    reg [1:0] cs_q;
-    always @(posedge clk) cs_q <= {cs_q[0], cs_n};
-    wire cs_high = cs_q[1];
+    wire cs_high = frame_end;
 
     reg        rd_open, incr_r;
     reg [15:0] addr_r;
