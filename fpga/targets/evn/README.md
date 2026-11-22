@@ -93,9 +93,11 @@ pin 14, which stays unconnected).
 | 25 | | GND | | 17 | GND | |
 
 Join the grounds with two wires, not one (JP5 pins 25 and 20 to CN10 pins 17 and 22), and do
-not join the two boards' 3.3 V supplies. With a single ground wire and the MCU's pins at
-their fastest drive setting, four lanes switching together put pulses on chip select at the
-FPGA; a moderate drive setting on the MCU's data pins is plenty for this link. The slave releases every lane
+not join the two boards' 3.3 V supplies. On jumper wires, four lanes switching together put
+nanosecond pulses on chip select at the FPGA, more with a single ground wire and with the MCU's
+pins at their fastest drive setting; the slave ignores pulses shorter than a fabric clock, and
+with it the sequence below ran clean at every rate tried. A moderate drive setting on the MCU's
+data pins is still the better choice for this link. The slave releases every lane
 when it is not sending read data, so a read with the FPGA not loaded, or with a wire off,
 returns whatever the line floats to (zeros with the FPGA's pull-downs in place), never a
 driven idle level.
@@ -126,7 +128,8 @@ SW2 (G14) resets everything but the RAM contents (playback samples and code chip
    `FBK_MASK`) and whether LED4 runs at all, and note what was seen.
 2. Configure OCTOSPI1 for indirect mode (IMODE and ADMODE = 1 line, DMODE = 1 line or 4):
    instruction 8 bits, address 16 bits, 8 dummy cycles on reads and none on writes, DLR =
-   4n − 1 for n words, CKMODE 0 (clock idle low), SSHIFT 0, DLYBYP 1 (no delay block), DEVSIZE
+   4n − 1 for n words, CKMODE 0 (clock idle low), SSHIFT 0 (1 above about 20 MHz: the read
+   data is 14 to 18 ns behind the falling edge of CLK), DLYBYP 1 (no delay block), DEVSIZE
    31 (the address is a word index, so the OCTOSPI's byte-based size check must never bind),
    and a prescaler for a CLK of up to 25 MHz (kernel clock / (PRESCALER + 1)). Do not go
    much below 1 MHz: a dump's service in step 4 is a burst of eight words, a write and a

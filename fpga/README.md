@@ -22,12 +22,12 @@ Synthesis of the `evn` target with Yosys, nextpnr-nexus and prjoxide (LIFCL-40, 
 
 | `N_CHANNELS` | LUT4 | FF | EBR | fmax, fabric clock | fmax, SCK | Bitstream (compressed) |
 |---|---|---|---|---|---|---|
-| 1 | 3,235 | 1,977 | 19 | 142.3 MHz | 237.1 MHz | 261 KB |
-| 12 | 18,181 | 12,086 | 30 | 92.8 MHz | 181.3 MHz | 568 KB |
+| 1 | 3,206 | 1,979 | 19 | 144.6 MHz | 239.6 MHz | 262 KB |
+| 12 | 18,071 | 12,088 | 30 | 92.9 MHz | 206.1 MHz | 569 KB |
 
 The playback RAM takes 18 EBR of that: a 32-bit word only fits the block's 512 × 36 geometry,
 so 9,216 words need 18 blocks (packing 18 samples into 36-bit words would hold 165,888 samples
-in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,360 LUT4 and 920
+in the same 18 blocks; 16 blocks hold 131,072 samples as 32-bit words). Each channel adds about 1,350 LUT4 and 920
 flip-flops, several times the correlator alone: the per-channel control and measurement
 registers (step, phase, latch and first-sample words) and the readback mux of the dump and
 latch words are most of it. Holding the phase words only in the channel's NCOs (the stored copies
@@ -269,10 +269,17 @@ continue it, and nothing counts that. A read fetches ahead of
 what it sends, up to three words past its last one (the same address again in fixed mode),
 which is why no register reacts to a read.
 
+On the EVN, wired to a NUCLEO-H723ZG's OCTOSPI with 20 cm jumper wires, the board sequence
+returned the model's dumps on one lane and on four at 4.27, 16 and 21.3 MHz, and at 32 MHz
+with the master sampling half a clock late, on one channel and on the first and last of
+twelve. Read data changed 14 to 18 ns after the falling edge of SCK, measured at the master's
+end of the wires, so a master that samples on the next rising edge needs SCK low for that long
+plus its own setup time: above about 20 MHz, sample half a clock late (the OCTOSPI's SSHIFT).
+
 The shape (command, address, dummy cycles, data, burst) is the STM32 OCTOSPI's indirect mode:
 instruction 8 bits on one line, address 16 bits on one line, 8 dummy cycles on reads and 0 on
-writes, data on one line or four, DLR = 4n − 1 for n words, CKMODE 0, DLYBYP 1, DEVSIZE large
-enough never to bind. Words go high byte first, so a little-endian MCU swaps the bytes of each
+writes, data on one line or four, DLR = 4n − 1 for n words, CKMODE 0, DLYBYP 1, SSHIFT as
+above, CSHT long enough for the gap between frames, DEVSIZE large enough never to bind. Words go high byte first, so a little-endian MCU swaps the bytes of each
 word.
 
 ## Closed-loop tracking
